@@ -772,7 +772,7 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
 
             now = time()
-            if idx % 5 == 0 or idx == count or (now - last_edit) >= 3:
+            if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
                 try:
                     await status_message.edit_text(
                         _progress_text(idx, count, success_count, fail_count, start_ts, False),
@@ -839,6 +839,7 @@ def setup_pbatch_handler(app: Client):
                 InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
             ]]),
         )
+        last_edit = time()
 
         user_data      = await user_activity_collection.find_one({"user_id": user_id})
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
@@ -1069,7 +1070,7 @@ def setup_pbatch_handler(app: Client):
                 fail_count += 1
 
             now = time()
-            if idx % 5 == 0 or idx == count or (now - last_edit) >= 3:
+            if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
                 try:
                     await status_message.edit_text(
                         _progress_text(idx, count, success_count, fail_count, start_ts, True),
