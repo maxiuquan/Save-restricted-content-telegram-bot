@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # 🔧 Telegram থেকে Async/Await ফিক্স করার কমান্ড
 
 import os

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 import sys
 import asyncio
 

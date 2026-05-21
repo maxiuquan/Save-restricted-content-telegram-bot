@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # UPDATED: Multi-duration pricing — users choose how many days they want
 # Stars pricing based on 1 Star ≈ $0.0157 USD, $1 ≈ ৳122 BDT
 # All Star amounts end in 0 or 5
@@ -96,21 +94,21 @@ PLAN_DURATIONS = {
 # ─────────────────────────────────────────────────────────────────────────────
 PLANS = {
     "plan1": {
-        "name":            "Plan Premium 1",
+        "name":            "高级套餐 1",
         "accounts":        1,
         "max_downloads":   1000,
         "private_support": True,
         "inbox_support":   False,
     },
     "plan2": {
-        "name":            "Plan Premium 2",
+        "name":            "高级套餐 2",
         "accounts":        5,
         "max_downloads":   2000,
         "private_support": True,
         "inbox_support":   True,
     },
     "plan3": {
-        "name":            "Plan Premium 3",
+        "name":            "高级套餐 3",
         "accounts":        10,
         "max_downloads":   "Unlimited",
         "private_support": True,
@@ -123,197 +121,197 @@ PLANS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 PLAN_OPTIONS_TEXT = """
-💎 **Choose Your Premium Plan** 💎
+💎 **选择你的高级套餐** 💎
 **━━━━━━━━━━━━━━━━━━━━━**
 
-✨ **Plan Premium 1**
-• 1 Account Login
-• Batch Download: up to 1,000 messages
-• Private Channel / Chat: ✅
-• Private Inbox / Bot: ❌
+✨ **高级套餐 1**
+• 1 个账户登录
+• 批量下载：最多 1,000 条消息
+• 私有频道 / 对话：✅
+• 私信 / 机器人内：❌
 
-🌟 **Plan Premium 2**
-• 5 Account Logins
-• Batch Download: up to 2,000 messages
-• Private Channel / Chat: ✅
-• Private Inbox / Bot: ✅
+🌟 **高级套餐 2**
+• 5 个账户登录
+• 批量下载：最多 2,000 条消息
+• 私有频道 / 对话：✅
+• 私信 / 机器人内：✅
 
-💎 **Plan Premium 3**
-• 10 Account Logins
-• Batch Download: ♾️ Unlimited
-• Private Channel / Chat: ✅
-• Private Inbox / Bot: ✅
+💎 **高级套餐 3**
+• 10 个账户登录
+• 批量下载：♾️ 无限制
+• 私有频道 / 对话：✅
+• 私信 / 机器人内：✅
 
 **━━━━━━━━━━━━━━━━━━━━━**
-👇 **Tap a plan to choose your duration:**
+👇 **点击套餐选择时长：**
 """
 
 PLAN_DURATION_TEXT = """
 {plan_emoji} **{plan_name}**
 **━━━━━━━━━━━━━━━━━━━━━**
 
-⏱ **Choose how many days:**
+⏱ **选择天数：**
 
-🕒 **1 Day**    — ৳{d1_bdt} ( ${d1_usd} )  ≈ ⭐ {d1_stars} Stars
-🕒 **3 Days**   — ৳{d3_bdt} ( ${d3_usd} )  ≈ ⭐ {d3_stars} Stars
-📆 **7 Days**   — ৳{d7_bdt} ( ${d7_usd} )  ≈ ⭐ {d7_stars} Stars
-📅 **30 Days**  — ৳{d30_bdt} ( ${d30_usd} )  ≈ ⭐ {d30_stars} Stars
-🗓️ **90 Days**  — ৳{d90_bdt} ( ${d90_usd} )  ≈ ⭐ {d90_stars} Stars
+🕒 **1 天**    — ৳{d1_bdt} ( ${d1_usd} )  ≈ ⭐ {d1_stars} 星星
+🕒 **3 天**   — ৳{d3_bdt} ( ${d3_usd} )  ≈ ⭐ {d3_stars} 星星
+📆 **7 天**   — ৳{d7_bdt} ( ${d7_usd} )  ≈ ⭐ {d7_stars} 星星
+📅 **30 天**  — ৳{d30_bdt} ( ${d30_usd} )  ≈ ⭐ {d30_stars} 星星
+🗓️ **90 天**  — ৳{d90_bdt} ( ${d90_usd} )  ≈ ⭐ {d90_stars} 星星
 
 **━━━━━━━━━━━━━━━━━━━━━**
-💡 _Longer plans = better value!_
+💡 _更长的套餐 = 更划算！_
 """
 
 PAYMENT_METHOD_TEXT = """
-💳 **Select Payment Method**
+💳 **选择支付方式**
 **━━━━━━━━━━━━━━━━━━━━━**
-📦 **Plan:** `{plan_name}`
-🗓 **Duration:** `{days} Days`
-💰 **Stars Price:** `{stars} ⭐`
-💵 **USD Equivalent:** `${usd}`
-💴 **BDT Equivalent:** `{bdt} ৳`
+📦 **套餐：** `{plan_name}`
+🗓 **时长：** `{days} 天`
+💰 **星星 价格：** `{stars} ⭐`
+💵 **美元等值：** `${usd}`
+💴 **BDT 等值：** `{bdt} ৳`
 **━━━━━━━━━━━━━━━━━━━━━**
 
-Choose how you would like to pay:
+选择支付方式：
 
-⭐ **Telegram Stars** — Instant automatic activation
-📲 **bKash** — Bangladesh mobile banking
-📲 **Nagad** — Bangladesh mobile banking
-🪙 **Binance / USDT (TRC20)** — Crypto payment
-📞 **Contact Admin** — Other arrangements
+⭐ **Telegram Stars** — 即时自动激活
+📲 **bKash** — 孟加拉移动银行
+📲 **Nagad** — 孟加拉移动银行
+🪙 **Binance / USDT (TRC20)** — 加密货币支付
+📞 **联系管理员** — 其他方式
 
-🇧🇩 __Bangladeshi users can easily pay via bKash or Nagad!__
+🇧🇩 __孟加拉用户可方便地使用 bKash 或 Nagad 支付！__
 
-❓ __Can't find a suitable method? Contact {admin}__
+❓ __没有合适的支付方式？联系 {admin}__
 """
 
 BKASH_PAYMENT_TEXT = """
-👑 **Buy Premium — bKash Payment**
+👑 **购买高级会员 — bKash 支付**
 **━━━━━━━━━━━━━━━━━━━━━**
-📦 **Plan:** `{plan_name}` ({days} Days)
-💰 **Amount:** `{amount} BDT`
-📲 **Send To:** `{number}`
-📋 **Type:** `Send Money`
-📝 **Reference / Note:** `{user_id}`
+📦 **套餐：** `{plan_name}` ({days} 天)
+💰 **金额：** `{amount} BDT`
+📲 **发送至：** `{number}`
+📋 **类型：** `发送付款`
+📝 **备注：** `{user_id}`
 **━━━━━━━━━━━━━━━━━━━━━**
 
-📌 **Step-by-Step Instructions:**
-1️⃣ Open your **bKash App**
-2️⃣ Tap **Send Money**
-3️⃣ Enter the number: `{number}`
-4️⃣ Enter the exact amount: `{amount} BDT`
-5️⃣ In the **Reference** field, enter your User ID: `{user_id}`
-6️⃣ Confirm and complete the payment
+📌 **分步指南：**
+1️⃣ 打开你的 **bKash App**
+2️⃣ 点击 **发送付款**
+3️⃣ 输入号码：`{number}`
+4️⃣ 输入准确金额：`{amount} BDT`
+5️⃣ 在 **备注** 字段输入你的用户 ID：`{user_id}`
+6️⃣ 确认并完成付款
 
-✅ **After payment**, send the **Transaction ID (TxID)** or a **Screenshot** to {admin}
+✅ **付款后**，发送 **交易 ID (TxID)** 或 **截图** 给 {admin}
 
-⚡ Admin will verify and activate your premium within a few minutes.
+⚡ 管理员将在几分钟内验证并激活你的高级会员。
 
-🇧🇩 __Made easy for Bangladeshi users!__
+🇧🇩 __为孟加拉用户量身打造！__
 """
 
 NAGAD_PAYMENT_TEXT = """
-👑 **Buy Premium — Nagad Payment**
+👑 **购买高级会员 — Nagad 支付**
 **━━━━━━━━━━━━━━━━━━━━━**
-📦 **Plan:** `{plan_name}` ({days} Days)
-💰 **Amount:** `{amount} BDT`
-📲 **Send To:** `{number}`
-📋 **Type:** `Send Money`
-📝 **Reference / Note:** `{user_id}`
+📦 **套餐：** `{plan_name}` ({days} 天)
+💰 **金额：** `{amount} BDT`
+📲 **发送至：** `{number}`
+📋 **类型：** `发送付款`
+📝 **备注：** `{user_id}`
 **━━━━━━━━━━━━━━━━━━━━━**
 
-📌 **Step-by-Step Instructions:**
-1️⃣ Open your **Nagad App**
-2️⃣ Tap **Send Money**
-3️⃣ Enter the number: `{number}`
-4️⃣ Enter the exact amount: `{amount} BDT`
-5️⃣ In the **Reference** field, enter your User ID: `{user_id}`
-6️⃣ Confirm and complete the payment
+📌 **分步指南：**
+1️⃣ 打开你的 **Nagad App**
+2️⃣ 点击 **发送付款**
+3️⃣ 输入号码：`{number}`
+4️⃣ 输入准确金额：`{amount} BDT`
+5️⃣ 在 **备注** 字段输入你的用户 ID：`{user_id}`
+6️⃣ 确认并完成付款
 
-✅ **After payment**, send the **Transaction ID (TxID)** or a **Screenshot** to {admin}
+✅ **付款后**，发送 **交易 ID (TxID)** 或 **截图** 给 {admin}
 
-⚡ Admin will verify and activate your premium within a few minutes.
+⚡ 管理员将在几分钟内验证并激活你的高级会员。
 
-🇧🇩 __Made easy for Bangladeshi users!__
+🇧🇩 __为孟加拉用户量身打造！__
 """
 
 BINANCE_PAYMENT_TEXT = """
-🪙 **Buy Premium — Binance / Crypto Payment**
+🪙 **购买高级会员 — Binance / 加密货币支付**
 **━━━━━━━━━━━━━━━━━━━━━**
-📦 **Plan:** `{plan_name}` ({days} Days)
-💰 **Amount:** `{amount_usd} USDT`
-🆔 **Binance UID:** `{uid}`
-🔗 **Network:** `USDT (TRC20)`
-📝 **Memo / Note:** `{user_id}`
+📦 **套餐：** `{plan_name}` ({days} 天)
+💰 **金额：** `{amount_usd} USDT`
+🆔 **Binance UID：** `{uid}`
+🔗 **网络：** `USDT (TRC20)`
+📝 **备注：** `{user_id}`
 **━━━━━━━━━━━━━━━━━━━━━**
 
-📌 **Step-by-Step Instructions:**
-1️⃣ Open **Binance** or any USDT-compatible wallet
-2️⃣ Go to **Send / Transfer**
-3️⃣ Select **USDT** on **TRC20 network**
-4️⃣ Enter Binance UID: `{uid}`
-5️⃣ Enter the exact amount: `{amount_usd} USDT`
-6️⃣ In the **Memo** field, enter your User ID: `{user_id}`
-7️⃣ Confirm and complete the transaction
+📌 **分步指南：**
+1️⃣ 打开 **Binance** 或任何支持 USDT 的钱包
+2️⃣ 前往 **发送 / 转账**
+3️⃣ 选择 **USDT** 走 **TRC20 网络**
+4️⃣ 输入 Binance UID：`{uid}`
+5️⃣ 输入准确金额：`{amount_usd} USDT`
+6️⃣ 在 **备注** 字段输入你的用户 ID：`{user_id}`
+7️⃣ 确认并完成交易
 
-✅ **After payment**, send the **Transaction Hash / Screenshot** to {admin}
+✅ **付款后**，发送 **交易哈希 / 截图** 给 {admin}
 
-⚡ Admin will verify and activate your premium within a few minutes.
+⚡ 管理员将在几分钟内验证并激活你的高级会员。
 """
 
 CONTACT_ADMIN_TEXT = """
-📞 **Contact Admin — Other Payment Methods**
+📞 **联系管理员 — 其他支付方式**
 **━━━━━━━━━━━━━━━━━━━━━**
-📦 **Plan you want:** `{plan_name}` ({days} Days)
-💰 **Stars Price:** `{stars} ⭐`
-💴 **BDT Price:** `{bdt} ৳`
-💵 **USD Price:** `${usd}`
+📦 **你想要的套餐：** `{plan_name}` ({days} 天)
+💰 **Stars 价格：** `{stars} ⭐`
+💴 **BDT 价格：** `{bdt} ৳`
+💵 **USD 价格：** `${usd}`
 **━━━━━━━━━━━━━━━━━━━━━**
 
-Cannot use any of the available payment methods?
-No worries — contact our admin directly for other options.
+无法使用以上任意支付方式？
+别担心 — 直接联系管理员了解其他选项。
 
-👤 **Admin:** {admin}
-💬 **What to say:** Tell the admin which plan + duration you want and ask about available payment methods.
+👤 **管理员：** {admin}
+💬 **说什么：** 告诉管理员你想要哪个套餐 + 时长，询问可用的支付方式。
 
-💡 **Other accepted methods may include:**
-• 🏦 Bank Transfer (Bangladesh)
-• 💵 Other mobile banking apps
-• 🤝 Any arrangement by mutual agreement
+💡 **其他可接受的方式可能包括：**
+• 🏦 银行转账（孟加拉）
+• 💵 其他移动银行应用
+• 🤝 双方协商的任何方式
 
-🇧🇩 __We are a Bangladeshi-run project — we will do our best to help you!__
+🇧🇩 __我们是孟加拉团队运营的项目 — 我们会尽力帮助你！__
 """
 
 PAYMENT_SUCCESS_TEXT = """
-✅ **Payment Successful — Premium Activated!**
+✅ **支付成功 — 高级会员已激活！**
 
-🎉 Thank you, **{name}**!
+🎉 谢谢你，**{name}**！
 
-**📦 Plan:** `{plan_name}`
-**🗓 Duration:** `{days} Days`
-**⭐ Amount Paid:** `{amount} Stars`
-**👥 Accounts:** `{accounts}`
-**📥 Max Downloads:** `{max_downloads}`
-**📅 Valid Until:** `{expiry}`
-**🧾 Transaction ID:** `{tx_id}`
+**📦 套餐：** `{plan_name}`
+**🗓 时长：** `{days} 天`
+**⭐ 支付金额：** `{amount}` 星星
+**👥 账户数：** `{accounts}`
+**📥 最大下载数：** `{max_downloads}`
+**📅 有效期至：** `{expiry}`
+**🧾 交易 ID：** `{tx_id}`
 
-🚀 Your premium features are now **active immediately**!
-Use /login to connect your account and start downloading.
+🚀 你的高级功能现已**立即生效**！
+使用 /login 连接你的账户并开始下载。
 
-Thank you for your support! 💎
+感谢你的支持！💎
 """
 
 ADMIN_NOTIFICATION_TEXT = """
-🌟 **New Premium Purchase!**
+🌟 **新的高级会员购买！**
 
-👤 **User:** {name}
-🆔 **User ID:** `{user_id}`
-📛 **Username:** {username}
-📦 **Plan:** `{plan_name}`
-🗓 **Duration:** `{days} Days`
-⭐ **Amount:** `{amount} Stars`
-📅 **Expires:** `{expiry}`
-🧾 **Transaction ID:** `{tx_id}`
+👤 **用户：** {name}
+🆔 **用户 ID：** `{user_id}`
+📛 **用户名：** {username}
+📦 **套餐：** `{plan_name}`
+🗓 **时长：** `{days} 天`
+⭐ **金额：** `{amount}` 星星
+📅 **过期时间：** `{expiry}`
+🧾 **交易 ID：** `{tx_id}`
 """
 
 active_invoices: dict = {}
@@ -329,9 +327,9 @@ def setup_plan_handler(app: Client):
     def get_plan_buttons() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✨ Plan 1", callback_data="plan_select_plan1"),
-                InlineKeyboardButton("🌟 Plan 2", callback_data="plan_select_plan2"),
-                InlineKeyboardButton("💎 Plan 3", callback_data="plan_select_plan3"),
+                InlineKeyboardButton("✨ 套餐1", callback_data="plan_select_plan1"),
+                InlineKeyboardButton("🌟 套餐2", callback_data="plan_select_plan2"),
+                InlineKeyboardButton("💎 套餐3", callback_data="plan_select_plan3"),
             ],
         ])
 
@@ -340,25 +338,25 @@ def setup_plan_handler(app: Client):
         durations = PLAN_DURATIONS[plan_key]
         rows = []
         for dur_key, info in durations.items():
-            label = f"{'🕒' if info['days'] < 7 else '📆' if info['days'] == 7 else '📅' if info['days'] == 30 else '🗓️'} {info['days']} Days — ⭐ {info['stars']}"
+            label = f"{'🕒' if info['days'] < 7 else '📆' if info['days'] == 7 else '📅' if info['days'] == 30 else '🗓️'} {info['days']} 天 — ⭐ {info['stars']}"
             rows.append([InlineKeyboardButton(label, callback_data=f"plan_dur_{plan_key}_{dur_key}")])
-        rows.append([InlineKeyboardButton("🔙 Back to Plans", callback_data="show_plan_options")])
+        rows.append([InlineKeyboardButton("🔙 返回套餐列表", callback_data="show_plan_options")])
         return InlineKeyboardMarkup(rows)
 
     def get_payment_method_buttons(plan_key: str, dur_key: str) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("⭐ Telegram Stars — Instant",  callback_data=f"pay_stars_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("📲 bKash (Bangladesh)",         callback_data=f"pay_bkash_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("📲 Nagad (Bangladesh)",         callback_data=f"pay_nagad_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("🪙 Binance / USDT Crypto",      callback_data=f"pay_crypto_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("📞 Contact Admin",              callback_data=f"pay_admin_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("🔙 Back to Duration",           callback_data=f"plan_select_{plan_key}")],
+            [InlineKeyboardButton("⭐ Telegram Stars — 即时",  callback_data=f"pay_stars_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("📲 bKash (孟加拉)",         callback_data=f"pay_bkash_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("📲 Nagad (孟加拉)",         callback_data=f"pay_nagad_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("🪙 Binance / USDT 加密货币",      callback_data=f"pay_crypto_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("📞 联系管理员",              callback_data=f"pay_admin_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("🔙 返回选择时长",           callback_data=f"plan_select_{plan_key}")],
         ])
 
     def get_back_button(plan_key: str, dur_key: str) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Back to Payment Options", callback_data=f"plan_dur_{plan_key}_{dur_key}")],
-            [InlineKeyboardButton("🏠 Main Menu",               callback_data="menu_home")],
+            [InlineKeyboardButton("🔙 返回支付选项", callback_data=f"plan_dur_{plan_key}_{dur_key}")],
+            [InlineKeyboardButton("🏠 主菜单",               callback_data="menu_home")],
         ])
 
     # ── promote_user ──────────────────────────────────────────────────────
@@ -399,8 +397,8 @@ def setup_plan_handler(app: Client):
         if active_invoices.get(user_id):
             await client.send_message(
                 chat_id,
-                "⚠️ **Another purchase is already in progress!**\n\n"
-                "Please complete or cancel that invoice first.",
+                "⚠️ **已有另一个购买正在进行中！**\n\n"
+                "请先完成或取消那一笔发票。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -412,7 +410,7 @@ def setup_plan_handler(app: Client):
 
         loading_msg = await client.send_message(
             chat_id,
-            f"⏳ **Generating Stars invoice for {plan['name']} ({days} Days)...**",
+            f"⏳ **正在为 {plan['name']} ({days} 天) 生成星星发票...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -425,7 +423,7 @@ def setup_plan_handler(app: Client):
 
             invoice = Invoice(
                 currency="XTR",
-                prices=[LabeledPrice(label=f"{plan['name']} {days}d ({amount} Stars)", amount=amount)],
+                prices=[LabeledPrice(label=f"{plan['name']} {days}天 ({amount} 星星)", amount=amount)],
                 max_tip_amount=0,
                 suggested_tip_amounts=[],
                 recurring=False, test=False,
@@ -434,11 +432,11 @@ def setup_plan_handler(app: Client):
                 flexible=False,
             )
             media = InputMediaInvoice(
-                title=f"Purchase {plan['name']} — {days} Days",
+                title=f"购买 {plan['name']} — {days} 天",
                 description=(
-                    f"Unlock {plan['name']} for {days} days ({amount} Stars).\n"
-                    f"• {plan['accounts']} account login(s)\n"
-                    f"• {plan['max_downloads']} batch downloads"
+                    f"解锁 {plan['name']} {days} 天（{amount} 星星）。\n"
+                    f"• {plan['accounts']} 个账户登录\n"
+                    f"• {plan['max_downloads']} 批量下载"
                 ),
                 invoice=invoice,
                 payload=invoice_payload.encode(),
@@ -446,21 +444,20 @@ def setup_plan_handler(app: Client):
                 provider_data=DataJSON(data="{}"),
             )
             markup = ReplyInlineMarkup(rows=[
-                KeyboardButtonRow(buttons=[KeyboardButtonBuy(text=f"Pay {amount} ⭐")])
+                KeyboardButtonRow(buttons=[KeyboardButtonBuy(text=f"支付 {amount} ⭐")])
             ])
-
             peer = await client.resolve_peer(chat_id)
             await client.invoke(
                 SendMedia(peer=peer, media=media, message="", random_id=random_id, reply_markup=markup)
             )
             await client.edit_message_text(
                 chat_id, loading_msg.id,
-                f"✅ **Invoice Ready — {plan['name']} {days} Days ({amount} Stars)**\n\n"
-                "Tap the **Pay** button above to complete your purchase.\n\n"
-                "⚡ Premium activates **instantly** after payment!",
+                f"✅ **发票已就绪 — {plan['name']} {days} 天（{amount} 星星）**\n\n"
+                "点击上方的 **支付** 按钮完成购买。\n\n"
+                "⚡ 支付后套餐将**立即**激活！",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Back to Payment Options",
+                    [InlineKeyboardButton("🔙 返回支付选项",
                                           callback_data=f"plan_dur_{plan_key}_{dur_key}")],
                 ]),
             )
@@ -470,7 +467,7 @@ def setup_plan_handler(app: Client):
             LOGGER.error(f"[Stars] Invoice failed for user {user_id}: {e}")
             await client.edit_message_text(
                 chat_id, loading_msg.id,
-                "❌ **Failed to generate Stars invoice.**\n\nPlease try another payment method.",
+                "❌ **生成 Stars 发票失败。**\n\n请尝试其他支付方式。",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_payment_method_buttons(plan_key, dur_key),
             )
@@ -492,14 +489,14 @@ def setup_plan_handler(app: Client):
 
     async def add_premium_command(client: Client, message: Message):
         if message.from_user.id != DEVELOPER_USER_ID:
-            await message.reply_text("❌ **Only admins can use this command!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("❌ **仅管理员可使用此命令！**", parse_mode=ParseMode.MARKDOWN)
             return
         # Usage: /add {user} {1|2|3} [days]
         # days defaults to 30 if not specified
         if len(message.command) < 3 or message.command[2] not in ["1", "2", "3"]:
             await message.reply_text(
-                "❌ **Invalid format!**\n\nUsage: `/add {username/userid} {1, 2, or 3} [days]`\n\n"
-                "Default days = 30 if not specified.",
+                "❌ **格式无效！**\n\n用法：`/add {用户名/用户ID} {1, 2, 或 3} [天数]`\n\n"
+                "未指定天数时默认 30 天。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -521,23 +518,23 @@ def setup_plan_handler(app: Client):
             expiry   = plan_doc["expiry_date"].strftime("%d %B %Y")
 
             await message.reply_text(
-                f"✅ **User `{target_id}` promoted to {plan['name']} ({days} days) successfully!**",
+                f"✅ **用户 `{target_id}` 已成功升级为 {plan['name']}（{days} 天）！**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             try:
                 await client.send_message(
                     chat_id=target_id,
                     text=(
-                        f"🎉 **Your account has been upgraded to Premium!**\n\n"
-                        f"**📦 Plan:** `{plan['name']}`\n"
-                        f"**🗓 Duration:** `{days} Days`\n"
-                        f"**👥 Accounts:** `{plan['accounts']}`\n"
-                        f"**📥 Max Downloads:** `{plan['max_downloads']}`\n"
-                        f"**🔒 Private Channel:** ✅\n"
-                        f"**📬 Private Inbox:** {'✅' if plan['inbox_support'] else '❌'}\n"
-                        f"**📅 Valid Until:** `{expiry}`\n\n"
-                        "🚀 Paste any Telegram link to start downloading instantly!\n"
-                        "Use /login to connect your account for private content."
+                        f"🎉 **你的账户已升级为高级会员！**\n\n"
+                        f"**📦 套餐：** `{plan['name']}`\n"
+                        f"**🗓 时长：** `{days} 天`\n"
+                        f"**👥 账户数：** `{plan['accounts']}`\n"
+                        f"**📥 最大下载数：** `{plan['max_downloads']}`\n"
+                        f"**🔒 私有频道：** ✅\n"
+                        f"**📬 私信：** {'✅' if plan['inbox_support'] else '❌'}\n"
+                        f"**📅 有效期至：** `{expiry}`\n\n"
+                        "🚀 粘贴任意 Telegram 链接即可立即下载！\n"
+                        "使用 /login 连接你的账户以访问私有内容。"
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -545,20 +542,20 @@ def setup_plan_handler(app: Client):
                 LOGGER.warning(f"[Add] Could not notify user {target_id}: {e}")
 
         except (UserIdInvalid, UsernameInvalid, PeerIdInvalid):
-            await message.reply_text(f"❌ **User not found:** `{identifier}`", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(f"❌ **未找到用户：**`{identifier}`", parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
-            await message.reply_text(f"❌ **Error:** `{str(e)}`", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(f"❌ **错误：**`{str(e)}`", parse_mode=ParseMode.MARKDOWN)
             LOGGER.error(f"[Add] Error: {e}")
 
     # ── /rm (admin) ───────────────────────────────────────────────────────
 
     async def remove_premium_command(client: Client, message: Message):
         if message.from_user.id != DEVELOPER_USER_ID:
-            await message.reply_text("❌ **Only admins can use this command!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("❌ **仅管理员可使用此命令！**", parse_mode=ParseMode.MARKDOWN)
             return
         if len(message.command) != 2:
             await message.reply_text(
-                "❌ **Invalid format!**\n\nUsage: `/rm {username/userid}`",
+                "❌ **格式无效！**\n\n用法：`/rm {用户名/用户ID}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -582,18 +579,18 @@ def setup_plan_handler(app: Client):
 
             if removed:
                 await message.reply_text(
-                    f"✅ **User `{target_id}` removed from all premium plans.**",
+                    f"✅ **用户 `{target_id}` 已从所有高级套餐中移除。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 try:
                     await client.send_message(
                         chat_id=target_id,
                         text=(
-                            "⚠️ **Premium Plan Removed**\n\n"
-                            "Your premium plan has been removed by an administrator.\n\n"
-                            "If you believe this is a mistake, please contact support.\n"
-                            f"Contact: {ADMIN_USERNAME}\n\n"
-                            "Use /plans to purchase a new plan. 💎"
+                            "⚠️ **高级套餐已移除**\n\n"
+                            "你的高级套餐已被管理员移除。\n\n"
+                            "如果你认为这是一个错误，请联系客服。\n"
+                            f"联系：{ADMIN_USERNAME}\n\n"
+                            "使用 /plans 购买新套餐。💎"
                         ),
                         parse_mode=ParseMode.MARKDOWN,
                     )
@@ -601,14 +598,14 @@ def setup_plan_handler(app: Client):
                     LOGGER.warning(f"[Rm] Could not notify user {target_id}: {e}")
             else:
                 await message.reply_text(
-                    f"❌ **User `{target_id}` is not in any premium plan.**",
+                    f"❌ **用户 `{target_id}` 不在任何高级套餐中。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
         except (UserIdInvalid, UsernameInvalid, PeerIdInvalid):
-            await message.reply_text(f"❌ **User not found:** `{identifier}`", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(f"❌ **未找到用户：**`{identifier}`", parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
-            await message.reply_text(f"❌ **Error:** `{str(e)}`", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(f"❌ **错误：**`{str(e)}`", parse_mode=ParseMode.MARKDOWN)
             LOGGER.error(f"[Rm] Error: {e}")
 
     # ── Callback handler ──────────────────────────────────────────────────
@@ -623,7 +620,7 @@ def setup_plan_handler(app: Client):
         if data.startswith("plan_select_"):
             plan_key = data[len("plan_select_"):]
             if plan_key not in PLANS:
-                return await cq.answer("Unknown plan.", show_alert=True)
+                return await cq.answer("未知套餐。", show_alert=True)
             plan   = PLANS[plan_key]
             emoji  = PLAN_EMOJIS.get(plan_key, "⭐")
             durs   = PLAN_DURATIONS[plan_key]
@@ -650,10 +647,10 @@ def setup_plan_handler(app: Client):
             # plan_dur_{plan_key}_{dur_key}
             parts    = data[len("plan_dur_"):].split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             plan = PLANS[plan_key]
             info = PLAN_DURATIONS[plan_key][dur_key]
             await client.edit_message_text(
@@ -677,12 +674,12 @@ def setup_plan_handler(app: Client):
             rest = data[len("pay_stars_"):]
             parts = rest.split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             info = PLAN_DURATIONS[plan_key][dur_key]
-            await cq.answer(f"Generating invoice for {PLANS[plan_key]['name']} {info['days']}d...")
+            await cq.answer(f"正在为 {PLANS[plan_key]['name']} ({info['days']}天) 生成发票...")
             await generate_stars_invoice(client, chat_id, user_id, plan_key, dur_key)
             return
 
@@ -691,10 +688,10 @@ def setup_plan_handler(app: Client):
             rest = data[len("pay_bkash_"):]
             parts = rest.split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             info = PLAN_DURATIONS[plan_key][dur_key]
             await client.edit_message_text(
                 chat_id, msg_id,
@@ -709,17 +706,17 @@ def setup_plan_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_back_button(plan_key, dur_key),
             )
-            return await cq.answer("bKash payment instructions")
+            return await cq.answer("bKash 支付说明")
 
         # Nagad
         if data.startswith("pay_nagad_"):
             rest = data[len("pay_nagad_"):]
             parts = rest.split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             info = PLAN_DURATIONS[plan_key][dur_key]
             await client.edit_message_text(
                 chat_id, msg_id,
@@ -734,17 +731,17 @@ def setup_plan_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_back_button(plan_key, dur_key),
             )
-            return await cq.answer("Nagad payment instructions")
+            return await cq.answer("Nagad 支付说明")
 
         # Binance / Crypto
         if data.startswith("pay_crypto_"):
             rest = data[len("pay_crypto_"):]
             parts = rest.split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             info = PLAN_DURATIONS[plan_key][dur_key]
             await client.edit_message_text(
                 chat_id, msg_id,
@@ -759,17 +756,17 @@ def setup_plan_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_back_button(plan_key, dur_key),
             )
-            return await cq.answer("Crypto payment instructions")
+            return await cq.answer("加密货币支付说明")
 
         # Contact Admin
         if data.startswith("pay_admin_"):
             rest = data[len("pay_admin_"):]
             parts = rest.split("_", 1)
             if len(parts) != 2:
-                return await cq.answer("Invalid data.", show_alert=True)
+                return await cq.answer("无效数据。", show_alert=True)
             plan_key, dur_key = parts
             if plan_key not in PLANS or dur_key not in PLAN_DURATIONS.get(plan_key, {}):
-                return await cq.answer("Unknown plan/duration.", show_alert=True)
+                return await cq.answer("未知套餐/时长。", show_alert=True)
             plan = PLANS[plan_key]
             info = PLAN_DURATIONS[plan_key][dur_key]
             await client.edit_message_text(
@@ -785,16 +782,16 @@ def setup_plan_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(
-                        f"💬 Message {ADMIN_USERNAME}",
+                        f"💬 联系 {ADMIN_USERNAME}",
                         url=f"https://t.me/{ADMIN_USERNAME.lstrip('@')}",
                     )],
-                    [InlineKeyboardButton("🔙 Back to Payment Options",
+                    [InlineKeyboardButton("🔙 返回支付选项",
                                           callback_data=f"plan_dur_{plan_key}_{dur_key}")],
-                    [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+                    [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
                 ]),
                 disable_web_page_preview=True,
             )
-            return await cq.answer("Contact admin for payment")
+            return await cq.answer("联系管理员进行支付")
 
         # Back to plan list
         if data == "show_plan_options":
@@ -823,7 +820,7 @@ def setup_plan_handler(app: Client):
                     await client.invoke(
                         SetBotPrecheckoutResults(
                             query_id=update.query_id, success=False,
-                            error="Payment could not be processed. Please try again.",
+                            error="支付无法处理，请重试。",
                         )
                     )
                 except Exception:
@@ -942,9 +939,9 @@ def setup_plan_handler(app: Client):
                     await client.send_message(
                         chat_id=chat_id,
                         text=(
-                            "⚠️ **Payment received, but activation encountered an issue.**\n\n"
-                            "Please contact support with your transaction ID.\n"
-                            f"Support: {ADMIN_USERNAME}"
+                            "⚠️ **已收到付款，但激活遇到问题。**\n\n"
+                            "请联系客服并提供你的交易 ID。\n"
+                            f"客服：{ADMIN_USERNAME}"
                         ),
                         parse_mode=ParseMode.MARKDOWN,
                     )

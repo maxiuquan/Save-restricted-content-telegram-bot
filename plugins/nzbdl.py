@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/nzbdl.py — SABnzbd / Usenet NZB Downloader
 #
@@ -209,11 +207,11 @@ async def _upload_to_telegram(
         bar     = _progress_bar(pct)
         try:
             await status_msg.edit_text(
-                f"📤 **Upload হচ্ছে...**\n\n"
+                f"📤 **上传中...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                f"⏳ **ETA:** `{get_readable_time(int(eta))}`",
+                f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+                f"⏳ **预计剩余：** `{get_readable_time(int(eta))}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             last_edit[0] = now
@@ -278,7 +276,7 @@ async def _run_nzb_download(
     try:
         if not nzo_id:
             await status_msg.edit_text(
-                "❌ **NZB job ID পাওয়া যায়নি।**",
+                "❌ **NZB 任务 ID পাওয়া যায়নি।**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -291,7 +289,7 @@ async def _run_nzb_download(
                 await sab.delete_job(nzo_id)
                 try:
                     await status_msg.edit_text(
-                        "⛔ **Download বাতিল করা হয়েছে।**",
+                        "⛔ **下载 বাতিল করা হয়েছে।**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
@@ -339,9 +337,9 @@ async def _run_nzb_download(
                             f"{emoji} **{status}**\n\n"
                             f"`[{bar}]` {pct:.1f}%\n\n"
                             f"📥 `{done_mb:.1f} MB` / `{total_mb:.1f} MB`\n"
-                            f"⚡ **Speed:** `{speed_kbps:.0f} KB/s`\n"
-                            f"⏳ **ETA:** `{eta_str or '...'}`\n"
-                            f"⏱ **Elapsed:** `{get_readable_time(int(time() - start_ts))}`",
+                            f"⚡ **速度：** `{speed_kbps:.0f} KB/s`\n"
+                            f"⏳ **预计剩余：** `{eta_str or '...'}`\n"
+                            f"⏱ **已用时间：** `{get_readable_time(int(time() - start_ts))}`",
                             parse_mode=ParseMode.MARKDOWN,
                             reply_markup=InlineKeyboardMarkup([[
                                 InlineKeyboardButton("⛔ বাতিল", callback_data=f"nzb_cancel_{user_id}")
@@ -367,7 +365,7 @@ async def _run_nzb_download(
                         break
                     elif status == "Failed":
                         await status_msg.edit_text(
-                            f"❌ **Download ব্যর্থ হয়েছে!**\n\n`{fail or 'Unknown error'}`",
+                            f"❌ **下载 ব্যর্থ হয়েছে!**\n\n`{fail or '未知错误'}`",
                             parse_mode=ParseMode.MARKDOWN,
                         )
                         await sab.delete_history(nzo_id)
@@ -377,7 +375,7 @@ async def _run_nzb_download(
                         emoji = _stage_emoji(status)
                         try:
                             await status_msg.edit_text(
-                                f"{emoji} **Post-Processing: {status}**\n"
+                                f"{emoji} **后处理: {status}**\n"
                                 + (f"\n`{action}`" if action else ""),
                                 parse_mode=ParseMode.MARKDOWN,
                                 reply_markup=InlineKeyboardMarkup([[
@@ -397,7 +395,7 @@ async def _run_nzb_download(
             await sab.delete_job(nzo_id)
             try:
                 await status_msg.edit_text(
-                    "⏰ **Timeout!** Download সম্পন্ন হয়নি।",
+                    "⏰ **超时！** 下载 সম্পন্ন হয়নি।",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
@@ -406,7 +404,7 @@ async def _run_nzb_download(
 
         # ── Locate completed file ─────────────────────────────────────────
         await status_msg.edit_text(
-            "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
+            "✅ **下载 সম্পন্ন!**\n\n📤 上传 করা হচ্ছে...",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -420,8 +418,8 @@ async def _run_nzb_download(
 
         if not upload_path:
             await status_msg.edit_text(
-                "❌ Completed ফাইল খুঁজে পাওয়া যায়নি।\n"
-                f"Storage path: `{storage}`",
+                "❌ 已完成 ফাইল খুঁজে পাওয়া যায়নি।\n"
+                f"存储路径: `{storage}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -470,7 +468,7 @@ async def _run_nzb_download(
         LOGGER.error(f"[NZBDl] Pipeline error user={user_id}: {e}")
         try:
             await status_msg.edit_text(
-                f"❌ **Error:**\n`{str(e)[:300]}`",
+                f"❌ **错误：**\n`{str(e)[:300]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:
@@ -499,7 +497,7 @@ def setup_nzbdl_handler(app: Client):
 
         nzb_file_path = None
         source_url    = ""
-        nzb_name      = "NZB Download"
+        nzb_name      = "NZB 下载"
 
         # ── Input: replied .nzb file ──────────────────────────────────────
         if message.reply_to_message:
@@ -509,7 +507,7 @@ def setup_nzbdl_handler(app: Client):
                 or (doc.file_name or "").endswith(".nzb")
             ):
                 status_msg = await message.reply_text(
-                    "⬇️ **.nzb ফাইল download হচ্ছে...**",
+                    "⬇️ **.nzb ফাইল 下载 হচ্ছে...**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 nzb_file_path = await message.reply_to_message.download()
@@ -524,14 +522,14 @@ def setup_nzbdl_handler(app: Client):
 
         if not nzb_file_path and not source_url:
             await message.reply_text(
-                "**📰 Usenet / NZB Downloader**\n"
+                "**📰 Usenet / NZB 下载器**\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
                 "**ব্যবহার:**\n"
                 "`/nzb <NZB URL>`\n"
                 "`.nzb` ফাইলে reply করে `/nzb`\n\n"
-                "**Example:**\n"
+                "**উদাহরণ:**\n"
                 "`/nzb https://nzbindex.com/download/xxxxx`\n\n"
-                "**Note:** Usenet সার্ভার configured থাকতে হবে।",
+                "**নোট:** Usenet সার্ভার 已配置 থাকতে হবে।",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -555,15 +553,15 @@ def setup_nzbdl_handler(app: Client):
             if not nzo_id:
                 await status_msg.edit_text(
                     "❌ **NZB যোগ করা যায়নি।**\n\n"
-                    "SABnzbd চালু আছে কিনা এবং Usenet সার্ভার configured কিনা যাচাই করুন।",
+                    "SABnzbd চালু আছে কিনা এবং Usenet সার্ভার 已配置 কিনা যাচাই করুন।",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
 
             await status_msg.edit_text(
                 f"✅ **NZB Queue-এ যোগ হয়েছে!**\n\n"
-                f"🆔 Job ID: `{nzo_id}`\n\n"
-                "⏳ Download শুরু হচ্ছে...",
+                f"🆔 任务 ID: `{nzo_id}`\n\n"
+                "⏳ 下载 শুরু হচ্ছে...",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -593,12 +591,12 @@ def setup_nzbdl_handler(app: Client):
     async def nzb_cancel_callback(client, callback_query):
         user_id = int(callback_query.data.split("_")[-1])
         if callback_query.from_user.id != user_id:
-            await callback_query.answer("এটা আপনার download নয়!", show_alert=True)
+            await callback_query.answer("এটা আপনার 下载 নয়!", show_alert=True)
             return
         _cancel_flags[user_id] = True
         try:
             await callback_query.message.edit_text(
-                "⛔ **Cancel সংকেত পাঠানো হয়েছে...**",
+                "⛔ **取消 সংকেত পাঠানো হয়েছে...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:

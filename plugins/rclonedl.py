@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/rclonedl.py — Rclone Cloud Downloader
 #
@@ -177,11 +175,11 @@ async def _upload_to_tg(
         bar     = _progress_bar(pct)
         try:
             await status_msg.edit_text(
-                f"📤 **Upload হচ্ছে...**\n\n"
+                f"📤 **上传中...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                f"⏳ **ETA:** `{get_readable_time(int(eta))}`",
+                f"⚡ **গতি:** `{get_readable_file_size(speed)}/s`\n"
+                f"⏳ **অবশিষ্ট সময়:** `{get_readable_time(int(eta))}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             last_edit[0] = now
@@ -290,7 +288,7 @@ async def _run_rclone_download(
     last_info   = {}
 
     await status_msg.edit_text(
-        f"⬇️ **Rclone download শুরু হয়েছে...**\n\n"
+        f"⬇️ **Rclone 下载 শুরু হয়েছে...**\n\n"
         f"📡 `{remote_path}`\n"
         f"📦 মোট: `{get_readable_file_size(total_size) if total_size else 'অজানা'}`",
         parse_mode=ParseMode.MARKDOWN,
@@ -316,11 +314,11 @@ async def _run_rclone_download(
                     pct     = float(pct_str) if pct_str.replace(".", "").isdigit() else 0
                     bar     = _progress_bar(pct)
                     await status_msg.edit_text(
-                        f"⬇️ **Download হচ্ছে...**\n\n"
+                        f"⬇️ **下载 হচ্ছে...**\n\n"
                         f"`[{bar}]` {info['percent']}\n\n"
                         f"📥 `{info['transferred']}` / `{info['total']}`\n"
-                        f"⚡ **Speed:** `{info['speed']}`\n"
-                        f"⏳ **ETA:** `{info['eta']}`",
+                        f"⚡ **গতি:** `{info['speed']}`\n"
+                        f"⏳ **অবশিষ্ট সময়:** `{info['eta']}`",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     last_edit = now
@@ -333,7 +331,7 @@ async def _run_rclone_download(
     if proc.returncode != 0:
         stderr = (await proc.stderr.read()).decode(errors="ignore")
         await status_msg.edit_text(
-            f"❌ **Rclone download ব্যর্থ!**\n\n`{stderr[:400]}`",
+            f"❌ **Rclone 下载 ব্যর্থ!**\n\n`{stderr[:400]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -342,7 +340,7 @@ async def _run_rclone_download(
     if is_dir and os.path.isdir(dest):
         zip_path = dest.rstrip("/") + ".zip"
         await status_msg.edit_text(
-            "📦 **Folder zip করা হচ্ছে...**",
+            "📦 **文件夹压缩中...**",
             parse_mode=ParseMode.MARKDOWN,
         )
         await asyncio.get_event_loop().run_in_executor(None, _zip_directory, dest, zip_path)
@@ -357,14 +355,14 @@ async def _run_rclone_download(
             upload_path = os.path.join(parent, files[0])
         else:
             await status_msg.edit_text(
-                "❌ Download সম্পন্ন হয়েছে কিন্তু ফাইল খুঁজে পাওয়া যায়নি।",
+                "❌ 下载 সম্পন্ন হয়েছে কিন্তু ফাইল খুঁজে পাওয়া যায়নি।",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
     # ── Upload ────────────────────────────────────────────────────────────────
     await status_msg.edit_text(
-        "✅ **Download সম্পন্ন!**\n📤 Upload করা হচ্ছে...",
+        "✅ **下载 সম্পন্ন!**\n📤 上传 করা হচ্ছে...",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -416,14 +414,14 @@ def setup_rclonedl_handler(app: Client):
 
         if len(message.command) < 2:
             await message.reply_text(
-                "**☁️ Rclone Cloud Downloader**\n"
+                "**☁️ Rclone 云下载器**\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
                 "**ব্যবহার:** `/rclone <remote:path>`\n\n"
-                "**Examples:**\n"
+                "**উদাহরণ:**\n"
                 "`/rclone gdrive:Movies/film.mkv`\n"
                 "`/rclone dropbox:Backups/folder`\n"
                 "`/rclone mrcc:mygdrive:path` _(আপনার নিজের config)_\n\n"
-                "**Note:** Owner এর config-এ থাকা যেকোনো remote ব্যবহার করা যাবে।\n"
+                "**নোট:** Owner এর config-এ থাকা যেকোনো remote ব্যবহার করা যাবে।\n"
                 "নিজের config যোগ করতে `/settings` দেখুন।",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -436,7 +434,7 @@ def setup_rclonedl_handler(app: Client):
         config_path, cleaned_path = _get_config_path(user_id, remote_path)
 
         status_msg = await message.reply_text(
-            f"🔄 **Rclone download শুরু হচ্ছে...**\n\n"
+            f"🔄 **Rclone 下载 শুরু হচ্ছে...**\n\n"
             f"📡 `{cleaned_path}`",
             parse_mode=ParseMode.MARKDOWN,
         )

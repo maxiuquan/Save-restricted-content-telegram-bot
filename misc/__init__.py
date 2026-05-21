@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from .callback import handle_callback_query
 from .keyboards import (
     get_main_reply_keyboard,

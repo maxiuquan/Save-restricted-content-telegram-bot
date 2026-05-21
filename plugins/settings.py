@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 """
 Advanced Settings Plugin v3.0 — Full-featured interactive settings panel.
 
@@ -55,85 +53,85 @@ _conv: dict = {}
 
 TOGGLE_META: dict = {
     "upload_type": {
-        "label":   "Upload Type",
+        "label":   "上传类型",
         "icon":    "📤",
         "values":  ["DOCUMENT", "MEDIA"],
         "default": "DOCUMENT",
         "help": (
-            "DOCUMENT — sends files as documents (preserves quality, no compression).\n"
-            "MEDIA — sends files as photos/videos (Telegram compresses them)."
+            "DOCUMENT — 以文件形式发送（保持原画质，无压缩）。\n"
+            "MEDIA — 以照片/视频形式发送（Telegram 会进行压缩）。"
         ),
     },
     "caption_position": {
-        "label":   "Caption Position",
+        "label":   "标题位置",
         "icon":    "📝",
         "values":  ["BOTTOM", "TOP", "DISABLED"],
         "default": "BOTTOM",
         "help": (
-            "BOTTOM — caption appears below the file.\n"
-            "TOP — caption appears above the file (prepended).\n"
-            "DISABLED — no caption is added."
+            "BOTTOM — 标题显示在文件下方。\n"
+            "TOP — 标题显示在文件上方（前置）。\n"
+            "DISABLED — 不添加标题。"
         ),
     },
     "spoiler_animation": {
-        "label":   "Spoiler Animation",
+        "label":   "剧透动画",
         "icon":    "🎭",
         "values":  ["OFF", "ON"],
         "default": "OFF",
-        "help": "Wraps media in a spoiler blur effect when sending as MEDIA type.",
+        "help": "以 MEDIA 类型发送时为媒体添加剧透模糊效果。",
     },
     "public_channel_clone": {
-        "label":   "Public Channel Clone",
+        "label":   "公开频道克隆",
         "icon":    "📢",
         "values":  ["OFF", "ON"],
         "default": "OFF",
         "help": (
-            "ON — bot re-uploads the file instead of forwarding it,\n"
-            "removing the source channel tag."
+            "ON — 机器人重新上传文件而非直接转发，\n"
+            "从而移除来源频道标识。"
         ),
     },
     "auto_forward": {
-        "label":   "Auto Forward Mode",
+        "label":   "自动转发模式",
         "icon":    "🔀",
         "values":  ["OFF", "ON"],
         "default": "OFF",
         "help": (
-            "ON — automatically forwards every downloaded file to\n"
-            "your Custom Chat ID (must be set separately)."
+            "ON — 自动将每个下载的文件转发到\n"
+            "你的自定义对话 ID（需单独设置）。"
         ),
     },
     "thumbnail_mode": {
-        "label":   "Thumbnail Mode",
+        "label":   "缩略图模式",
         "icon":    "🖼",
         "values":  ["CUSTOM", "AUTO", "NONE"],
         "default": "AUTO",
         "help": (
-            "CUSTOM — uses your saved custom thumbnail.\n"
-            "AUTO — auto-generates thumbnail from video frames.\n"
-            "NONE — sends without any thumbnail."
+            "CUSTOM — 使用你保存的自定义缩略图。\n"
+            "AUTO — 从视频帧自动生成缩略图。\n"
+            "NONE — 发送时不带任何缩略图。"
         ),
     },
     "download_quality": {
-        "label":   "Download Quality",
+        "label":   "下载质量",
         "icon":    "🎬",
         "values":  ["BEST", "1080P", "720P", "480P", "360P", "AUDIO_ONLY"],
         "default": "BEST",
         "help": (
-            "Sets the preferred quality for /ytdl downloads.\n"
-            "BEST — highest available quality.\n"
-            "AUDIO_ONLY — extracts MP3 audio only."
+            "设置 /ytdl 下载的首选质量。\n"
+            "BEST — 最高可用质量。\n"
+            "AUDIO_ONLY — 仅提取 MP3 音频。"
         ),
     },
     "rename_style": {
-        "label":   "Rename Style",
+        "label":   "重命名样式",
         "icon":    "✏️",
         "values":  ["PREFIX", "SUFFIX", "BOTH", "REPLACE"],
         "default": "PREFIX",
         "help": (
-            "PREFIX — tag is prepended to the filename.\n"
-            "SUFFIX — tag is appended before the extension.\n"
-            "BOTH — tag is both prepended and appended.\n"
-            "REPLACE — full filename is replaced with the tag."
+            "PREFIX — 标签加在文件名前。\n"
+            "SUFFIX — 标签加在扩展名前。\n"
+            "BOTH — 标签同时加在前后。\n"
+            "REPLACE — 用标签完全替换文件名。"
         ),
     },
 }
@@ -145,106 +143,106 @@ TOGGLE_META: dict = {
 
 SETTINGS_META: dict = {
     "caption": {
-        "label": "Custom Caption",
+        "label": "自定义标题",
         "icon":  "📝",
         "description": (
-            "Set a custom caption template appended to every downloaded file.\n\n"
-            "Supported placeholders:\n"
-            "{filename} — original filename\n"
-            "{size}     — file size (e.g. 12.4 MB)\n"
-            "{caption}  — original caption from source\n"
-            "{url}      — source link\n"
-            "{date}     — today's date\n\n"
-            "Send your caption template below, or send off to disable."
+            "设置自定义标题模板，附加到每个下载的文件。\n\n"
+            "支持的占位符：\n"
+            "{filename} — 原始文件名\n"
+            "{size}     — 文件大小（如 12.4 MB）\n"
+            "{caption}  — 来源的原始标题\n"
+            "{url}      — 来源链接\n"
+            "{date}     — 今天的日期\n\n"
+            "在下方发送你的标题模板，或发送 off 以禁用。"
         ),
-        "example": "{caption}\n\nDownloaded by @juktijol Bot",
+        "example": "{caption}",
     },
     "rename_tag": {
-        "label": "Rename Tag",
+        "label": "重命名标签",
         "icon":  "✏️",
         "description": (
-            "Set a tag used when renaming downloaded files.\n\n"
-            "Rename Style (set separately) controls where the tag is placed:\n"
-            "PREFIX  — [Tag] original_name.mp4\n"
-            "SUFFIX  — original_name [Tag].mp4\n"
-            "BOTH    — [Tag] original_name [Tag].mp4\n"
-            "REPLACE — Tag.mp4\n\n"
-            "Send your tag, or send off to disable."
+            "设置用于重命名下载文件的标签。\n\n"
+            "重命名样式（需单独设置）控制标签的放置位置：\n"
+            "PREFIX  — [标签] 原始文件名.mp4\n"
+            "SUFFIX  — 原始文件名 [标签].mp4\n"
+            "BOTH    — [标签] 原始文件名 [标签].mp4\n"
+            "REPLACE — 标签.mp4\n\n"
+            "发送你的标签，或发送 off 以禁用。"
         ),
         "example": "[MyChannel]",
     },
     "word_delete": {
-        "label": "Word Delete List",
+        "label": "删除词列表",
         "icon":  "🗑",
         "description": (
-            "Words that will be automatically removed from captions.\n\n"
-            "Format: space-separated or comma-separated list.\n\n"
-            "Example: spam ads promo\n"
-            "or: spam, ads, promo\n\n"
-            "Send your word list, or send off to clear."
+            "将从标题中自动删除的词语。\n\n"
+            "格式：空格分隔或逗号分隔的列表。\n\n"
+            "示例：spam ads promo\n"
+            "或：spam, ads, promo\n\n"
+            "发送你的词语列表，或发送 off 以清空。"
         ),
         "example": "spam, ads, promo, subscribe",
     },
     "word_replace": {
-        "label": "Word Replace Rules",
+        "label": "替换词规则",
         "icon":  "🔄",
         "description": (
-            "Replace specific words in captions automatically.\n\n"
-            "Format: old->new pairs, comma-separated.\n\n"
-            "Example: hello->hi, world->earth\n\n"
-            "Send your replacement rules, or send off to clear."
+            "自动替换标题中的特定词语。\n\n"
+            "格式：old->new 对，逗号分隔。\n\n"
+            "示例：hello->hi, world->earth\n\n"
+            "发送你的替换规则，或发送 off 以清空。"
         ),
         "example": "channel_name->MyChannel, @olduser->@newuser",
     },
     "custom_chat_id": {
-        "label": "Custom Forward Chat",
+        "label": "自定义转发对话",
         "icon":  "📤",
         "description": (
-            "Forward all downloads to a specific chat instead of the current chat.\n\n"
-            "Accepted formats:\n"
-            "@username          — public channel or group\n"
-            "-100xxxxxxxxxx     — private channel or supergroup\n"
-            "-100xxxxxxxxxx/5   — specific forum topic thread\n\n"
-            "Note: The bot must be an admin with send permission in the target chat.\n\n"
-            "Send the chat ID or username, or send off to disable."
+            "将下载内容转发到指定的对话而非当前对话。\n\n"
+            "接受格式：\n"
+            "@username          — 公开频道或群组\n"
+            "-100xxxxxxxxxx     — 私有频道或超级群组\n"
+            "-100xxxxxxxxxx/5   — 特定论坛话题线程\n\n"
+            "注意：机器人必须在目标对话中是管理员并有发送权限。\n\n"
+            "发送对话 ID 或用户名，或发送 off 以禁用。"
         ),
-        "example": "@mychannel  or  -1001234567890",
+        "example": "@mychannel 或 -1001234567890",
     },
     "file_name_template": {
-        "label": "File Name Template",
+        "label": "文件名模板",
         "icon":  "📄",
         "description": (
-            "Set a custom filename template for downloaded files.\n\n"
-            "Supported placeholders:\n"
-            "{title}    — video/file title\n"
-            "{date}     — today's date (YYYY-MM-DD)\n"
-            "{quality}  — video quality (e.g. 1080p)\n"
-            "{ext}      — file extension (e.g. mp4)\n\n"
-            "Example: {title} [{quality}] {date}.{ext}\n\n"
-            "Send your template, or send off to reset to default."
+            "设置下载文件的自定义文件名模板。\n\n"
+            "支持的占位符：\n"
+            "{title}    — 视频/文件标题\n"
+            "{date}     — 今天的日期 (YYYY-MM-DD)\n"
+            "{quality}  — 视频质量（如 1080p）\n"
+            "{ext}      — 文件扩展名（如 mp4）\n\n"
+            "示例：{title} [{quality}] {date}.{ext}\n\n"
+            "发送你的模板，或发送 off 以重置为默认。"
         ),
         "example": "{title} [{quality}].{ext}",
     },
     "blocked_extensions": {
-        "label": "Blocked File Extensions",
+        "label": "阻止的文件扩展名",
         "icon":  "🚫",
         "description": (
-            "Skip downloading files with specific extensions.\n\n"
-            "Format: comma-separated list of extensions (without dot).\n\n"
-            "Example: exe, zip, apk, bat\n\n"
-            "Send your extension list, or send off to allow all types."
+            "跳过下载具有特定扩展名的文件。\n\n"
+            "格式：逗号分隔的扩展名列表（不带点）。\n\n"
+            "示例：exe, zip, apk, bat\n\n"
+            "发送你的扩展名列表，或发送 off 以允许所有类型。"
         ),
         "example": "exe, zip, apk",
     },
     "max_file_size_mb": {
-        "label": "Max File Size (MB)",
+        "label": "最大文件大小 (MB)",
         "icon":  "⚖️",
         "description": (
-            "Set a maximum file size limit in megabytes.\n"
-            "Files larger than this will be skipped automatically.\n\n"
-            "Free users: max 500 MB\n"
-            "Premium users: max 2000 MB\n\n"
-            "Send a number in MB (e.g. 200), or send off to use the plan default."
+            "设置以 MB 为单位的最大文件大小限制。\n"
+            "超过此大小的文件将被自动跳过。\n\n"
+            "免费用户：最大 500 MB\n"
+            "高级用户：最大 2000 MB\n\n"
+            "发送数字（如 200），或发送 off 使用默认限制。"
         ),
         "example": "500",
     },
@@ -334,12 +332,12 @@ async def _reset_all_settings(user_id: int) -> bool:
 def _fmt(val) -> str:
     """Format a settings value for display."""
     if val is None or val == "":
-        return "not set"
+        return "未设置"
     if isinstance(val, dict):
         pairs = ", ".join(f"{k} -> {v}" for k, v in val.items())
-        return pairs or "empty"
+        return pairs or "空"
     if isinstance(val, list):
-        return ", ".join(str(w) for w in val) if val else "empty"
+        return ", ".join(str(w) for w in val) if val else "空"
     return str(val)
 
 
@@ -361,12 +359,12 @@ async def _get_session_status(user_id: int) -> str:
         )
         if doc and doc.get("sessions"):
             sessions = doc["sessions"]
-            names = ", ".join(s.get("account_name", "Unknown") for s in sessions)
+            names = ", ".join(s.get("account_name", "未知") for s in sessions)
             count = len(sessions)
-            return f"ON ({count} account{'s' if count > 1 else ''}: {names})"
-        return "OFF"
+            return f"已开启 ({count} 个账户：{names})"
+        return "已关闭"
     except Exception:
-        return "Unknown"
+        return "未知"
 
 
 async def _get_thumbnail_status(user_id: int) -> str:
@@ -376,10 +374,10 @@ async def _get_thumbnail_status(user_id: int) -> str:
             timeout=DB_TIMEOUT,
         )
         if doc and doc.get("thumbnail_path"):
-            return "ON (custom thumbnail set)"
-        return "OFF"
+            return "已开启（已设置自定义缩略图）"
+        return "已关闭"
     except Exception:
-        return "Unknown"
+        return "未知"
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -395,15 +393,15 @@ async def _settings_text(user_id: int) -> str:
     if chat_fwd_val:
         cid = chat_fwd_val.get("chat_id", "")
         tid = chat_fwd_val.get("topic_id")
-        chat_fwd = f"ON ({cid}" + (f" / topic {tid})" if tid else ")")
+        chat_fwd = f"已开启 ({cid}" + (f" / 话题 {tid})" if tid else ")")
     else:
-        chat_fwd = "OFF"
+        chat_fwd = "已关闭"
 
     lines = [
-        "Settings Panel",
+        "设置面板",
         "=" * 30,
         "",
-        "[ Toggle Settings ]",
+        "[ 开关设置 ]",
     ]
 
     for key, meta in TOGGLE_META.items():
@@ -412,12 +410,12 @@ async def _settings_text(user_id: int) -> str:
 
     lines += [
         "",
-        "[ Status ]",
-        f"🔐 User Session Login: {session_status}",
-        f"🖼 Custom Thumbnail:   {thumb_status}",
-        f"📤 Custom Forward Chat: {chat_fwd}",
+        "[ 状态 ]",
+        f"🔐 用户会话登录：{session_status}",
+        f"🖼 自定义缩略图：  {thumb_status}",
+        f"📤 自定义转发对话：{chat_fwd}",
         "",
-        "[ Text Settings ]",
+        "[ 文本设置 ]",
     ]
 
     for key, meta in SETTINGS_META.items():
@@ -431,7 +429,7 @@ async def _settings_text(user_id: int) -> str:
     lines += [
         "",
         "=" * 30,
-        "Tap a button below to change a setting.",
+        "点击下方按钮更改设置。",
     ]
 
     return "\n".join(lines)
@@ -446,7 +444,7 @@ def _main_keyboard() -> InlineKeyboardMarkup:
 
     # Section header button (non-clickable separator)
     rows.append([InlineKeyboardButton(
-        "— Toggle Settings —", callback_data="cfg_noop"
+        "— 开关设置 —", callback_data="cfg_noop"
     )])
 
     # Toggle buttons — 2 per row
@@ -462,7 +460,7 @@ def _main_keyboard() -> InlineKeyboardMarkup:
         rows.append(row)
 
     rows.append([InlineKeyboardButton(
-        "— Text Settings —", callback_data="cfg_noop"
+        "— 文本设置 —", callback_data="cfg_noop"
     )])
 
     # Text-input settings — 2 per row
@@ -478,19 +476,19 @@ def _main_keyboard() -> InlineKeyboardMarkup:
         rows.append(row)
 
     rows.append([InlineKeyboardButton(
-        "— Actions —", callback_data="cfg_noop"
+        "— 操作 —", callback_data="cfg_noop"
     )])
 
     # Action buttons
     rows.append([
-        InlineKeyboardButton("📋 Export Settings", callback_data="cfg_export"),
-        InlineKeyboardButton("📥 Import Settings", callback_data="cfg_import"),
+        InlineKeyboardButton("📋 导出设置", callback_data="cfg_export"),
+        InlineKeyboardButton("📥 导入设置", callback_data="cfg_import"),
     ])
     rows.append([
-        InlineKeyboardButton("🔄 Reset All Settings", callback_data="cfg_reset_all"),
-        InlineKeyboardButton("❓ Help", callback_data="cfg_help"),
+        InlineKeyboardButton("🔄 重置所有设置", callback_data="cfg_reset_all"),
+        InlineKeyboardButton("❓ 帮助", callback_data="cfg_help"),
     ])
-    rows.append([InlineKeyboardButton("❌ Close", callback_data="cfg_close")])
+    rows.append([InlineKeyboardButton("❌ 关闭", callback_data="cfg_close")])
 
     return InlineKeyboardMarkup(rows)
 
@@ -508,11 +506,11 @@ def _field_keyboard(key: str, has_value: bool = True) -> InlineKeyboardMarkup:
     rows = []
     if has_value:
         rows.append([
-            InlineKeyboardButton("🗑 Clear This Setting", callback_data=f"cfg_clear_{key}"),
+            InlineKeyboardButton("🗑 清除此设置", callback_data=f"cfg_clear_{key}"),
         ])
     rows.append([
-        InlineKeyboardButton("🔙 Back to Settings", callback_data="cfg_back"),
-        InlineKeyboardButton("❌ Cancel Input", callback_data="cfg_cancel_input"),
+        InlineKeyboardButton("🔙 返回设置", callback_data="cfg_back"),
+        InlineKeyboardButton("❌ 取消输入", callback_data="cfg_cancel_input"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -523,18 +521,18 @@ def _toggle_detail_keyboard(key: str) -> InlineKeyboardMarkup:
     # Show all possible values as quick-set buttons
     for val in meta["values"]:
         rows.append([InlineKeyboardButton(
-            f"Set: {val}",
+            f"设置为: {val}",
             callback_data=f"cfg_set_{key}_{val}",
         )])
-    rows.append([InlineKeyboardButton("🔙 Back to Settings", callback_data="cfg_back")])
+    rows.append([InlineKeyboardButton("🔙 返回设置", callback_data="cfg_back")])
     return InlineKeyboardMarkup(rows)
 
 
 def _reset_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("YES, Reset Everything", callback_data="cfg_reset_confirm"),
-            InlineKeyboardButton("No, Cancel", callback_data="cfg_back"),
+            InlineKeyboardButton("是，重置所有", callback_data="cfg_reset_confirm"),
+            InlineKeyboardButton("不，取消", callback_data="cfg_back"),
         ]
     ])
 
@@ -771,21 +769,21 @@ async def export_settings(user_id: int) -> str:
     """Export all settings as a formatted text block."""
     s = await _get_settings(user_id)
     if not s:
-        return "No settings have been configured yet."
+        return "尚未配置任何设置。"
 
     lines = [
-        "Settings Export",
+        "设置导出",
         "=" * 30,
-        f"User ID: {user_id}",
-        f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"用户 ID：{user_id}",
+        f"导出时间：{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
         "",
-        "[ Toggle Settings ]",
+        "[ 开关设置 ]",
     ]
     for key, meta in TOGGLE_META.items():
         val = s.get(key, meta["default"])
         lines.append(f"{meta['label']}: {val}")
 
-    lines += ["", "[ Text Settings ]"]
+    lines += ["", "[ 文本设置 ]"]
     for key, meta in SETTINGS_META.items():
         val = s.get(key)
         lines.append(f"{meta['label']}: {_fmt(val)}")
@@ -830,7 +828,7 @@ def setup_settings_handler(app: Client):
         user_id = message.from_user.id
         LOGGER.info(f"[Settings] /settings opened by user {user_id}")
         loading = await message.reply_text(
-            "Loading your settings...",
+            "正在加载你的设置...",
             parse_mode=ParseMode.DISABLED,
         )
         text = await _settings_text(user_id)
@@ -855,7 +853,7 @@ def setup_settings_handler(app: Client):
             await cq.message.delete()
         except Exception:
             pass
-        await cq.answer("Settings closed.")
+        await cq.answer("设置已关闭。")
 
     # ── Back to main panel ───────────────────────────────────────────────
 
@@ -889,7 +887,7 @@ def setup_settings_handler(app: Client):
             )
         except Exception:
             pass
-        await cq.answer("Input cancelled.")
+        await cq.answer("输入已取消。")
 
     # ── Toggle: cycle value ──────────────────────────────────────────────
 
@@ -897,7 +895,7 @@ def setup_settings_handler(app: Client):
     async def cfg_toggle(client: Client, cq: CallbackQuery):
         key = cq.data[len("cfg_toggle_"):]
         if key not in TOGGLE_META:
-            return await cq.answer("Unknown toggle.", show_alert=True)
+            return await cq.answer("未知开关。", show_alert=True)
 
         meta    = TOGGLE_META[key]
         user_id = cq.from_user.id
@@ -909,7 +907,7 @@ def setup_settings_handler(app: Client):
 
         success = await _save_setting(user_id, key, new_val)
         if not success:
-            await cq.answer("DB error — please try again.", show_alert=True)
+            await cq.answer("数据库错误 — 请重试。", show_alert=True)
             return
 
         text = await _settings_text(user_id)
@@ -921,7 +919,7 @@ def setup_settings_handler(app: Client):
             )
         except Exception:
             pass
-        await cq.answer(f"{meta['icon']} {meta['label']} set to: {new_val}")
+        await cq.answer(f"{meta['icon']} {meta['label']} 已设置为：{new_val}")
         LOGGER.info(f"[Settings] user={user_id} toggled {key} -> {new_val}")
 
     # ── Toggle: direct value set ─────────────────────────────────────────
@@ -937,15 +935,15 @@ def setup_settings_handler(app: Client):
                 matched_val = raw[len(k) + 1:]
                 break
         if not matched_key:
-            return await cq.answer("Unknown setting.", show_alert=True)
+            return await cq.answer("未知设置。", show_alert=True)
 
         meta = TOGGLE_META[matched_key]
         if matched_val not in meta["values"]:
-            return await cq.answer("Invalid value.", show_alert=True)
+            return await cq.answer("无效值。", show_alert=True)
 
         success = await _save_setting(cq.from_user.id, matched_key, matched_val)
         if not success:
-            await cq.answer("DB error.", show_alert=True)
+            await cq.answer("数据库错误。", show_alert=True)
             return
 
         text = await _settings_text(cq.from_user.id)
@@ -957,7 +955,7 @@ def setup_settings_handler(app: Client):
             )
         except Exception:
             pass
-        await cq.answer(f"{meta['icon']} {meta['label']} set to: {matched_val}")
+        await cq.answer(f"{meta['icon']} {meta['label']} 已设置为：{matched_val}")
 
     # ── Open text-input setting ──────────────────────────────────────────
 
@@ -971,7 +969,7 @@ def setup_settings_handler(app: Client):
             return
 
         if key not in SETTINGS_META:
-            return await cq.answer("Unknown setting.", show_alert=True)
+            return await cq.answer("未知设置。", show_alert=True)
 
         meta    = SETTINGS_META[key]
         user_id = cq.from_user.id
@@ -988,9 +986,9 @@ def setup_settings_handler(app: Client):
             f"{'=' * 30}\n\n"
             f"{meta['description']}\n\n"
             f"{'=' * 30}\n"
-            f"Current value: {display_current}\n\n"
-            f"Example: {meta.get('example', 'N/A')}\n\n"
-            f"Type your new value in the chat below, or use the buttons."
+            f"当前值：{display_current}\n\n"
+            f"示例：{meta.get('example', '无')}\n\n"
+            f"在下方输入新值，或使用按钮操作。"
         )
 
         try:
@@ -1021,7 +1019,7 @@ def setup_settings_handler(app: Client):
                     await client.edit_message_text(
                         chat_id=state["chat_id"],
                         message_id=state["panel_msg_id"],
-                        text=f"Input session expired (no response in {CONV_TIMEOUT}s).\n\n" + timeout_text,
+                        text=f"输入会话已过期（{CONV_TIMEOUT}秒无响应）。\n\n" + timeout_text,
                         parse_mode=ParseMode.DISABLED,
                         reply_markup=_main_keyboard(),
                     )
@@ -1036,14 +1034,14 @@ def setup_settings_handler(app: Client):
     async def cfg_clear(client: Client, cq: CallbackQuery):
         key = cq.data[len("cfg_clear_"):]
         if key not in SETTINGS_META:
-            return await cq.answer("Unknown setting.", show_alert=True)
+            return await cq.answer("未知设置。", show_alert=True)
 
         user_id = cq.from_user.id
         _conv.pop(user_id, None)
         success = await _clear_setting(user_id, key)
 
         if not success:
-            await cq.answer("DB error — please try again.", show_alert=True)
+            await cq.answer("数据库错误 — 请重试。", show_alert=True)
             return
 
         text = await _settings_text(user_id)
@@ -1055,7 +1053,7 @@ def setup_settings_handler(app: Client):
             )
         except Exception:
             pass
-        await cq.answer(f"{SETTINGS_META[key]['icon']} {SETTINGS_META[key]['label']} cleared.")
+        await cq.answer(f"{SETTINGS_META[key]['icon']} {SETTINGS_META[key]['label']} 已清除。")
         LOGGER.info(f"[Settings] user={user_id} cleared {key}")
 
     # ── Reset all — confirmation step ────────────────────────────────────
@@ -1064,10 +1062,10 @@ def setup_settings_handler(app: Client):
     async def cfg_reset_all(client: Client, cq: CallbackQuery):
         try:
             await cq.message.edit_text(
-                "Reset All Settings\n"
+                "重置所有设置\n"
                 "=" * 30 + "\n\n"
-                "Are you sure you want to reset ALL settings to their defaults?\n\n"
-                "This cannot be undone.",
+                "你确定要重置**所有**设置为默认值吗？\n\n"
+                "此操作无法撤销。",
                 parse_mode=ParseMode.DISABLED,
                 reply_markup=_reset_confirm_keyboard(),
             )
@@ -1082,19 +1080,19 @@ def setup_settings_handler(app: Client):
         success = await _reset_all_settings(user_id)
 
         if not success:
-            await cq.answer("DB error — please try again.", show_alert=True)
+            await cq.answer("数据库错误 — 请重试。", show_alert=True)
             return
 
         text = await _settings_text(user_id)
         try:
             await cq.message.edit_text(
-                "All settings have been reset to defaults.\n\n" + text,
+                "所有设置已重置为默认值。\n\n" + text,
                 parse_mode=ParseMode.DISABLED,
                 reply_markup=_main_keyboard(),
             )
         except Exception:
             pass
-        await cq.answer("All settings reset.")
+        await cq.answer("所有设置已重置。")
         LOGGER.info(f"[Settings] user={user_id} reset all settings")
 
     # ── Export settings ──────────────────────────────────────────────────
@@ -1105,12 +1103,12 @@ def setup_settings_handler(app: Client):
         export_text = await export_settings(user_id)
         try:
             await cq.message.reply_text(
-                f"Settings Export\n{'=' * 30}\n\n{export_text}",
+                f"设置导出\n{'=' * 30}\n\n{export_text}",
                 parse_mode=ParseMode.DISABLED,
             )
         except Exception as e:
             LOGGER.error(f"[Settings] Export failed: {e}")
-        await cq.answer("Settings exported above.")
+        await cq.answer("设置已导出。")
 
     # ── Import settings (placeholder — guides user) ──────────────────────
 
@@ -1118,26 +1116,25 @@ def setup_settings_handler(app: Client):
     async def cfg_import(client: Client, cq: CallbackQuery):
         try:
             await cq.message.reply_text(
-                "Settings Import\n"
+                "导入设置\n"
                 "=" * 30 + "\n\n"
-                "To import settings, configure each one manually using the\n"
-                "settings panel buttons.\n\n"
-                "Full JSON import will be available in a future update.",
+                "要导入设置，请使用设置面板按钮逐一配置。\n\n"
+                "完整的 JSON 导入功能将在未来更新中提供。",
                 parse_mode=ParseMode.DISABLED,
             )
         except Exception:
             pass
-        await cq.answer("Import guide sent.")
+        await cq.answer("导入指南已发送。")
 
     # ── Help: explains all settings ──────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_help$"))
     async def cfg_help(client: Client, cq: CallbackQuery):
         lines = [
-            "Settings Help",
+            "设置帮助",
             "=" * 30,
             "",
-            "[ Toggle Settings ]",
+            "[ 开关设置 ]",
         ]
         for meta in TOGGLE_META.values():
             values_str = " / ".join(meta["values"])
@@ -1145,15 +1142,15 @@ def setup_settings_handler(app: Client):
             lines.append(f"   {meta['help']}")
             lines.append("")
 
-        lines += ["[ Text Settings ]", ""]
+        lines += ["[ 文本设置 ]", ""]
         for meta in SETTINGS_META.values():
             lines.append(f"{meta['icon']} {meta['label']}")
-            lines.append(f"   Example: {meta.get('example', 'N/A')}")
+            lines.append(f"   示例：{meta.get('example', '无')}")
             lines.append("")
 
         lines += [
             "=" * 30,
-            "Tip: Send 'off' when entering a text setting to disable it.",
+            "提示：在输入文本设置时发送 'off' 可禁用它。",
         ]
 
         try:
@@ -1163,7 +1160,7 @@ def setup_settings_handler(app: Client):
             )
         except Exception:
             pass
-        await cq.answer("Help sent above.")
+        await cq.answer("帮助已发送。")
 
     # ── Text input handler ───────────────────────────────────────────────
 
@@ -1199,7 +1196,7 @@ def setup_settings_handler(app: Client):
             await _clear_setting(user_id, key)
             _conv.pop(user_id, None)
             await message.reply_text(
-                f"{meta['icon']} {meta['label']} has been disabled.",
+                f"{meta['icon']} {meta['label']} 已禁用。",
                 parse_mode=ParseMode.DISABLED,
             )
             await _refresh_panel(client, state, user_id)
@@ -1212,8 +1209,8 @@ def setup_settings_handler(app: Client):
         if key == "caption":
             save_ok = await _save_setting(user_id, "caption", raw)
             reply = (
-                f"{meta['icon']} Caption template saved.\n\n"
-                f"Preview:\n{raw}"
+                f"{meta['icon']} 标题模板已保存。\n\n"
+                f"预览：\n{raw}"
             )
 
         elif key == "rename_tag":
@@ -1221,45 +1218,45 @@ def setup_settings_handler(app: Client):
             style = (await _get_settings(user_id)).get("rename_style", "PREFIX")
             sample = f"[{raw}] example_file.mp4"
             reply = (
-                f"{meta['icon']} Rename tag saved.\n\n"
-                f"Style: {style}\n"
-                f"Sample result: {sample}"
+                f"{meta['icon']} 重命名标签已保存。\n\n"
+                f"样式：{style}\n"
+                f"示例结果：{sample}"
             )
 
         elif key == "word_delete":
             words = _parse_word_delete(raw)
             if not words:
                 await message.reply_text(
-                    "No valid words found. Use space or comma-separated format.\n"
-                    "Example: spam, ads, promo",
+                    "未找到有效词语。请使用空格或逗号分隔格式。\n"
+                    "示例：spam, ads, promo",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             save_ok = await _save_setting(user_id, "word_delete", words)
             reply = (
-                f"{meta['icon']} Word delete list saved.\n\n"
-                f"Words that will be removed: {', '.join(words)}"
+                f"{meta['icon']} 删除词列表已保存。\n\n"
+                f"将被删除的词语：{', '.join(words)}"
             )
 
         elif key == "word_replace":
             pairs = _parse_word_replace(raw)
             if not pairs:
                 await message.reply_text(
-                    "Could not parse any replacement rules.\n"
-                    "Use format: old->new, old2->new2",
+                    "无法解析任何替换规则。\n"
+                    "请使用格式：old->new, old2->new2",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             save_ok = await _save_setting(user_id, "word_replace", pairs)
             formatted = "\n".join(f"{o} -> {n}" for o, n in pairs.items())
-            reply = f"{meta['icon']} Word replace rules saved.\n\n{formatted}"
+            reply = f"{meta['icon']} 替换词规则已保存。\n\n{formatted}"
 
         elif key == "custom_chat_id":
             chat_id_val, topic_id = _parse_chat_id(raw)
             if chat_id_val is None:
                 await message.reply_text(
-                    "Invalid chat ID format.\n\n"
-                    "Use: @username, -100xxxxxxxxxx, or -100xxxxxxxxxx/topic_id",
+                    "无效的对话 ID 格式。\n\n"
+                    "请使用：@username, -100xxxxxxxxxx, 或 -100xxxxxxxxxx/话题ID",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
@@ -1272,15 +1269,15 @@ def setup_settings_handler(app: Client):
                 chat_name = chat_obj.title or str(chat_id_val)
             except asyncio.TimeoutError:
                 await message.reply_text(
-                    "Timeout verifying that chat. Please try again.",
+                    "验证对话超时，请重试。",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             except Exception as e:
                 await message.reply_text(
-                    f"Could not access that chat: {chat_id_val}\n"
-                    f"Make sure the bot is a member/admin there.\n\n"
-                    f"Error: {str(e)[:100]}",
+                    f"无法访问该对话：{chat_id_val}\n"
+                    f"请确保机器人是该对话的成员/管理员。\n\n"
+                    f"错误：{str(e)[:100]}",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
@@ -1290,40 +1287,40 @@ def setup_settings_handler(app: Client):
                 value["topic_id"] = topic_id
 
             save_ok = await _save_setting(user_id, "custom_chat_id", value)
-            topic_str = f", topic {topic_id}" if topic_id else ""
+            topic_str = f"，话题 {topic_id}" if topic_id else ""
             reply = (
-                f"{meta['icon']} Custom forward chat saved.\n\n"
-                f"Chat: {chat_name}{topic_str}\n"
-                f"All downloads will be forwarded there."
+                f"{meta['icon']} 自定义转发对话已保存。\n\n"
+                f"对话：{chat_name}{topic_str}\n"
+                f"所有下载内容将被转发到那里。"
             )
 
         elif key == "file_name_template":
             if "{ext}" not in raw:
                 await message.reply_text(
-                    "Your template must include {ext} so the file extension is preserved.\n\n"
-                    f"Example: {meta.get('example')}",
+                    "你的模板必须包含 {ext} 以保留文件扩展名。\n\n"
+                    f"示例：{meta.get('example')}",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             save_ok = await _save_setting(user_id, "file_name_template", raw)
             reply = (
-                f"{meta['icon']} File name template saved.\n\n"
-                f"Template: {raw}"
+                f"{meta['icon']} 文件名模板已保存。\n\n"
+                f"模板：{raw}"
             )
 
         elif key == "blocked_extensions":
             exts = _parse_blocked_extensions(raw)
             if not exts:
                 await message.reply_text(
-                    "No valid extensions found.\n"
-                    "Use comma-separated list: exe, zip, apk",
+                    "未找到有效扩展名。\n"
+                    "请使用逗号分隔列表：exe, zip, apk",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             save_ok = await _save_setting(user_id, "blocked_extensions", exts)
             reply = (
-                f"{meta['icon']} Blocked extensions saved.\n\n"
-                f"Files with these types will be skipped: {', '.join(exts)}"
+                f"{meta['icon']} 阻止的扩展名已保存。\n\n"
+                f"以下类型的文件将被跳过：{', '.join(exts)}"
             )
 
         elif key == "max_file_size_mb":
@@ -1332,15 +1329,15 @@ def setup_settings_handler(app: Client):
             if val is None:
                 limit = 2000 if is_premium else 500
                 await message.reply_text(
-                    f"Invalid size. Enter a number between 1 and {limit} (MB).\n"
-                    f"Example: 200",
+                    f"无效大小。请输入 1 到 {limit} (MB) 之间的数字。\n"
+                    f"示例：200",
                     parse_mode=ParseMode.DISABLED,
                 )
                 return
             save_ok = await _save_setting(user_id, "max_file_size_mb", val)
             reply = (
-                f"{meta['icon']} Max file size set to {val} MB.\n"
-                f"Files larger than this will be skipped."
+                f"{meta['icon']} 最大文件大小已设置为 {val} MB。\n"
+                f"超过此大小的文件将被跳过。"
             )
 
         else:
@@ -1349,7 +1346,7 @@ def setup_settings_handler(app: Client):
 
         if not save_ok:
             await message.reply_text(
-                "Database error while saving. Please try again.",
+                "保存时数据库错误，请重试。",
                 parse_mode=ParseMode.DISABLED,
             )
             return

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # FIXED: Premium users count, Free users negative bug, stats accuracy
 
 import os
@@ -164,7 +162,7 @@ def setup_sudo_handler(app: Client):
         LOGGER.info(f"/stats command received from developer {user_id}")
 
         loading_msg = await message.reply_text(
-            "**✘ Fetching Stats... ↯**",
+            "**✘ 正在获取统计... ↯**",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -174,28 +172,28 @@ def setup_sudo_handler(app: Client):
         mongo_total = await total_users.count_documents({})
 
         stats_message = (
-            "**✘《 Restricted Content Downloader — Stats ↯ 》**\n"
+            "**✘《 Restricted Content Downloader — 统计 ↯ 》**\n"
             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-            "**✘《 User Activity ↯ 》**\n"
-            f"**✘ Daily Active   :** `{daily_active}`\n"
-            f"**✘ Weekly Active  :** `{weekly_active}`\n"
-            f"**✘ Monthly Active :** `{monthly_active}`\n"
-            f"**✘ Annual Active  :** `{annual_active}`\n"
-            f"**✘ Total Users    :** `{total}`\n"
-            f"**✘ MongoDB Users  :** `{mongo_total}` _(database count)_\n"
+            "**✘《 用户活跃度 ↯ 》**\n"
+            f"**✘ 日活   :** `{daily_active}`\n"
+            f"**✘ 周活  :** `{weekly_active}`\n"
+            f"**✘ 月活 :** `{monthly_active}`\n"
+            f"**✘ 年活  :** `{annual_active}`\n"
+            f"**✘ 总用户数    :** `{total}`\n"
+            f"**✘ MongoDB 用户  :** `{mongo_total}` _(数据库计数)_\n"
             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-            "**✘《 Premium & Downloads ↯ 》**\n"
-            f"**✘ Premium Users    :** `{total_premium}`\n"
-            f"**✘ Free Users       :** `{free_users}`\n"
-            f"**✘ Total Downloads  :** `{total_downloads}`\n"
-            f"**✘ Active Batches   :** `{active_batches}`\n"
+            "**✘《 高级与下载 ↯ 》**\n"
+            f"**✘ 高级用户    :** `{total_premium}`\n"
+            f"**✘ 免费用户       :** `{free_users}`\n"
+            f"**✘ 总下载数  :** `{total_downloads}`\n"
+            f"**✘ 活跃批次   :** `{active_batches}`\n"
             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-            "**✘《 Server Info ↯ 》**\n"
-            f"**✘ Uptime     :** `{uptime_str}`\n"
-            f"**✘ CPU Usage  :** `{cpu_percent:.1f}%`\n"
-            f"**✘ RAM Used   :** `{mem_used} / {total_mem} ({mem_percent:.1f}%)`\n"
+            "**✘《 服务器信息 ↯ 》**\n"
+            f"**✘ 运行时间     :** `{uptime_str}`\n"
+            f"**✘ CPU 使用  :** `{cpu_percent:.1f}%`\n"
+            f"**✘ RAM 使用   :** `{mem_used} / {total_mem} ({mem_percent:.1f}%)`\n"
             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-            "**✘ Powered by @juktijol ↯**"
+            ""
         )
 
         await loading_msg.edit_text(
@@ -203,8 +201,8 @@ def setup_sudo_handler(app: Client):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol"),
-                    InlineKeyboardButton("👥 User List ↯", callback_data="users_page_0"),
+                    
+                    InlineKeyboardButton("👥 用户列表 ↯", callback_data="users_page_0"),
                 ]
             ])
         )
@@ -331,7 +329,7 @@ def setup_sudo_handler(app: Client):
                 target_uid = int(message.command[1])
             except ValueError:
                 await message.reply_text(
-                    "❌ **Invalid user ID!**\nUsage: `/refresh 7963315216`",
+                    "❌ **无效的用户ID！**\n用法：`/refresh 7963315216`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 raise StopPropagation
@@ -341,9 +339,9 @@ def setup_sudo_handler(app: Client):
             except Exception as exc:
                 LOGGER.warning(f"[Refresh] get_users failed for {target_uid}: {exc}")
                 await message.reply_text(
-                    f"❌ **Cannot fetch user `{target_uid}` from Telegram.**\n"
-                    f"User may be blocked/deactivated.\n\n"
-                    f"_Error: {exc}_",
+                    f"❌ **无法从 Telegram 获取用户 `{target_uid}`。**\n"
+                    f"用户可能已屏蔽/注销。\n\n"
+                    f"_错误：{exc}_",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 raise StopPropagation
@@ -353,7 +351,7 @@ def setup_sudo_handler(app: Client):
             except Exception as exc:
                 LOGGER.error(f"[Refresh] DB upsert failed for {target_uid}: {exc}")
                 await message.reply_text(
-                    "❌ **Database error while saving user profile.**",
+                    "❌ **保存用户资料时数据库错误。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 raise StopPropagation
@@ -365,23 +363,23 @@ def setup_sudo_handler(app: Client):
             fake_icon        = "⚠️" if doc.get("is_fake")    else "✅"
 
             dc_line   = f"\n**📡 DC:** `{doc['dc_id']}`" if doc.get("dc_id") else ""
-            lang_line = f"\n**🌐 Language:** `{doc['language_code']}`" if doc.get("language_code") else ""
+            lang_line = f"\n**🌐 语言：** `{doc['language_code']}`" if doc.get("language_code") else ""
 
             reply = (
-                f"✅ **User Profile Refreshed!**\n"
+                f"✅ **用户资料已刷新！**\n"
                 f"**━━━━━━━━━━━━━━━━**\n"
                 f"**🆔 ID:** `{doc['user_id']}`\n"
-                f"**👤 Name:** `{doc['full_name']}`\n"
-                f"**📛 Username:** `{username_display}`\n"
+                f"**👤 名称：** `{doc['full_name']}`\n"
+                f"**📛 用户名：** `{username_display}`\n"
                 f"**━━━━━━━━━━━━━━━━**\n"
-                f"**💎 Premium:** {premium_icon}\n"
-                f"**✔️ Verified:** {verified_icon}\n"
-                f"**🚫 Scam:** {scam_icon}\n"
-                f"**🎭 Fake:** {fake_icon}"
+                f"**💎 高级：** {premium_icon}\n"
+                f"**✔️ 已验证：** {verified_icon}\n"
+                f"**🚫 诈骗：** {scam_icon}\n"
+                f"**🎭 虚假：** {fake_icon}"
                 f"{dc_line}"
                 f"{lang_line}\n"
                 f"**━━━━━━━━━━━━━━━━**\n"
-                f"**🕒 Refreshed at:** `{doc['refreshed_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}`"
+                f"**🕒 刷新时间：** `{doc['refreshed_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}`"
             )
             await message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
             LOGGER.info(f"[Refresh] Single user refreshed: {target_uid}")
@@ -496,7 +494,7 @@ def setup_sudo_handler(app: Client):
         LOGGER.info(f"/gcast command received from developer {user_id}")
 
         if not message.reply_to_message:
-            await message.reply_text("**❌ Please reply to a message to broadcast!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("**❌ 请回复一条消息以进行广播！**", parse_mode=ParseMode.MARKDOWN)
             return
 
         broadcast_message = message.reply_to_message
@@ -512,7 +510,7 @@ def setup_sudo_handler(app: Client):
         user_ids = [u["user_id"] for u in users_list]
 
         buttons = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Updates Channel", url="https://t.me/juktijol")
+            InlineKeyboardButton("更新频道", url="")
         ]])
 
         for target_user_id in user_ids:
@@ -549,16 +547,16 @@ def setup_sudo_handler(app: Client):
 
         time_taken = (datetime.utcnow() - start_time).total_seconds()
         report_message = (
-            "**📢 Global Broadcast Report ↯**\n"
+            "**📢 全局广播报告 ↯**\n"
             "**✘━━━━━━━━━━━↯**\n"
-            f"**✘ Successful  : {success_count} ↯**\n"
-            f"**✘ Blocked     : {blocked_count} ↯**\n"
-            f"**✘ Deactivated : {deactivated_count} ↯**\n"
-            f"**✘ Failed      : {failed_count} ↯**\n"
-            f"**✘ Flood Waits : {flood_wait_count} ↯**\n"
-            f"**✘ Time Taken  : {int(time_taken)}s ↯**\n"
+            f"**✘ 成功  : {success_count} ↯**\n"
+            f"**✘ 已屏蔽     : {blocked_count} ↯**\n"
+            f"**✘ 已注销 : {deactivated_count} ↯**\n"
+            f"**✘ 失败      : {failed_count} ↯**\n"
+            f"**✘ 限流等待 : {flood_wait_count} ↯**\n"
+            f"**✘ 耗时  : {int(time_taken)}s ↯**\n"
             "**✘━━━━━━━━━━━↯**\n"
-            "**✅ Broadcast completed!**"
+            "**✅ 广播完成！**"
         )
         await client.send_message(chat_id=user_id, text=report_message, parse_mode=ParseMode.MARKDOWN)
 
@@ -576,7 +574,10 @@ def setup_sudo_handler(app: Client):
         LOGGER.info(f"/acast command received from developer {user_id}")
 
         if not message.reply_to_message:
-            await message.reply_text("**❌ Please reply to a message to broadcast!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text(
+                "**❌ 请回复一条消息以进行广播！**",
+                parse_mode=ParseMode.MARKDOWN
+            )
             return
 
         broadcast_message = message.reply_to_message
@@ -623,16 +624,16 @@ def setup_sudo_handler(app: Client):
 
         time_taken = (datetime.utcnow() - start_time).total_seconds()
         report_message = (
-            "**📢 Admin Broadcast Report ↯**\n"
+            "**📢 管理员广播报告 ↯**\n"
             "**✘━━━━━━━━━━━↯**\n"
-            f"**✘ Successful  : {success_count} ↯**\n"
-            f"**✘ Blocked     : {blocked_count} ↯**\n"
-            f"**✘ Deactivated : {deactivated_count} ↯**\n"
-            f"**✘ Failed      : {failed_count} ↯**\n"
-            f"**✘ Flood Waits : {flood_wait_count} ↯**\n"
-            f"**✘ Time Taken  : {int(time_taken)}s ↯**\n"
+            f"**✘ 成功  : {success_count} ↯**\n"
+            f"**✘ 已屏蔽     : {blocked_count} ↯**\n"
+            f"**✘ 已注销 : {deactivated_count} ↯**\n"
+            f"**✘ 失败      : {failed_count} ↯**\n"
+            f"**✘ 限流等待 : {flood_wait_count} ↯**\n"
+            f"**✘ 耗时  : {int(time_taken)}s ↯**\n"
             "**✘━━━━━━━━━━━↯**\n"
-            "**✅ Broadcast completed!**"
+            "**✅ 广播完成！**"
         )
         await client.send_message(chat_id=user_id, text=report_message, parse_mode=ParseMode.MARKDOWN)
 
@@ -664,15 +665,15 @@ def setup_sudo_handler(app: Client):
             target_user_id = int(message.command[1])
         except ValueError:
             await message.reply_text(
-                "**❌ Invalid user ID! Please provide a numeric user ID.**",
+                "**❌ 无效的用户ID！请提供数字用户ID。**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         if not message.reply_to_message:
             await message.reply_text(
-                "**❌ Please reply to a message to send it to the user!**\n\n"
-                "**Usage:** Reply to any message and type `/send <user_id>`",
+                "**❌ 请回复一条消息以发送给用户！**\n\n"
+                "**用法：** 回复任意消息并输入 `/send <user_id>`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -681,7 +682,7 @@ def setup_sudo_handler(app: Client):
         user_doc = await total_users.find_one({"user_id": target_user_id})
         if not user_doc:
             await message.reply_text(
-                f"**❌ User `{target_user_id}` not found in database!**",
+                f"**❌ 数据库中未找到用户 `{target_user_id}`！**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -695,26 +696,26 @@ def setup_sudo_handler(app: Client):
             )
             target_name = user_doc.get("name") or user_doc.get("first_name") or "Unknown"
             await message.reply_text(
-                f"**✅ Message sent successfully to user!**\n\n"
-                f"**👤 Name:** `{target_name}`\n"
+                f"**✅ 消息发送成功！**\n\n"
+                f"**👤 名称：** `{target_name}`\n"
                 f"**🆔 ID:** `{target_user_id}`",
                 parse_mode=ParseMode.MARKDOWN
             )
             LOGGER.info(f"Message sent to user {target_user_id} by developer {user_id}")
         except UserIsBlocked:
             await message.reply_text(
-                f"**❌ User `{target_user_id}` has blocked the bot!**",
+                f"**❌ 用户 `{target_user_id}` 已屏蔽机器人！**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except InputUserDeactivated:
             await message.reply_text(
-                f"**❌ User `{target_user_id}` account is deactivated!**",
+                f"**❌ 用户 `{target_user_id}` 账户已注销！**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
             await message.reply_text(
-                f"**❌ Failed to send message to user `{target_user_id}`!**\n\n"
-                f"**Error:** `{str(e)}`",
+                f"**❌ 发送消息给用户 `{target_user_id}` 失败！**\n\n"
+                f"**错误：** `{str(e)}`",
                 parse_mode=ParseMode.MARKDOWN
             )
             LOGGER.error(f"Failed to send message to user {target_user_id}: {e}")

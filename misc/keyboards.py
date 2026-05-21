@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from pyrogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -14,15 +12,15 @@ from pyrogram.types import (
 def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton("🚀 Start"),                  KeyboardButton("❓ Help")],
-            [KeyboardButton("🔗 Single Link Download"),   KeyboardButton("📦 Batch Download")],
-            [KeyboardButton("🌐 Website Video Download")],
-            [KeyboardButton("💎 Plans & Buy"),            KeyboardButton("👤 My Profile")],
-            [KeyboardButton("📌 Set Thumbnail"),          KeyboardButton("👁 View Thumbnail")],
-            [KeyboardButton("🗑 Remove Thumbnail"),       KeyboardButton("🔐 Login")],
-            [KeyboardButton("🚪 Logout"),                 KeyboardButton("⚙️ Settings")],
-            [KeyboardButton("🔄 Transfer"),               KeyboardButton("🔗 Referral")],
-            [KeyboardButton("🏠 Back")],
+            [KeyboardButton("🚀 开始"),                  KeyboardButton("❓ 帮助")],
+            [KeyboardButton("🔗 单链接下载"),            KeyboardButton("📦 批量下载")],
+            [KeyboardButton("🌐 网站视频下载")],
+            [KeyboardButton("💎 套餐购买"),              KeyboardButton("👤 个人中心")],
+            [KeyboardButton("📌 设置缩略图"),            KeyboardButton("👁 查看缩略图")],
+            [KeyboardButton("🗑 删除缩略图"),            KeyboardButton("🔐 登录")],
+            [KeyboardButton("🚪 退出登录"),              KeyboardButton("⚙️ 设置")],
+            [KeyboardButton("🔄 转让"),                  KeyboardButton("🔗 推荐")],
+            [KeyboardButton("🏠 返回")],
         ],
         resize_keyboard=True,
     )
@@ -33,22 +31,22 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 # ══════════════════════════════════════════════════
 
 BUTTON_COMMAND_MAP: dict[str, str] = {
-    "🚀 Start":                    "start",
-    "❓ Help":                     "help",
-    "🏠 Back":                     "start",
-    "🔗 Single Link Download":     "autolink",
-    "📦 Batch Download":           "autobatch",
-    "🌐 Website Video Download":   "ytdl",
-    "💎 Plans & Buy":              "plans",
-    "👤 My Profile":               "profile_info",
-    "📌 Set Thumbnail":            "setthumb",
-    "👁 View Thumbnail":           "getthumb",
-    "🗑 Remove Thumbnail":         "rmthumb",
-    "🔐 Login":                    "login",
-    "🚪 Logout":                   "logout",
-    "⚙️ Settings":                 "settings",
-    "🔄 Transfer":                 "transfer",
-    "🔗 Referral":                 "referral",
+    "🚀 开始":                    "start",
+    "❓ 帮助":                     "help",
+    "🏠 返回":                     "start",
+    "🔗 单链接下载":               "autolink",
+    "📦 批量下载":                 "autobatch",
+    "🌐 网站视频下载":             "ytdl",
+    "💎 套餐购买":                 "plans",
+    "👤 个人中心":                 "profile_info",
+    "📌 设置缩略图":               "setthumb",
+    "👁 查看缩略图":               "getthumb",
+    "🗑 删除缩略图":               "rmthumb",
+    "🔐 登录":                     "login",
+    "🚪 退出登录":                 "logout",
+    "⚙️ 设置":                     "settings",
+    "🔄 转让":                     "transfer",
+    "🔗 推荐":                     "referral",
 }
 
 
@@ -59,24 +57,24 @@ BUTTON_COMMAND_MAP: dict[str, str] = {
 def get_start_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔗 Single Link DL",  callback_data="menu_autolink"),
-            InlineKeyboardButton("📦 Batch Link DL",   callback_data="menu_autobatch"),
+            InlineKeyboardButton("🔗 单链接下载",  callback_data="menu_autolink"),
+            InlineKeyboardButton("📦 批量下载",    callback_data="menu_autobatch"),
         ],
         [
-            InlineKeyboardButton("💎 Plans & Buy",     callback_data="menu_plans"),
-            InlineKeyboardButton("👤 My Profile",      callback_data="menu_profile"),
+            InlineKeyboardButton("💎 套餐购买",    callback_data="menu_plans"),
+            InlineKeyboardButton("👤 个人中心",    callback_data="menu_profile"),
         ],
         [
-            InlineKeyboardButton("🖼 Thumbnail",       callback_data="menu_thumb"),
-            InlineKeyboardButton("🔐 Login",           callback_data="menu_login"),
+            InlineKeyboardButton("🖼 缩略图",      callback_data="menu_thumb"),
+            InlineKeyboardButton("🔐 登录",        callback_data="menu_login"),
         ],
         [
-            InlineKeyboardButton("⚙️ Settings",        callback_data="menu_settings"),
-            InlineKeyboardButton("❓ Help",            callback_data="menu_help"),
+            InlineKeyboardButton("⚙️ 设置",        callback_data="menu_settings"),
+            InlineKeyboardButton("❓ 帮助",        callback_data="menu_help"),
         ],
         [
-            InlineKeyboardButton("🔄 Transfer",        callback_data="menu_transfer"),
-            InlineKeyboardButton("🔗 Referral",        callback_data="menu_referral"),
+            InlineKeyboardButton("🔄 转让",        callback_data="menu_transfer"),
+            InlineKeyboardButton("🔗 推荐",        callback_data="menu_referral"),
         ],
     ])
 
@@ -88,13 +86,13 @@ def get_start_inline() -> InlineKeyboardMarkup:
 def get_thumb_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📌 Set Thumbnail",    callback_data="guide_setthumb"),
-            InlineKeyboardButton("👁 View Thumbnail",   callback_data="action_getthumb"),
+            InlineKeyboardButton("📌 设置缩略图",    callback_data="guide_setthumb"),
+            InlineKeyboardButton("👁 查看缩略图",    callback_data="action_getthumb"),
         ],
         [
-            InlineKeyboardButton("🗑 Remove Thumbnail", callback_data="action_rmthumb"),
+            InlineKeyboardButton("🗑 删除缩略图",    callback_data="action_rmthumb"),
         ],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+        [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
     ])
 
 
@@ -105,10 +103,10 @@ def get_thumb_menu() -> InlineKeyboardMarkup:
 def get_login_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔐 Login",   callback_data="action_login"),
-            InlineKeyboardButton("🚪 Logout",  callback_data="action_logout"),
+            InlineKeyboardButton("🔐 登录",      callback_data="action_login"),
+            InlineKeyboardButton("🚪 退出登录",  callback_data="action_logout"),
         ],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+        [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
     ])
 
 
@@ -118,7 +116,7 @@ def get_login_menu() -> InlineKeyboardMarkup:
 
 def back_to_home() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+        [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
     ])
 
 

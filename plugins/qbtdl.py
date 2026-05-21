@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/qbtdl.py — qBittorrent Downloader Plugin
 #
@@ -161,8 +159,8 @@ class QBittorrentClient:
 
         except aiohttp.ClientConnectorError:
             raise RuntimeError(
-                "Cannot connect to qBittorrent WebUI!\n"
-                "Please make sure qBittorrent is running."
+                "无法连接到 qBittorrent WebUI！\n"
+                "请确保 qBittorrent 正在运行。"
             )
 
     # ── Close session ─────────────────────────────────────────────────────────
@@ -297,19 +295,19 @@ def _progress_bar(pct: float, length: int = 20) -> str:
 def _state_label(state: str) -> str:
     """Convert qBittorrent state string to a friendly label."""
     labels = {
-        "downloading":        "⬇️ **Downloading**",
-        "stalledDL":          "⏳ **Stalled** (waiting for peers)",
-        "metaDL":             "🔍 **Fetching Metadata**",
-        "checkingDL":         "🔎 **Checking Files**",
-        "checkingResumeData": "🔎 **Checking Resume Data**",
-        "queuedDL":           "📋 **Queued**",
-        "pausedDL":           "⏸ **Paused**",
-        "error":              "❌ **Error**",
-        "missingFiles":       "❓ **Missing Files**",
-        "uploading":          "🌱 **Seeding**",
-        "stalledUP":          "🌱 **Seeding** (stalled)",
-        "forcedDL":           "⬇️ **Forced Download**",
-        "forcedUP":           "🌱 **Forced Seeding**",
+        "downloading":        "⬇️ **下载中**",
+        "stalledDL":          "⏳ **等待中**（等待节点）",
+        "metaDL":             "🔍 **获取元数据**",
+        "checkingDL":         "🔎 **检查文件**",
+        "checkingResumeData": "🔎 **检查恢复数据**",
+        "queuedDL":           "📋 **队列中**",
+        "pausedDL":           "⏸ **已暂停**",
+        "error":              "❌ **错误**",
+        "missingFiles":       "❓ **文件缺失**",
+        "uploading":          "🌱 **做种中**",
+        "stalledUP":          "🌱 **做种中**（已停滞）",
+        "forcedDL":           "⬇️ **强制下载**",
+        "forcedUP":           "🌱 **强制做种**",
     }
     return labels.get(state, f"🔄 **{state.capitalize()}**")
 
@@ -407,11 +405,11 @@ async def _upload_to_telegram(
         bar     = _progress_bar(pct)
 
         text = (
-            f"📤 **Uploading to Telegram...**\n\n"
+            f"📤 **上传到 Telegram...**\n\n"
             f"`[{bar}]` {pct:.1f}%\n\n"
             f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-            f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-            f"⏳ **ETA:** `{get_readable_time(eta)}`\n\n"
+            f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+            f"⏳ **预计：** `{get_readable_time(eta)}`\n\n"
             f"📄 `{os.path.basename(file_path)}`"
         )
         await _safe_edit(status_msg, text)
@@ -467,9 +465,9 @@ async def _upload_to_telegram(
         elapsed = get_readable_time(int(time() - start_ts))
         await _safe_edit(
             status_msg,
-            f"✅ **File sent successfully!**\n\n"
-            f"📦 **Size:** `{get_readable_file_size(file_size)}`\n"
-            f"⏱ **Total time:** `{elapsed}`",
+            f"✅ **文件发送成功！**\n\n"
+            f"📦 **大小：** `{get_readable_file_size(file_size)}`\n"
+            f"⏱ **总耗时：** `{elapsed}`",
         )
 
     except Exception as e:
@@ -520,8 +518,8 @@ async def _run_qbt_download(
             else:
                 await _safe_edit(
                     status_msg,
-                    "❌ **Failed to add torrent!**\n\n"
-                    "Please check if qBittorrent is running and try again.",
+                    "❌ **添加种子失败！**\n\n"
+                    "请检查 qBittorrent 是否运行后重试。",
                 )
                 return
 
@@ -534,7 +532,7 @@ async def _run_qbt_download(
             if _cancel_flags.get(torrent_hash):
                 _cancel_flags.pop(torrent_hash, None)
                 await qbt.remove_torrent(torrent_hash)
-                await _safe_edit(status_msg, "⛔ **Download cancelled.**")
+                await _safe_edit(status_msg, "⛔ **下载已取消。**")
                 return
 
             info = await qbt.get_torrent_info(torrent_hash)
@@ -553,12 +551,12 @@ async def _run_qbt_download(
             # ── File size check ───────────────────────────────────────────
             if size > 0 and size > max_allowed:
                 await qbt.remove_torrent(torrent_hash)
-                upgrade_hint = "\n\n💎 Upgrade to Premium: /plans" if not is_premium else ""
+                upgrade_hint = "\n\n💎 升级到高级会员：/plans" if not is_premium else ""
                 await _safe_edit(
                     status_msg,
-                    f"❌ **File is too large!**\n\n"
-                    f"📦 **File size:** `{get_readable_file_size(size)}`\n"
-                    f"🚫 **Your limit:** `{get_readable_file_size(max_allowed)}`"
+                    f"❌ **文件过大！**\n\n"
+                    f"📦 **文件大小:** `{get_readable_file_size(size)}`\n"
+                    f"🚫 **你的限制:** `{get_readable_file_size(max_allowed)}`"
                     f"{upgrade_hint}",
                 )
                 return
@@ -570,11 +568,11 @@ async def _run_qbt_download(
                 eta_text   = (
                     get_readable_time(eta_secs)
                     if eta_secs and eta_secs < 8_640_000
-                    else "Calculating..."
+                    else "计算中..."
                 )
                 cancel_btn = InlineKeyboardMarkup([[
                     InlineKeyboardButton(
-                        "⛔ Cancel",
+                        "⛔ 取消",
                         callback_data=f"qbt_cancel_{torrent_hash}",
                     )
                 ]])
@@ -582,10 +580,10 @@ async def _run_qbt_download(
                     status_msg,
                     f"{state_text}\n\n"
                     f"`[{bar}]` {pct:.1f}%\n\n"
-                    f"📥 **Downloaded:** `{get_readable_file_size(dl_bytes)}` / `{get_readable_file_size(size)}`\n"
-                    f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                    f"⏳ **ETA:** `{eta_text}`\n"
-                    f"⏱ **Elapsed:** `{get_readable_time(int(time() - start_ts))}`",
+                    f"📥 **已下载：** `{get_readable_file_size(dl_bytes)}` / `{get_readable_file_size(size)}`\n"
+                    f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+                    f"⏳ **预计：** `{eta_text}`\n"
+                    f"⏱ **已用时间：** `{get_readable_time(int(time() - start_ts))}`",
                     markup=cancel_btn,
                 )
                 last_edit_ts = time()
@@ -595,10 +593,10 @@ async def _run_qbt_download(
                 break  # Download done — move to upload step
 
             elif state == "error":
-                err_msg = info.get("comment", "Unknown error")
+                err_msg = info.get("comment", "未知错误")
                 await _safe_edit(
                     status_msg,
-                    f"❌ **Download failed!**\n\n`{err_msg}`",
+                    f"❌ **下载失败！**\n\n`{err_msg}`",
                 )
                 await qbt.remove_torrent(torrent_hash)
                 return
@@ -610,14 +608,14 @@ async def _run_qbt_download(
             await qbt.remove_torrent(torrent_hash)
             await _safe_edit(
                 status_msg,
-                "⏰ **Timeout!**\n\nDownload did not complete in time.",
+                "⏰ **超时！**\n\n下载未及时完成。",
             )
             return
 
         # ── Step 3: Find the downloaded file ─────────────────────────────────
         await _safe_edit(
             status_msg,
-            "✅ **Download complete!**\n\n📤 Preparing to upload...",
+            "✅ **下载完成！**\n\n📤 准备上传...",
         )
 
         torrent_files = await qbt.get_torrent_files(torrent_hash)
@@ -629,7 +627,7 @@ async def _run_qbt_download(
         if not upload_path or not os.path.isfile(upload_path):
             await _safe_edit(
                 status_msg,
-                "❌ **Could not find downloaded file.**\n\nPlease try again.",
+                "❌ **找不到下载的文件。**\n\n请重试。",
             )
             await qbt.remove_torrent(torrent_hash)
             return
@@ -648,10 +646,10 @@ async def _run_qbt_download(
         # ── Step 5: Check final file size before upload ───────────────────────
         file_sz = os.path.getsize(upload_path)
         if file_sz > max_allowed:
-            upgrade_hint = "\n\n💎 Upgrade to Premium: /plans" if not is_premium else ""
+            upgrade_hint = "\n\n💎 升级到高级会员：/plans" if not is_premium else ""
             await _safe_edit(
                 status_msg,
-                f"❌ **File too large to upload!**\n\n"
+                f"❌ **文件过大无法上传！**\n\n"
                 f"📦 `{get_readable_file_size(file_sz)}` > `{get_readable_file_size(max_allowed)}`"
                 f"{upgrade_hint}",
             )
@@ -675,7 +673,7 @@ async def _run_qbt_download(
             LOGGER.error(f"[QBTDl] Upload failed for user {user_id}: {upload_err}")
             await _safe_edit(
                 status_msg,
-                f"❌ **Upload failed!**\n\n`{str(upload_err)[:300]}`",
+                f"❌ **上传失败！**\n\n`{str(upload_err)[:300]}`",
             )
             return
 
@@ -703,7 +701,7 @@ async def _run_qbt_download(
         LOGGER.error(f"[QBTDl] Pipeline error — user={user_id}: {e}")
         await _safe_edit(
             status_msg,
-            f"❌ **Something went wrong!**\n\n`{str(e)[:300]}`",
+            f"❌ **出了点问题！**\n\n`{str(e)[:300]}`",
         )
         try:
             await qbt.remove_torrent(torrent_hash)
@@ -754,7 +752,7 @@ def setup_qbtdl_handler(app: Client):
             ):
                 # Case 1: replied to a .torrent file
                 dl_msg = await message.reply_text(
-                    "⬇️ **Downloading .torrent file...**",
+                    "⬇️ **下载 .torrent 文件中...**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 torrent_file_path = await message.reply_to_message.download()
@@ -777,17 +775,17 @@ def setup_qbtdl_handler(app: Client):
         # ── Show help if no input was given ───────────────────────────────────
         if not torrent_file_path and not args_text:
             await message.reply_text(
-                "🌊 **qBittorrent Downloader**\n"
+                "🌊 **qBittorrent 下载**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "**How to use:**\n"
-                "`/qbt <magnet link>`\n"
-                "`/qbt <torrent file URL>`\n"
-                "Reply to a `.torrent` file with `/qbt`\n\n"
-                "**Supported input types:**\n"
-                "• Magnet links (`magnet:?xt=...`)\n"
-                "• Direct torrent file URLs\n"
-                "• `.torrent` file attachments\n\n"
-                "__Tip: Premium users get a 2 GB limit. Free users get 500 MB.__",
+                "**使用方法：**\n"
+                "`/qbt <磁力链接>`\n"
+                "`/qbt <种子文件 URL>`\n"
+                "回复 `.torrent` 文件并输入 `/qbt`\n\n"
+                "**支持输入类型：**\n"
+                "• 磁力链接（`magnet:?xt=...`）\n"
+                "• 直链种子文件 URL\n"
+                "• `.torrent` 文件附件\n\n"
+                "__提示：高级用户有 2GB 限制。免费用户有 500MB。__",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -797,7 +795,7 @@ def setup_qbtdl_handler(app: Client):
 
         # ── Status message ────────────────────────────────────────────────────
         status_msg = await message.reply_text(
-            "🔄 **Adding torrent to qBittorrent...**",
+            "🔄 **正在添加到 qBittorrent...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -825,10 +823,10 @@ def setup_qbtdl_handler(app: Client):
             short_hash = (torrent_hash[:16] + "...") if torrent_hash else "detecting..."
             await _safe_edit(
                 status_msg,
-                f"✅ **Torrent added!**\n\n"
-                f"🔑 **Hash:** `{short_hash}`\n"
-                f"📡 **Source:** `{source_label[:60]}`\n\n"
-                f"⏳ Starting download...",
+                f"✅ **种子已添加！**\n\n"
+                f"🔑 **哈希：** `{short_hash}`\n"
+                f"📡 **来源：** `{source_label[:60]}`\n\n"
+                f"⏳ 开始下载...",
             )
 
             LOGGER.info(f"[QBTDl] User {user_id} added torrent — hash={torrent_hash[:12] if torrent_hash else 'unknown'}")
@@ -845,7 +843,7 @@ def setup_qbtdl_handler(app: Client):
             LOGGER.error(f"[QBTDl] Failed to add torrent for user {user_id}: {e}")
             await _safe_edit(
                 status_msg,
-                f"❌ **Could not add torrent!**\n\n`{str(e)[:300]}`",
+                f"❌ **无法添加种子！**\n\n`{str(e)[:300]}`",
             )
             # Clean up downloaded .torrent file if it exists
             if torrent_file_path and os.path.exists(torrent_file_path):
@@ -867,8 +865,8 @@ def setup_qbtdl_handler(app: Client):
 
         await _safe_edit(
             callback_query.message,
-            "⛔ **Cancel request sent...**\n\nPlease wait a moment.",
+            "⛔ **已发送取消请求...**\n\n请稍候。",
         )
-        await callback_query.answer("Cancel request sent!")
+        await callback_query.answer("已发送取消请求！")
 
     LOGGER.info("[QBTDl] /qbt command handler registered successfully.")

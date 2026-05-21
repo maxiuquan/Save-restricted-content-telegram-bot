@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # Improved Login System — Phone number only (no API_ID/API_HASH from user)
 # Uses bot's own API_ID & API_HASH from config for session generation.
@@ -102,7 +100,7 @@ def setup_login_handler(app: Client):
         except asyncio.TimeoutError:
             LOGGER.warning(f"[Login] Database timeout fetching sessions for user {user_id}")
             await message.reply_text(
-                "**⏳ Database timeout. Please try again in a moment.**",
+                "**⏳ 数据库超时。请稍后重试。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -113,13 +111,13 @@ def setup_login_handler(app: Client):
         current_sessions = user_session.get("sessions", [])
         if len(current_sessions) >= max_accounts:
             plan_note = (
-                "Upgrade your plan to add more accounts: /plans"
+                "升级套餐以添加更多账户：/plans"
                 if not is_premium
-                else "Use /logout to remove an existing account first."
+                else "请先使用 /logout 移除现有账户。"
             )
             await message.reply_text(
-                f"**❌ You have reached the limit of {max_accounts} "
-                f"account{'s' if max_accounts > 1 else ''}!**\n\n"
+                f"**❌ 已达到 {max_accounts} 个账户"
+                f"的上限！**\n\n"
                 f"{plan_note}",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -128,23 +126,22 @@ def setup_login_handler(app: Client):
         # Initialise state
         session_data[message.chat.id] = {"user_id": user_id, "stage": "phone"}
 
-        plan_label = "✨ Premium" if is_premium else "🆓 Free"
+        plan_label = "✨ 高级" if is_premium else "🆓 免费"
         await message.reply_text(
-            f"**🔐 Login Setup** ({plan_label})\n"
+            f"**🔐 登录设置** ({plan_label})\n"
             "━━━━━━━━━━━━━━━━━━\n\n"
-            "**⚠️ Important — Read Before You Login:**\n\n"
-            "✅ Log in with the Telegram account that is\n"
-            "    already a **member** of the private channel\n"
-            "    or group you want to download from.\n\n"
-            "❌ If your account is **not a member** of that\n"
-            "    channel/group, the download will **fail**.\n\n"
+            "**⚠️ 重要 — 登录前请阅读：**\n\n"
+            "✅ 请使用**已是私密频道或群组成**的\n"
+            "    Telegram 账户登录。\n\n"
+            "❌ 如果你的账户**不是**该频道/群组的\n"
+            "    成员，下载将**失败**。\n\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📱 Send your **phone number** with country code:\n\n"
-            "**Example:** `+8801XXXXXXXXX`\n\n"
-            "__Session stored securely. Use /logout to remove anytime.__",
+            "📱 请发送你的**手机号**（含国家代码）：\n\n"
+            "**示例：** `+8801XXXXXXXXX`\n\n"
+            "__会话将安全存储。随时使用 /logout 移除。__",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ Cancel", callback_data="login_cancel"),
+                InlineKeyboardButton("❌ 取消", callback_data="login_cancel"),
             ]]),
         )
 
@@ -163,7 +160,7 @@ def setup_login_handler(app: Client):
         except asyncio.TimeoutError:
             LOGGER.warning(f"[Logout] Database timeout for user {user_id}")
             await message.reply_text(
-                "**⏳ Database timeout. Please try again.**",
+                "**⏳ 数据库超时。请重试。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -173,7 +170,7 @@ def setup_login_handler(app: Client):
 
         if not user_session or not user_session.get("sessions"):
             await message.reply_text(
-                "**❌ You are not logged in to any account.**",
+                "**❌ 你尚未登录任何账户。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -191,15 +188,15 @@ def setup_login_handler(app: Client):
             
             _cleanup_session_file(user_id, sessions[0]["session_id"])
             await message.reply_text(
-                f"**✅ Successfully logged out from '{sessions[0]['account_name']}'!**",
+                f"**✅ 已成功退出 '{sessions[0]['account_name']}'！**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             LOGGER.info(f"User {user_id} logged out of {sessions[0]['account_name']}")
         else:
             buttons = _build_account_buttons(sessions, "logout_select")
-            buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="login_cancel")])
+            buttons.append([InlineKeyboardButton("❌ 取消", callback_data="login_cancel")])
             await message.reply_text(
-                "**🚪 Select the account to log out from:**",
+                "**🚪 选择要退出的账户：**",
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -216,7 +213,7 @@ def setup_login_handler(app: Client):
             _clear_state(chat_id)
             try:
                 await callback_query.message.edit_text(
-                    "**❌ Cancelled. Use /login to start again.**",
+                    "**❌ 已取消。使用 /login 重新开始。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except MessageNotModified:
@@ -228,11 +225,11 @@ def setup_login_handler(app: Client):
             session_data[chat_id] = {"user_id": user_id, "stage": "phone"}
             try:
                 await callback_query.message.edit_text(
-                    "**🔄 Restarted. Please send your phone number:**\n\n"
-                    "**Example:** `+8801XXXXXXXXX`",
+                    "**🔄 已重新开始。请发送你的手机号：**\n\n"
+                    "**示例：** `+8801XXXXXXXXX`",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("❌ Cancel", callback_data="login_cancel"),
+                        InlineKeyboardButton("❌ 取消", callback_data="login_cancel"),
                     ]]),
                 )
             except MessageNotModified:
@@ -250,13 +247,13 @@ def setup_login_handler(app: Client):
                 user_session = None
 
             if not user_session:
-                await callback_query.answer("Session not found.", show_alert=True)
+                await callback_query.answer("未找到会话。", show_alert=True)
                 return
 
             sessions = user_session.get("sessions", [])
             target   = next((s for s in sessions if s["session_id"] == session_id), None)
             if not target:
-                await callback_query.answer("Account not found.", show_alert=True)
+                await callback_query.answer("未找到账户。", show_alert=True)
                 return
 
             sessions.remove(target)
@@ -273,7 +270,7 @@ def setup_login_handler(app: Client):
             _cleanup_session_file(user_id, session_id)
             try:
                 await callback_query.message.edit_text(
-                    f"**✅ Successfully logged out from '{target['account_name']}'!**",
+                    f"**✅ 已成功退出 '{target['account_name']}'！**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except MessageNotModified:
@@ -300,16 +297,16 @@ def setup_login_handler(app: Client):
         if stage == "phone":
             if not text.startswith("+") or len(text) < 8:
                 await message.reply_text(
-                    "**❌ Invalid phone number.**\n\n"
-                    "Please include the country code.\n"
-                    "**Example:** `+8801XXXXXXXXX`",
+                    "**❌ 无效的手机号。**\n\n"
+                    "请包含国家代码。\n"
+                    "**示例：** `+8801XXXXXXXXX`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
 
             state["phone"] = text
             sending_msg = await message.reply_text(
-                "**📨 Sending verification code...**",
+                "**📨 正在发送验证码...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             await _send_otp(client, message, sending_msg, state)
@@ -318,7 +315,7 @@ def setup_login_handler(app: Client):
             otp = "".join(c for c in text if c.isdigit())
             state["otp"] = otp
             validating_msg = await message.reply_text(
-                "**🔄 Verifying code...**",
+                "**🔄 正在验证验证码...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             await _validate_otp(client, message, validating_msg, state)
@@ -360,17 +357,17 @@ def setup_login_handler(app: Client):
 
             await _safe_edit(
                 status_msg,
-                "**✅ Verification code sent!**\n\n"
-                "Please send the OTP you received on Telegram.\n\n"
-                "__Tip: Enter it with spaces like `1 2 3 4 5`__",
+                "**✅ 验证码已发送！**\n\n"
+                "请在 Telegram 中收到的验证码。\n\n"
+                "__提示：可以带空格输入，如 `1 2 3 4 5`__",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
-                    [InlineKeyboardButton("❌ Cancel",  callback_data="login_cancel")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
+                    [InlineKeyboardButton("❌ 取消",  callback_data="login_cancel")],
                 ]),
             )
 
         except asyncio.TimeoutError:
-            await _safe_edit(status_msg, "**❌ Connection timeout. Please try again.**")
+            await _safe_edit(status_msg, "**❌ 连接超时。请重试。**")
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
@@ -378,7 +375,7 @@ def setup_login_handler(app: Client):
                 pass
 
         except PhoneNumberInvalid:
-            await _safe_edit(status_msg, "**❌ Invalid phone number. Please try again.**")
+            await _safe_edit(status_msg, "**❌ 无效的手机号。请重试。**")
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
@@ -386,7 +383,7 @@ def setup_login_handler(app: Client):
                 pass
 
         except ApiIdInvalid:
-            await _safe_edit(status_msg, "**❌ API configuration error. Please contact support.**")
+            await _safe_edit(status_msg, "**❌ API 配置错误。请联系支持。**")
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
@@ -396,7 +393,7 @@ def setup_login_handler(app: Client):
         except FloodWait as e:
             await _safe_edit(
                 status_msg,
-                f"**⏳ Too many requests. Please wait {e.value} seconds and try again.**",
+                f"**⏳ 请求过于频繁。请等待 {e.value} 秒后重试。**",
             )
             _clear_state(chat_id)
             try:
@@ -408,7 +405,7 @@ def setup_login_handler(app: Client):
             LOGGER.error(f"OTP send error for user {user_id}: {e}")
             await _safe_edit(
                 status_msg,
-                f"**❌ Failed to send verification code.**\n\nError: `{str(e)[:100]}`",
+                f"**❌ 发送验证码失败。**\n\n错误：`{str(e)[:100]}`",
             )
             _clear_state(chat_id)
             try:
@@ -438,20 +435,20 @@ def setup_login_handler(app: Client):
         except PhoneCodeInvalid:
             await _safe_edit(
                 status_msg,
-                "**❌ Incorrect verification code. Please try again.**",
+                "**❌ 验证码错误。请重试。**",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
-                    [InlineKeyboardButton("❌ Cancel",  callback_data="login_cancel")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
+                    [InlineKeyboardButton("❌ 取消",  callback_data="login_cancel")],
                 ]),
             )
 
         except PhoneCodeExpired:
             await _safe_edit(
                 status_msg,
-                "**❌ Verification code expired. Please restart.**",
+                "**❌ 验证码已过期。请重新开始。**",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
-                    [InlineKeyboardButton("❌ Cancel",  callback_data="login_cancel")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
+                    [InlineKeyboardButton("❌ 取消",  callback_data="login_cancel")],
                 ]),
             )
             _clear_state(chat_id)
@@ -461,20 +458,20 @@ def setup_login_handler(app: Client):
             asyncio.create_task(_twofa_timeout(client, chat_id, state))
             await _safe_edit(
                 status_msg,
-                "**🔒 Two-Step Verification is enabled.**\n\n"
-                "Please send your **2FA password**:",
+                "**🔒 已启用两步验证。**\n\n"
+                "请发送你的 **两步验证密码**：",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
-                    [InlineKeyboardButton("❌ Cancel",  callback_data="login_cancel")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
+                    [InlineKeyboardButton("❌ 取消",  callback_data="login_cancel")],
                 ]),
             )
 
         except asyncio.TimeoutError:
             await _safe_edit(
                 status_msg,
-                "**❌ Verification timeout. Please try again.**",
+                "**❌ 验证超时。请重试。**",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
                 ]),
             )
             _clear_state(chat_id)
@@ -483,9 +480,9 @@ def setup_login_handler(app: Client):
             LOGGER.error(f"OTP validation error: {e}")
             await _safe_edit(
                 status_msg,
-                f"**❌ Verification failed.**\n\nError: `{str(e)[:100]}`",
+                f"**❌ 验证失败。**\n\n错误：`{str(e)[:100]}`",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
                 ]),
             )
             _clear_state(chat_id)
@@ -497,7 +494,7 @@ def setup_login_handler(app: Client):
         password    = state["password"]
 
         status_msg = await message.reply_text(
-            "**🔄 Verifying password...**",
+            "**🔄 正在验证密码...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -515,22 +512,22 @@ def setup_login_handler(app: Client):
         except PasswordHashInvalid:
             await _safe_edit(
                 status_msg,
-                "**❌ Incorrect 2FA password. Please try again:**",
+                "**❌ 两步验证密码错误。请重试：**",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Restart", callback_data="login_restart")],
-                    [InlineKeyboardButton("❌ Cancel",  callback_data="login_cancel")],
+                    [InlineKeyboardButton("🔄 重新开始", callback_data="login_restart")],
+                    [InlineKeyboardButton("❌ 取消",  callback_data="login_cancel")],
                 ]),
             )
 
         except asyncio.TimeoutError:
-            await _safe_edit(status_msg, "**❌ 2FA timeout. Please try again.**")
+            await _safe_edit(status_msg, "**❌ 两步验证超时。请重试。**")
             _clear_state(chat_id)
 
         except Exception as e:
             LOGGER.error(f"2FA validation error: {e}")
             await _safe_edit(
                 status_msg,
-                f"**❌ 2FA verification failed.**\n\nError: `{str(e)[:100]}`",
+                f"**❌ 两步验证失败。**\n\n错误：`{str(e)[:100]}`",
             )
             _clear_state(chat_id)
 
@@ -567,7 +564,7 @@ def setup_login_handler(app: Client):
                 LOGGER.error(f"[Session] Database timeout saving session for user {user_id}")
                 await client.send_message(
                     chat_id=chat_id,
-                    text="**⏳ Database timeout saving session. Please try /login again.**",
+                    text="**⏳ 保存会话时数据库超时。请重新使用 /login。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 _clear_state(chat_id)
@@ -584,18 +581,18 @@ def setup_login_handler(app: Client):
                 is_premium = False
 
             plan_note = (
-                "💎 You have **premium access** — paste any private link to download instantly!"
+                "💎 你拥有**高级权限** — 粘贴任意私密链接即可立即下载！"
                 if is_premium
-                else "🆓 **Free user:** You can now access private content (5-minute cooldown applies).\n"
-                     "Upgrade to Premium for unlimited access: /plans"
+                else "🆓 **免费用户：** 你现在可以访问私密内容（有 5 分钟冷却时间）。\n"
+                     "升级到高级版可享受无限制访问：/plans"
             )
 
             await client.send_message(
                 chat_id=chat_id,
                 text=(
-                    f"**✅ Successfully logged in as '{account_name}'!**\n\n"
+                    f"**✅ 已成功以 '{account_name}' 身份登录！**\n\n"
                     f"{plan_note}\n\n"
-                    "__Use /logout to remove your session anytime.__"
+                    "__随时使用 /logout 移除你的会话。__"
                 ),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -605,7 +602,7 @@ def setup_login_handler(app: Client):
             LOGGER.error(f"Session generation error for user {user_id}: {e}")
             await client.send_message(
                 chat_id=chat_id,
-                text=f"**❌ Failed to save session.**\n\nError: `{str(e)[:100]}`",
+                text=f"**❌ 保存会话失败。**\n\n错误：`{str(e)[:100]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             _clear_state(chat_id)
@@ -622,7 +619,7 @@ def setup_login_handler(app: Client):
             try:
                 await client.send_message(
                     chat_id=chat_id,
-                    text="**⏰ Verification code expired. Please use /login to try again.**",
+                    text="**⏰ 验证码已过期。请使用 /login 重新尝试。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except:
@@ -636,7 +633,7 @@ def setup_login_handler(app: Client):
             try:
                 await client.send_message(
                     chat_id=chat_id,
-                    text="**⏰ 2FA verification timed out. Please use /login to try again.**",
+                    text="**⏰ 两步验证超时。请使用 /login 重新尝试。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except:

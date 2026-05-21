@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 import logging
 from logging.handlers import RotatingFileHandler
 

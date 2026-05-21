@@ -1,7 +1,3 @@
-# Copyright @TheSmartBisnu
-# Channel t.me/ItsSmartDev
-# Update Author @juktijol
-# Channel t.me/juktijol
 # ✅ FIXED: sqlite3 closed database + OSError TCPTransport + AUTH_KEY_UNREGISTERED
 # ✅ FIXED: Video aspect ratio (squished) → actual video resolution used for width/height
 # ✅ FIXED: Thumbnail scale → aspect ratio preserved with scale=320:-2
@@ -36,7 +32,7 @@ def get_readable_file_size(size_in_bytes: Optional[float]) -> str:
         if size_in_bytes < 1024:
             return f"{size_in_bytes:.2f} {unit}"
         size_in_bytes /= 1024
-    return "File too large"
+    return "文件过大"
 
 
 def get_readable_time(seconds: int) -> str:
@@ -62,9 +58,9 @@ async def fileSizeLimit(file_size, message, action_type="download", is_premium=F
     MAX_FILE_SIZE = 2 * 2097152000 if is_premium else 2097152000
     if file_size > MAX_FILE_SIZE:
         await message.reply(
-            f"The file size exceeds the "
-            f"{get_readable_file_size(MAX_FILE_SIZE)} limit "
-            f"and cannot be {action_type}ed."
+            f"文件大小超过了 "
+            f"{get_readable_file_size(MAX_FILE_SIZE)} 的限制，"
+            f"无法{action_type}。"
         )
         return False
     return True
@@ -75,9 +71,9 @@ async def get_parsed_msg(text, entities):
 
 
 PROGRESS_BAR = """
-Percentage: {percentage:.2f}% | {current}/{total}
-Speed: {speed}/s
-Estimated Time Left: {est_time} seconds
+百分比：{percentage:.2f}% | {current}/{total}
+速度：{speed}/s
+预计剩余时间：{est_time} 秒
 """
 
 
@@ -102,14 +98,14 @@ def getChatMsgID(link: str):
             chat_id = linkps[3]
             if chat_id == "m":
                 raise ValueError(
-                    "Invalid ClientType used to parse this message link"
+                    "用于解析此消息链接的客户端类型无效"
                 )
             message_id = int(linkps[4])
     except (ValueError, TypeError):
-        raise ValueError("Invalid post URL. Must end with a numeric ID.")
+        raise ValueError("无效的帖子 URL。必须以数字 ID 结尾。")
 
     if not chat_id or not message_id:
-        raise ValueError("Please send a valid Telegram post URL.")
+        raise ValueError("请发送有效的 Telegram 帖子 URL。")
 
     return chat_id, message_id
 
@@ -123,11 +119,11 @@ async def cmd_exec(cmd, shell=False):
     try:
         stdout = stdout.decode().strip()
     except Exception:
-        stdout = "Unable to decode the response!"
+        stdout = "无法解码响应！"
     try:
         stderr = stderr.decode().strip()
     except Exception:
-        stderr = "Unable to decode the error!"
+        stderr = "无法解码错误！"
     return stdout, stderr, proc.returncode
 
 
@@ -390,7 +386,7 @@ async def send_media_to_saved(
 
     saved_messages_chat = "me"
     progress_args_tuple = progressArgs(
-        "📤 Uploading to Saved Messages", progress_message, start_time
+        "📤 上传中", progress_message, start_time
     )
     LOGGER.info(
         f"[USER CLIENT] Uploading to Saved Messages: {media_path} ({media_type})"
@@ -544,9 +540,9 @@ async def send_media_to_saved(
         await bot.send_message(
             chat_id=message.chat.id,
             text=(
-                "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
-                "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
-                "__(The bot never stores your files — your privacy is protected)__"
+                "**✅ 消息保存成功！🚀**\n\n"
+                "📂 打开 **Telegram → 收藏夹** 查找文件。\n\n"
+                "__(机器人不会存储你的文件 — 你的隐私受到保护)__"
             )
         )
 
@@ -603,7 +599,7 @@ async def processMediaGroup(
     invalid_paths = []
 
     start_time       = time()
-    progress_message = await message.reply("**📥 Downloading media group...**")
+    progress_message = await message.reply("**📥 下载媒体组中...**")
     LOGGER.info(
         f"Downloading media group with {len(media_group_messages)} items..."
     )
@@ -615,7 +611,7 @@ async def processMediaGroup(
                 media_path = await msg.download(
                     progress=Leaves.progress_for_pyrogram,
                     progress_args=progressArgs(
-                        "📥 Downloading", progress_message, start_time
+                        "📥 下载中", progress_message, start_time
                     ),
                 )
                 temp_paths.append(media_path)
@@ -693,10 +689,10 @@ async def processMediaGroup(
                 await bot.send_message(
                     chat_id=message.chat.id,
                     text=(
-                        "**✅ Media group successfully sent to your "
-                        "Saved Messages! 🚀**\n\n"
-                        "📂 Open **Telegram → Saved Messages** to find "
-                        "your files."
+                        "**✅ 媒体组已成功发送到"
+                        "你的收藏夹！🚀**\n\n"
+                        "📂 打开 **Telegram → 收藏夹** 查找"
+                        "你的文件。"
                     )
                 )
         except Exception as e:
@@ -714,16 +710,16 @@ async def processMediaGroup(
                     await bot.send_message(
                         chat_id=message.chat.id,
                         text=(
-                            "**✅ Media group successfully sent to your "
-                            "Saved Messages! 🚀**\n\n"
-                            "📂 Open **Telegram → Saved Messages** to "
-                            "find your files."
+                            "**✅ 媒体组已成功发送到"
+                            "你的收藏夹！🚀**\n\n"
+                            "📂 打开 **Telegram → 收藏夹** "
+                            "查找你的文件。"
                         )
                     )
             else:
                 await message.reply(
-                    "**❌ Could not send the media group as a batch. "
-                    "Sending files individually...**"
+                    "**❌ 无法批量发送媒体组，"
+                    "正在逐个发送文件...**"
                 )
                 for media in valid_media:
                     try:
@@ -760,7 +756,7 @@ async def processMediaGroup(
                             )
                     except Exception as individual_e:
                         await message.reply(
-                            f"**❌ Failed to upload: {individual_e}**"
+                            f"**❌ 上传失败：{individual_e}**"
                         )
                 try:
                     await progress_message.delete()
@@ -807,7 +803,7 @@ async def processMediaGroup(
         return True
 
     await progress_message.delete()
-    await message.reply("**❌ No valid media found in the media group.**")
+    await message.reply("**❌ 媒体组中未找到有效媒体。**")
     for path in invalid_paths:
         if os.path.exists(path):
             os.remove(path)
@@ -836,6 +832,6 @@ async def send_media(
         "send_media() is deprecated. Use send_media_to_saved() with user_client."
     )
     await progress_message.edit_text(
-        "**⚠️ System error: Please contact support.**"
+        "**⚠️ 系统错误：请联系支持。**"
     )
     await progress_message.delete()

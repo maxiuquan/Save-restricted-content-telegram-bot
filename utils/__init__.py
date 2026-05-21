@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from .logging_setup import LOGGER
 from .helper import (
     getChatMsgID,

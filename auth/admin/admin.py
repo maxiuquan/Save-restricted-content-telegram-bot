@@ -1,42 +1,40 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from config import DEVELOPER_USER_ID, COMMAND_PREFIX
 from utils import LOGGER
 
 ADMIN_HELP_TEXT = """
-**✘ Admin Command Panel ↯**
+**✘ 管理员命令面板 ↯**
 **✘━━━━━━━━━━━━━━━━━━━━━━━↯**
 
-**📊 Stats & Monitoring:**
-├ `/stats` — Bot statistics (users, premium, downloads, CPU/RAM)
-├ `/users` — Paginated list of all users
-├ `/logs` — View or download bot logs
-└ `/speedtest` — Run a server speed test
+**📊 统计与监控：**
+├ `/stats` — 机器人统计（用户、高级会员、下载量、CPU/内存）
+├ `/users` — 分页用户列表
+├ `/logs` — 查看或下载机器人日志
+└ `/speedtest` — 运行服务器速度测试
 
-**📢 Broadcast & Messaging:**
-├ `/gcast` — Global broadcast (copy + pin)
-├ `/acast` — Global broadcast (forward + pin)
-├ `/send` — Send message to a specific user by ID
-└ `/broadcast` — Broadcast alias
+**📢 广播与消息：**
+├ `/gcast` — 全局广播（复制+置顶）
+├ `/acast` — 全局广播（转发+置顶）
+├ `/send` — 按 ID 发送消息给指定用户
+└ `/broadcast` — 广播别名
 
-**👑 Premium Management:**
-├ `/add {user} {1|2|3}` — Add user to premium plan
-└ `/rm {user}` — Remove user from premium
+**👑 高级会员管理：**
+├ `/add {用户} {1|2|3}` — 将用户添加到高级计划
+└ `/rm {用户}` — 移除用户的高级会员
 
-**🔄 Bot Control:**
-├ `/restart` — Restart the bot
-├ `/stop` — Stop the bot
-└ `/set` — Set BotFather command list
+**🔄 机器人控制：**
+├ `/restart` — 重启机器人
+├ `/stop` — 停止机器人
+└ `/set` — 设置 BotFather 命令列表
 
-**🛠 Database & Fixes:**
-├ `/migrate` — Migrate database
-├ `/fix_async` — Fix async issues
-└ `/fix_status` — Check async fix status
+**🛠 数据库与修复：**
+├ `/migrate` — 迁移数据库
+├ `/fix_async` — 修复异步问题
+└ `/fix_status` — 检查异步修复状态
 
 **✘━━━━━━━━━━━━━━━━━━━━━━━↯**
-**✘ Developer Access Only ↯**
+**✘ 仅限开发者访问 ↯**
 """
 
 
@@ -50,7 +48,7 @@ def setup_admin_handler(app: Client):
         if user_id != DEVELOPER_USER_ID:
             await client.send_message(
                 chat_id=message.chat.id,
-                text="**❌ Unauthorized! Only Developer Can Access Admin Panel! ↯**",
+                text="**❌ 未授权！仅开发者可访问管理面板！↯**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return

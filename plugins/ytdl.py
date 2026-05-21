@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-
 """
 yt-dlp ভিত্তিক Telegram Bot Handler
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -44,6 +41,7 @@ from utils.helper import (
     get_readable_file_size,
     get_readable_time,
     get_video_thumbnail,
+    get_video_resolution,
     progressArgs,
 )
 from core import daily_limit, prem_plan1, prem_plan2, prem_plan3
@@ -664,7 +662,7 @@ def build_quality_keyboard(
     buttons = []
 
     for height, fid in video_rows[:4]:  # সর্বোচ্চ 4টি quality option
-        label = f"🎬 {height}p HD" if height >= 720 else f"🎬 {height}p"
+        label = f"🎬 {height}p 高清" if height >= 720 else f"🎬 {height}p"
         buttons.append([
             InlineKeyboardButton(
                 label,
@@ -676,20 +674,20 @@ def build_quality_keyboard(
         # কোনো format পাওয়া না গেলে Best quality default
         buttons.append([
             InlineKeyboardButton(
-                "🎬 Best Quality",
+                "🎬 最佳画质",
                 callback_data=f"{prefix}_v_{chat_id}_best",
             )
         ])
 
     buttons.append([
         InlineKeyboardButton(
-            "🎵 Audio Only (MP3)",
+            "🎵 仅音频 (MP3)",
             callback_data=f"{prefix}_a_{chat_id}",
         )
     ])
     buttons.append([
         InlineKeyboardButton(
-            "❌ Cancel",
+            "❌ 取消",
             callback_data=f"{prefix}_cancel_{chat_id}",
         )
     ])
@@ -720,12 +718,12 @@ async def _ytdl_progress_updater(msg, progress_data: dict):
         pct   = min((dl / total) * 100, 100) if total > 0 else 0
 
         text = (
-            f"📥 **Downloading**\n\n"
+            f"📥 **下载中**\n\n"
             f"`{_make_progress_bar(pct)}`\n"
-            f"**Progress:** {pct:.2f}% | "
+            f"**进度：** {pct:.2f}% | "
             f"{get_readable_file_size(dl)}/{get_readable_file_size(total)}\n"
-            f"**Speed:** {get_readable_file_size(spd)}/s  "
-            f"**ETA:** {get_readable_time(int(eta)) if eta else '...'}"
+            f"**速度：** {get_readable_file_size(spd)}/s  "
+            f"**预计：** {get_readable_time(int(eta)) if eta else '...'}"
         )
         if text != last_text:
             try:
@@ -1071,12 +1069,17 @@ async def _upload_video_file(
                 title         = title,
                 parse_mode    = ParseMode.MARKDOWN,
                 progress      = Leaves.progress_for_pyrogram,
-                progress_args = progressArgs("📤 Uploading", progress_msg, start_t),
+                progress_args = progressArgs("📤 上传中", progress_msg, start_t),
             )
         else:
             thumb_path = None
+            vid_width, vid_height = 0, 0
             try:
                 thumb_path = await get_video_thumbnail(filepath, duration)
+            except Exception:
+                pass
+            try:
+                vid_width, vid_height = await get_video_resolution(filepath)
             except Exception:
                 pass
             try:
@@ -1085,11 +1088,13 @@ async def _upload_video_file(
                     video              = filepath,
                     caption            = caption,
                     duration           = duration,
+                    width              = vid_width,
+                    height             = vid_height,
                     thumb              = thumb_path,
                     parse_mode         = ParseMode.MARKDOWN,
                     supports_streaming = True,
                     progress           = Leaves.progress_for_pyrogram,
-                    progress_args      = progressArgs("📤 Uploading", progress_msg, start_t),
+                    progress_args      = progressArgs("📤 上传中", progress_msg, start_t),
                 )
             finally:
                 if thumb_path and os.path.exists(thumb_path):
@@ -1136,20 +1141,20 @@ def setup_ytdl_handler(app: Client):
         # ── Usage help ─────────────────────────────────────────────────────
         if len(message.command) < 2:
             await message.reply_text(
-                "🌐 **YouTube / 1000+ Sites Downloader**\n\n"
-                "**Usage:**\n"
+                "🌐 **YouTube / 1000+ 网站下载器**\n\n"
+                "**用法：**\n"
                 "`/ytdl <URL>`\n"
                 "`/ytdl <URL> referer:<Referer URL>`\n\n"
-                "**Supported:** YouTube, Instagram, TikTok, Twitter/X, "
-                "Facebook, Vimeo এবং 1000+ site!\n"
-                "**Playlist:** YouTube playlist URL দিলে auto-detect হবে!\n\n"
+                "**支持：** YouTube, Instagram, TikTok, Twitter/X, "
+                "Facebook, Vimeo 等 1000+ 网站！\n"
+                "**播放列表：** 发送 YouTube 播放列表链接将自动检测！\n\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                "**📌 Protected Stream (m3u8)?**\n"
-                "Bunny CDN বা অন্য protected HLS stream-এর জন্য:\n"
+                "**📌 受保护流 (m3u8)？**\n"
+                "对于 Bunny CDN 或其他受保护的 HLS 流：\n"
                 "`/ytdl https://cdn.example.com/video.m3u8 "
                 "referer:https://example.com`\n\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                "**Examples:**\n"
+                "**示例：**\n"
                 "`/ytdl https://youtu.be/xxxxx`\n"
                 "`/ytdl https://youtube.com/playlist?list=xxxxx`\n"
                 "`/ytdl https://vz-abc.b-cdn.net/video.m3u8 "
@@ -1164,7 +1169,7 @@ def setup_ytdl_handler(app: Client):
 
         if not raw_input:
             await message.reply_text(
-                "**Usage:** `/ytdl <URL>` বা `/ytdl <URL> referer:<Referer>`",
+                "**用法：** `/ytdl <URL>` 或 `/ytdl <URL> referer:<Referer>`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1174,7 +1179,7 @@ def setup_ytdl_handler(app: Client):
 
         if not url:
             await message.reply_text(
-                "❌ **Valid URL দিন।**",
+                "❌ **请输入有效链接。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1185,7 +1190,7 @@ def setup_ytdl_handler(app: Client):
         if is_hls_url(url) and not referer:
             # Referer ছাড়া HLS stream নিয়ে সম্ভাব্য সমস্যা সম্পর্কে warn করো
             await message.reply_text(
-                "⚠️ **HLS Stream (m3u8) Detected!**\n\n"
+                "⚠️ **检测到 HLS 流 (m3u8)！**\n\n"
                 "এই ধরনের link সরাসরি কাজ নাও করতে পারে।\n"
                 "যদি **403 Forbidden** error আসে, তাহলে Referer যোগ করুন:\n\n"
                 f"`/ytdl {url} referer:<website_url>`\n\n"
@@ -1198,7 +1203,7 @@ def setup_ytdl_handler(app: Client):
         # ── Protected CDN detection — Referer suggest ─────────────────────
         elif is_protected_cdn_url(url) and not referer:
             await message.reply_text(
-                "⚠️ **Protected CDN URL Detected!**\n\n"
+                "⚠️ **检测到受保护的 CDN 链接！**\n\n"
                 "Bunny CDN বা similar CDN-এর জন্য Referer প্রায়ই দরকার হয়।\n"
                 "Error হলে আবার চেষ্টা করুন Referer সহ:\n\n"
                 f"`/ytdl {url} referer:<website_url>`\n\n"
@@ -1223,8 +1228,8 @@ def setup_ytdl_handler(app: Client):
                 ytdl_count = rec.get("ytdl_downloads", 0)
             if ytdl_count >= FREE_DAILY_LIMIT:
                 await message.reply_text(
-                    f"🚫 **Daily limit reached!** (Free: {FREE_DAILY_LIMIT}/day)\n"
-                    f"Upgrade করুন: /plans",
+                    f"🚫 **每日限制已用尽！** (免费：{FREE_DAILY_LIMIT}/天)\n"
+                    f"升级：/plans",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -1253,11 +1258,11 @@ def setup_ytdl_handler(app: Client):
         referer থাকলে HLS/CDN stream-এও info পাওয়া যাবে।
         """
         warp_ok = _is_warp_available()
-        referer_hint = f" | 🔗 Referer: `{referer[:40]}...`" if referer else ""
+        referer_hint = f" | 🔗 Referer：`{referer[:40]}...`" if referer else ""
 
         status_msg = await message.reply_text(
-            f"🔍 **Analyzing...**\n"
-            f"_{'🟢 WARP active' if warp_ok else '🟡 Direct connection'}"
+            f"🔍 **正在分析...**\n"
+            f"_{'🟢 WARP 已激活' if warp_ok else '🟡 直接连接'}"
             f"{referer_hint}_",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -1285,11 +1290,11 @@ def setup_ytdl_handler(app: Client):
                 "403" in error_lower or "forbidden" in error_lower
             ) and not referer:
                 await status_msg.edit_text(
-                    "❌ **403 Forbidden — Access Denied!**\n\n"
-                    "এই protected stream-এর জন্য **Referer** দরকার।\n\n"
-                    "**আবার চেষ্টা করুন Referer সহ:**\n"
-                    f"`/ytdl {url} referer:<website_url>`\n\n"
-                    "**উদাহরণ:**\n"
+                    "❌ **403 禁止访问 — 访问被拒绝！**\n\n"
+                    "这个受保护的流需要 **Referer**。\n\n"
+                    "**请使用 Referer 重试：**\n"
+                    f"`/ytdl {url} referer:<网站链接>`\n\n"
+                    "**示例：**\n"
                     f"`/ytdl {url} referer:https://example.com`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -1310,20 +1315,20 @@ def setup_ytdl_handler(app: Client):
                     "referer":    referer,
                 }
                 await status_msg.edit_text(
-                    "📹 **Video Found (Cobalt Engine)**\n\n"
-                    "👇 **Quality বেছে নিন:**",
+                    "📹 **视频已找到（Cobalt 引擎）**\n\n"
+                    "👇 **选择画质：**",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(
-                            "🎬 Best Quality",
+                            "🎬 最佳画质",
                             callback_data=f"ytdl_v_{message.chat.id}_best",
                         )],
                         [InlineKeyboardButton(
-                            "🎵 Audio Only",
+                            "🎵 仅音频",
                             callback_data=f"ytdl_a_{message.chat.id}",
                         )],
                         [InlineKeyboardButton(
-                            "❌ Cancel",
+                            "❌ 取消",
                             callback_data=f"ytdl_cancel_{message.chat.id}",
                         )],
                     ]),
@@ -1332,8 +1337,8 @@ def setup_ytdl_handler(app: Client):
 
             # সব fallback শেষ — error দেখাও
             await status_msg.edit_text(
-                f"❌ **Download failed!**\n\n"
-                f"{_friendly_error(error_msg) if error_msg else 'Unknown error'}",
+                f"❌ **下载失败！**\n\n"
+                f"{_friendly_error(error_msg) if error_msg else '未知错误'}",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1343,7 +1348,7 @@ def setup_ytdl_handler(app: Client):
         duration     = info.get("duration", 0) or 0
         uploader     = info.get("uploader", "Unknown") or "Unknown"
         duration_str = get_readable_time(int(duration)) if duration else "Unknown"
-        referer_info = f"\n🔗 **Referer:** `{referer[:50]}`" if referer else ""
+        referer_info = f"\n🔗 **Referer：** `{referer[:50]}`" if referer else ""
 
         cleanup_expired_sessions()
         ytdl_sessions[message.chat.id] = {
@@ -1359,10 +1364,10 @@ def setup_ytdl_handler(app: Client):
 
         await status_msg.edit_text(
             f"📹 **{title}**\n\n"
-            f"👤 **Channel:** {uploader}\n"
-            f"⏱ **Duration:** {duration_str}"
+            f"👤 **频道：** {uploader}\n"
+            f"⏱ **时长：** {duration_str}"
             f"{referer_info}\n\n"
-            f"👇 **Quality বেছে নিন:**",
+            f"👇 **选择画质：**",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=build_quality_keyboard(info, message.chat.id, is_playlist=False),
             disable_web_page_preview=True,
@@ -1380,7 +1385,7 @@ def setup_ytdl_handler(app: Client):
         # Free user playlist block করো
         if not is_premium:
             await message.reply_text(
-                "🚫 **Playlist Download — Premium Only!**\n\n"
+                "🚫 **播放列表下载 — 仅限高级用户！**\n\n"
                 "Free ইউজাররা playlist download করতে পারবেন না।\n\n"
                 "⚡ **Premium নিন** এবং পুরো playlist একসাথে download করুন!\n"
                 "👉 /plans",
@@ -1390,8 +1395,8 @@ def setup_ytdl_handler(app: Client):
 
         warp_ok    = _is_warp_available()
         status_msg = await message.reply_text(
-            f"🔍 **Playlist Analyzing...**\n"
-            f"_{'🟢 WARP active' if warp_ok else '🟡 Direct connection'}_",
+            f"🔍 **正在分析播放列表...**\n"
+            f"_{'🟢 WARP 已激活' if warp_ok else '🟡 直接连接'}_",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -1410,8 +1415,8 @@ def setup_ytdl_handler(app: Client):
                 )
             )
             await status_msg.edit_text(
-                f"❌ **Playlist load failed!**\n\n"
-                f"{_friendly_error(error_msg) if error_msg else 'Unknown error'}",
+                f"❌ **播放列表加载失败！**\n\n"
+                f"{_friendly_error(error_msg) if error_msg else '未知错误'}",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1435,9 +1440,9 @@ def setup_ytdl_handler(app: Client):
 
             await status_msg.edit_text(
                 f"📹 **{title}**\n\n"
-                f"👤 **Channel:** {uploader}\n"
-                f"⏱ **Duration:** {duration_str}\n\n"
-                f"👇 **Quality বেছে নিন:**",
+                f"👤 **频道：** {uploader}\n"
+                f"⏱ **时长：** {duration_str}\n\n"
+                f"👇 **选择画质：**",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=build_quality_keyboard(info, message.chat.id, is_playlist=False),
                 disable_web_page_preview=True,
@@ -1488,12 +1493,12 @@ def setup_ytdl_handler(app: Client):
         }
 
         await status_msg.edit_text(
-            f"📋 **Playlist Found!**\n\n"
-            f"📝 **Playlist:** {pl_title}\n"
-            f"🎬 **Total Videos:** {total} "
-            f"(max {PREMIUM_PLAYLIST_LIMIT})\n\n"
-            f"👇 **সব ভিডিওর জন্য একটি quality বেছে নিন:**\n"
-            f"_(উপলব্ধ না হলে best quality auto-select হবে)_",
+            f"📋 **发现播放列表！**\n\n"
+            f"📝 **播放列表：** {pl_title}\n"
+            f"🎬 **视频总数：** {total} "
+            f"(最多 {PREMIUM_PLAYLIST_LIMIT})\n\n"
+            f"👇 **为所有视频选择画质：**\n"
+            f"_(如果不可用，将自动选择最佳画质)_",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=build_quality_keyboard(
                 first_entry_info if first_entry_info else info,
@@ -1516,7 +1521,7 @@ def setup_ytdl_handler(app: Client):
 
         session = ytdl_sessions.get(chat_id)
         if not session or session["user_id"] != user_id:
-            await callback_query.answer("❌ Session expired!", show_alert=True)
+            await callback_query.answer("❌ 会话已过期！", show_alert=True)
             return
 
         # ── Cancel ────────────────────────────────────────────────────────
@@ -1524,7 +1529,7 @@ def setup_ytdl_handler(app: Client):
             ytdl_sessions.pop(chat_id, None)
             active_downloads.discard(user_id)
             await callback_query.message.edit_text(
-                "❌ **Cancelled.**",
+                "❌ **已取消。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             await callback_query.answer()
@@ -1583,10 +1588,10 @@ def setup_ytdl_handler(app: Client):
             )
 
         warp_ok     = _is_warp_available()
-        referer_txt = f" | 🔗 Referer Active" if referer else ""
+        referer_txt = f" | 🔗 Referer 已启用" if referer else ""
         await callback_query.message.edit_text(
-            f"📥 **Downloading...**\n"
-            f"_{'🟢 WARP proxy' if warp_ok else '🟡 Direct'}{referer_txt}_",
+            f"📥 **下载中...**\n"
+            f"_{'🟢 WARP 代理' if warp_ok else '🟡 直接连接'}{referer_txt}_",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -1640,7 +1645,7 @@ def setup_ytdl_handler(app: Client):
                 # yt-dlp fail → pybalt fallback (non-HLS only)
                 if not success and PYBALT_AVAILABLE and not is_hls_url(url):
                     await callback_query.message.edit_text(
-                        "⚠️ **Cobalt engine দিয়ে চেষ্টা...**",
+                        "⚠️ **正在尝试 Cobalt 引擎...**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     success, result = await pybalt_fallback_download(
@@ -1660,7 +1665,7 @@ def setup_ytdl_handler(app: Client):
                     )
                 )
                 await callback_query.message.edit_text(
-                    f"❌ **Download failed!**\n\n{_friendly_error(result)}",
+                    f"❌ **下载失败！**\n\n{_friendly_error(result)}",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -1683,20 +1688,20 @@ def setup_ytdl_handler(app: Client):
                     )
                 )
                 await callback_query.message.edit_text(
-                    f"❌ **File অনেক বড়!**\n"
+                    f"❌ **文件过大！**\n"
                     f"📦 `{get_readable_file_size(file_size)}` / "
-                    f"Limit: `{get_readable_file_size(MAX_FILE_SIZE)}`",
+                    f"限制：`{get_readable_file_size(MAX_FILE_SIZE)}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
 
             await callback_query.message.edit_text(
-                f"📤 **Uploading...**\n📦 `{get_readable_file_size(file_size)}`",
+                f"📤 **正在上传...**\n📦 `{get_readable_file_size(file_size)}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
             title   = (info.get("title") or "Downloaded Media")[:50]
-            caption = f"**{title}**\n\n📥 Downloaded by @juktijol Bot"
+            caption = f"**{title}**"
             duration = int(info.get("duration", 0) or 0)
 
             upload_success = await _upload_video_file(
@@ -1713,7 +1718,7 @@ def setup_ytdl_handler(app: Client):
                 )
             else:
                 await callback_query.message.edit_text(
-                    "❌ **Upload failed!**",
+                    "❌ **上传失败！**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
@@ -1756,7 +1761,7 @@ def setup_ytdl_handler(app: Client):
 
         session = ytdl_sessions.get(chat_id)
         if not session or session["user_id"] != user_id:
-            await callback_query.answer("❌ Session expired!", show_alert=True)
+            await callback_query.answer("❌ 会话已过期！", show_alert=True)
             return
 
         # ── Cancel ────────────────────────────────────────────────────────
@@ -1765,7 +1770,7 @@ def setup_ytdl_handler(app: Client):
             ytdl_sessions.pop(chat_id, None)
             active_downloads.discard(user_id)
             await callback_query.message.edit_text(
-                "❌ **Playlist download cancelled.**",
+                "❌ **播放列表下载已取消。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             await callback_query.answer()
@@ -1779,12 +1784,12 @@ def setup_ytdl_handler(app: Client):
             if format_id == "best":
                 format_id = None
 
-        await callback_query.answer("⏳ Playlist download শুরু হচ্ছে...")
+        await callback_query.answer("⏳ 播放列表下载开始...")
 
         is_premium = await is_premium_user(user_id)
         if not is_premium:
             await callback_query.message.edit_text(
-                "🚫 **Playlist Download — Premium Only!**\n\n/plans",
+                "🚫 **播放列表下载 — 仅限高级用户！**\n\n/plans",
                 parse_mode=ParseMode.MARKDOWN,
             )
             ytdl_sessions.pop(chat_id, None)
@@ -1812,17 +1817,17 @@ def setup_ytdl_handler(app: Client):
 
         cancel_kb = InlineKeyboardMarkup([[
             InlineKeyboardButton(
-                "⏹ Cancel Playlist",
+                "⏹ 取消播放列表",
                 callback_data=f"ytpl_stop_{chat_id}",
             )
         ]])
 
         status_msg = callback_query.message
         await status_msg.edit_text(
-            f"📋 **Playlist Download শুরু হচ্ছে...**\n\n"
+            f"📋 **播放列表下载开始...**\n\n"
             f"📝 `{pl_title}`\n"
-            f"🎬 **Total:** {total} videos\n\n"
-            f"⏳ প্রস্তুতি নেওয়া হচ্ছে...",
+            f"🎬 **总计：** {total} 个视频\n\n"
+            f"⏳ 正在准备...",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=cancel_kb,
         )
@@ -1841,10 +1846,10 @@ def setup_ytdl_handler(app: Client):
                 current_session = ytdl_sessions.get(chat_id, {})
                 if current_session.get("cancelled", False):
                     await status_msg.edit_text(
-                        f"⏹ **Playlist cancelled!**\n\n"
-                        f"✅ Downloaded: {success_count}\n"
-                        f"❌ Failed: {fail_count}\n"
-                        f"📊 Total processed: {idx - 1}/{total}",
+                        f"⏹ **播放列表已取消！**\n\n"
+                        f"✅ 已下载：{success_count}\n"
+                        f"❌ 失败：{fail_count}\n"
+                        f"📊 已处理：{idx - 1}/{total}",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     break
@@ -1865,13 +1870,13 @@ def setup_ytdl_handler(app: Client):
                 pbar = _make_progress_bar(pct)
                 try:
                     await status_msg.edit_text(
-                        f"📋 **Downloading Playlist**\n\n"
+                        f"📋 **正在下载播放列表**\n\n"
                         f"📝 `{pl_title}`\n"
                         f"`{pbar}`\n"
                         f"**{idx}/{total}** | {pct:.0f}%\n\n"
-                        f"🎬 **Now:** `{entry_title}`\n"
-                        f"✅ Success: {success_count}  "
-                        f"❌ Failed: {fail_count}",
+                        f"🎬 **当前：** `{entry_title}`\n"
+                        f"✅ 成功：{success_count}  "
+                        f"❌ 失败：{fail_count}",
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=cancel_kb,
                     )
@@ -1943,9 +1948,9 @@ def setup_ytdl_handler(app: Client):
                     v_title  = ((video_info or {}).get("title") or entry_title)[:50]
                     caption  = (
                         f"**{v_title}**\n"
-                        f"📋 Playlist: `{pl_title}`\n"
+                        f"📋 播放列表：`{pl_title}`\n"
                         f"🎬 {idx}/{total}\n\n"
-                        f"📥 Downloaded by @juktijol Bot"
+                        f""
                     )
                     duration = int((video_info or {}).get("duration", 0) or 0)
 
@@ -1997,12 +2002,12 @@ def setup_ytdl_handler(app: Client):
             try:
                 await status_msg.edit_text(
                     f"{'✅' if fail_count == 0 else '⚠️'} "
-                    f"**Playlist Download Complete!**\n\n"
+                    f"**播放列表下载完成！**\n\n"
                     f"📝 `{pl_title}`\n"
                     f"`{_make_progress_bar(final_pct)}`\n\n"
-                    f"✅ **Success:** {success_count}/{total}\n"
-                    f"❌ **Failed:** {fail_count}\n"
-                    f"⏱ **Total Time:** "
+                    f"✅ **成功：** {success_count}/{total}\n"
+                    f"❌ **失败：** {fail_count}\n"
+                    f"⏱ **总耗时：** "
                     f"`{get_readable_time(int(elapsed_total))}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )

@@ -1,5 +1,3 @@
-#Copyright @juktijol
-#Channel t.me/juktijol
 from pyrogram import Client
 from utils import LOGGER
 from config import (

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # db/users.py — MongoDB upsert helper for user profile data.
 #

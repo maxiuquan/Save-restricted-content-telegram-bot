@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-#
 # utils/tracker.py
 # ✅ FIXED: Private channel name → user client দিয়ে resolve
 # ✅ FIXED: Thread/topic link regex

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # Fixed: All DB calls now use Motor async (await)
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -33,9 +31,9 @@ def setup_transfer_handler(app: Client):
 
         if len(message.command) < 2:
             await message.reply_text(
-                "**❌ Invalid format!**\n\n"
-                "**Usage:** `/transfer <user_id or @username>`\n\n"
-                "**Example:**\n"
+                "**❌ 格式无效！**\n\n"
+                "**用法：** `/transfer <用户ID 或 @用户名>`\n\n"
+                "**示例：**\n"
                 "`/transfer 123456789`\n"
                 "`/transfer @username`",
                 parse_mode=ParseMode.MARKDOWN,
@@ -45,8 +43,8 @@ def setup_transfer_handler(app: Client):
         plan_key, collection, plan_doc = await _get_active_plan(sender_id)
         if not plan_key:
             await message.reply_text(
-                "**❌ You don't have any active premium plan!**\n\n"
-                "Purchase a plan first to transfer: /plans",
+                "**❌ 你没有任何有效的高级套餐！**\n\n"
+                "请先购买套餐再进行转让：/plans",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -67,27 +65,27 @@ def setup_transfer_handler(app: Client):
                 target_id = user.id
         except (UserIdInvalid, UsernameInvalid, PeerIdInvalid):
             await message.reply_text(
-                f"**❌ User not found:** `{identifier}`",
+                f"**❌ 用户未找到：** `{identifier}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
         except Exception as e:
             await message.reply_text(
-                f"**❌ Error:** `{str(e)}`",
+                f"**❌ 错误：** `{str(e)}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         if target_id == sender_id:
             await message.reply_text(
-                "**❌ You cannot transfer premium to yourself!**",
+                "**❌ 你不能将高级会员转让给自己！**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         if target_id == DEVELOPER_USER_ID:
             await message.reply_text(
-                "**❌ You cannot transfer premium to the developer!**",
+                "**❌ 你不能将高级会员转让给开发者！**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -108,19 +106,19 @@ def setup_transfer_handler(app: Client):
             target_label = f"`{target_id}`"
 
         await message.reply_text(
-            f"**⚠️ Transfer Confirmation**\n\n"
-            f"**📦 Plan:** `{plan_name}`\n"
-            f"**📅 Remaining:** `{remaining_days}` days\n"
-            f"**👤 Recipient:** {target_label}\n\n"
-            f"**⚡ If you confirm:**\n"
-            f"• Your premium will be **removed**\n"
-            f"• Recipient's premium will be **activated**\n\n"
-            f"_This action cannot be undone!_",
+            f"**⚠️ 转让确认**\n\n"
+            f"**📦 套餐：** `{plan_name}`\n"
+            f"**📅 剩余：** `{remaining_days}` 天\n"
+            f"**👤 接收者：** {target_label}\n\n"
+            f"**⚡ 确认后：**\n"
+            f"• 你的高级会员将被 **移除**\n"
+            f"• 接收者的高级会员将被 **激活**\n\n"
+            f"_此操作无法撤销！_",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("✅ Confirm", callback_data=f"transfer_confirm_{sender_id}"),
-                    InlineKeyboardButton("❌ Cancel",  callback_data=f"transfer_cancel_{sender_id}"),
+                    InlineKeyboardButton("✅ 确认", callback_data=f"transfer_confirm_{sender_id}"),
+                    InlineKeyboardButton("❌ 取消",  callback_data=f"transfer_cancel_{sender_id}"),
                 ]
             ]),
         )
@@ -136,7 +134,7 @@ def setup_transfer_handler(app: Client):
 
         if clicker_id != sender_id:
             await callback_query.answer(
-                "❌ Only the user who initiated the transfer can confirm or cancel it!",
+                "❌ 只有发起转让的用户才能确认或取消！",
                 show_alert=True,
             )
             return
@@ -144,7 +142,7 @@ def setup_transfer_handler(app: Client):
         transfer_info = pending_transfers.get(sender_id)
         if not transfer_info:
             await callback_query.message.edit_text(
-                "**❌ Transfer session expired! Please run /transfer again.**",
+                "**❌ 转让会话已过期！请重新运行 /transfer。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -152,10 +150,10 @@ def setup_transfer_handler(app: Client):
         if action == "cancel":
             pending_transfers.pop(sender_id, None)
             await callback_query.message.edit_text(
-                "**❌ Transfer has been cancelled.**",
+                "**❌ 转让已取消。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
-            await callback_query.answer("Transfer cancelled.")
+            await callback_query.answer("转让已取消。")
             return
 
         target_id   = transfer_info["target_id"]
@@ -205,11 +203,11 @@ def setup_transfer_handler(app: Client):
             remaining_days = (expiry_date - datetime.utcnow()).days if expiry_date else 0
 
             await callback_query.message.edit_text(
-                f"**✅ Transfer Successful!**\n\n"
-                f"**📦 Plan:** `{plan_name}`\n"
-                f"**📅 Remaining:** `{remaining_days}` days\n"
-                f"**👤 Recipient:** `{target_id}`\n\n"
-                f"_Your premium has been transferred successfully._",
+                f"**✅ 转让成功！**\n\n"
+                f"**📦 套餐：** `{plan_name}`\n"
+                f"**📅 剩余：** `{remaining_days}` 天\n"
+                f"**👤 接收者：** `{target_id}`\n\n"
+                f"_你的高级会员已成功转让。_",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -221,11 +219,11 @@ def setup_transfer_handler(app: Client):
                 await client.send_message(
                     chat_id=target_id,
                     text=(
-                        f"**🎁 You have received a Premium Plan!**\n\n"
-                        f"**📦 Plan:** `{plan_name}`\n"
-                        f"**📅 Remaining:** `{remaining_days}` days\n"
-                        f"**👤 Gifted by:** `{sender_name}` (`{sender_id}`)\n\n"
-                        f"_Your premium is now active. Use /profile to check your status._"
+                        f"**🎁 你已收到一个高级套餐！**\n\n"
+                        f"**📦 套餐：** `{plan_name}`\n"
+                        f"**📅 剩余：** `{remaining_days}` 天\n"
+                        f"**👤 赠送者：** `{sender_name}` (`{sender_id}`)\n\n"
+                        f"_你的高级会员已激活。使用 /profile 查看状态。_"
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -236,11 +234,11 @@ def setup_transfer_handler(app: Client):
                 await client.send_message(
                     chat_id=DEVELOPER_USER_ID,
                     text=(
-                        f"**🔄 Premium Transfer Log**\n\n"
-                        f"**📦 Plan:** `{plan_name}`\n"
-                        f"**📤 Sender:** `{sender_id}`\n"
-                        f"**📥 Recipient:** `{target_id}`\n"
-                        f"**📅 Expiry:** `{expiry_date.strftime('%Y-%m-%d') if expiry_date else 'N/A'}`"
+                        f"**🔄 高级会员转让记录**\n\n"
+                        f"**📦 套餐：** `{plan_name}`\n"
+                        f"**📤 转出者：** `{sender_id}`\n"
+                        f"**📥 接收者：** `{target_id}`\n"
+                        f"**📅 到期：** `{expiry_date.strftime('%Y-%m-%d') if expiry_date else 'N/A'}`"
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -250,13 +248,13 @@ def setup_transfer_handler(app: Client):
             LOGGER.info(
                 f"Premium transferred: {plan_name} | sender={sender_id} → recipient={target_id}"
             )
-            await callback_query.answer("✅ Transfer successful!")
+            await callback_query.answer("✅ 转让成功！")
 
         except Exception as e:
             LOGGER.error(f"Transfer failed: sender={sender_id} target={target_id} error={e}")
             pending_transfers.pop(sender_id, None)
             await callback_query.message.edit_text(
-                f"**❌ Transfer failed!**\n\n`{str(e)}`",
+                f"**❌ 转让失败！**\n\n`{str(e)}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
-            await callback_query.answer("❌ Transfer failed!", show_alert=True)
+            await callback_query.answer("❌ 转让失败！", show_alert=True)

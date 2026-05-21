@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-#
 # Unified async Motor-based database module.
 # FIX: Bot startup-এ automatic duplicate cleanup + premium_users rebuild
 # ✅ FIXED: Connection timeout + retry logic

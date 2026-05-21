@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from .logs.logs import setup_logs_handler
 from .restart.restart import setup_restart_handler
 from .speedtest.speedtest import setup_speed_handler

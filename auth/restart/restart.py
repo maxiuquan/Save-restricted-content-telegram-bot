@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 import os
 import shutil
 import asyncio
@@ -44,7 +42,7 @@ def setup_restart_handler(app: Client):
         try:
             response = await client.send_message(
                 chat_id=message.chat.id,
-                text="**✘ Restarting Restricted Content Downloader... ↯**",
+                text="**✘ 正在重启下载器... ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
@@ -52,7 +50,7 @@ def setup_restart_handler(app: Client):
             await asyncio.sleep(e.value + 5)
             response = await client.send_message(
                 chat_id=message.chat.id,
-                text="**✘ Restarting Restricted Content Downloader... ↯**",
+                text="**✘ 正在重启下载器... ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -62,12 +60,12 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Unauthorized! Only the Developer Can Restart! ↯**",
+                    text="**❌ 未授权！仅开发者可重启！↯**",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [
-                            InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol"),
-                            InlineKeyboardButton("✘ Source Code ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
+                            
+                            InlineKeyboardButton("✘ 源代码 ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
                         ]
                     ])
                 )
@@ -77,12 +75,12 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Unauthorized! Only the Developer Can Restart! ↯**",
+                    text="**❌ 未授权！仅开发者可重启！↯**",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [
-                            InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol"),
-                            InlineKeyboardButton("✘ Source Code ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
+                            
+                            InlineKeyboardButton("✘ 源代码 ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
                         ]
                     ])
                 )
@@ -94,7 +92,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed: Session File Not Writable! ↯**",
+                    text="**❌ 重启失败：会话文件不可写！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -103,7 +101,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed: Session File Not Writable! ↯**",
+                    text="**❌ 重启失败：会话文件不可写！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -136,7 +134,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed: Start Script Not Found! ↯**",
+                    text="**❌ 重启失败：启动脚本未找到！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -145,7 +143,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed: Start Script Not Found! ↯**",
+                    text="**❌ 重启失败：启动脚本未找到！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -155,7 +153,7 @@ def setup_restart_handler(app: Client):
             await client.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=response.id,
-                text="**✘ Restricted Content Downloader Restarted Successfully! ↯**",
+                text="**✘ 下载器重启成功！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
@@ -164,7 +162,7 @@ def setup_restart_handler(app: Client):
             await client.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=response.id,
-                text="**✘ RestrictedDL Restarted Successfully! ↯**",
+                text="**✘ 下载器重启成功！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -173,7 +171,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed! ↯**",
+                    text="**❌ 重启失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -182,7 +180,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed! ↯**",
+                    text="**❌ 重启失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -196,7 +194,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed! ↯**",
+                    text="**❌ 重启失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -205,7 +203,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Restart Failed! ↯**",
+                    text="**❌ 重启失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
 
@@ -218,7 +216,7 @@ def setup_restart_handler(app: Client):
         try:
             response = await client.send_message(
                 chat_id=message.chat.id,
-                text="**✘ Stopping Restricted Content Downloader... ↯**",
+                text="**✘ 正在停止下载器... ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
@@ -226,7 +224,7 @@ def setup_restart_handler(app: Client):
             await asyncio.sleep(e.value + 5)
             response = await client.send_message(
                 chat_id=message.chat.id,
-                text="**✘ Stopping Restricted Content Downloader... ↯**",
+                text="**✘ 正在停止下载器... ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
 
@@ -236,12 +234,12 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Unauthorized! Only the Developer Can Stop! ↯**",
+                    text="**❌ 未授权！仅开发者可停止！↯**",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [
-                            InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol"),
-                            InlineKeyboardButton("✘ Source Code ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
+                            
+                            InlineKeyboardButton("✘ 源代码 ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
                         ]
                     ])
                 )
@@ -251,12 +249,12 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Unauthorized! Only the Developer Can Stop! ↯**",
+                    text="**❌ 未授权！仅开发者可停止！↯**",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [
-                            InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol"),
-                            InlineKeyboardButton("✘ Source Code ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
+                            
+                            InlineKeyboardButton("✘ 源代码 ↯", url="https://github.com/tawhid120/Save-restricted-content-bot-")
                         ]
                     ])
                 )
@@ -287,7 +285,7 @@ def setup_restart_handler(app: Client):
             await client.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=response.id,
-                text="**✘ Restricted Content Downloader Stopped Successfully! ↯**",
+                text="**✘ 下载器停止成功！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
@@ -296,7 +294,7 @@ def setup_restart_handler(app: Client):
             await client.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=response.id,
-                text="**✘ Restricted Content Downloader Stopped Successfully! ↯**",
+                text="**✘ 下载器停止成功！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -305,7 +303,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Stop Failed! ↯**",
+                    text="**❌ 停止失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -314,7 +312,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Stop Failed! ↯**",
+                    text="**❌ 停止失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -328,7 +326,7 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Stop Failed! ↯**",
+                    text="**❌ 停止失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
@@ -337,6 +335,6 @@ def setup_restart_handler(app: Client):
                 await client.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=response.id,
-                    text="**❌ Stop Failed! ↯**",
+                    text="**❌ 停止失败！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )

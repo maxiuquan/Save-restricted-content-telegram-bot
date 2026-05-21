@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # UPDATED: Conversation flow + Auto photo detection for /setthumb
 
 import os
@@ -90,16 +88,16 @@ def setup_thumb_handler(app: Client):
 
             if success:
                 await message.reply_text(
-                    "⚡ **Thumbnail is set!**\n\n"
-                    "This thumbnail will be used for your downloaded videos.\n\n"
-                    "⚡ Use `/setthumb` to change it.\n"
-                    "🗑 Use `/rmthumb` to remove it.",
+                    "⚡ **缩略图已设置！**\n\n"
+                    "此缩略图将用于你下载的视频。\n\n"
+                    "⚡ 使用 `/setthumb` 更改。\n"
+                    "🗑 使用 `/rmthumb` 删除。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
                 await message.reply_text(
-                    "❌ **Could not set thumbnail.**\n"
-                    "Please try again.",
+                    "❌ **无法设置缩略图。**\n"
+                    "请重试。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             return
@@ -108,14 +106,14 @@ def setup_thumb_handler(app: Client):
         _set_waiting(user_id, message.chat.id)
 
         await message.reply_text(
-            "⚡ **Set Thumbnail**\n"
+            "⚡ **设置缩略图**\n"
             "━━━━━━━━━━━━━━━━\n\n"
-            "**Step 1:** Send or forward one photo.\n"
-            "**Step 2:** I will set it for you ✅\n\n"
-            "⚡ Session will close in 5 minutes if no photo is sent.",
+            "**第1步：** 发送或转发一张照片。\n"
+            "**第2步：** 我会自动设置 ✅\n\n"
+            "⚡ 如果5分钟内未发送照片，会话将自动关闭。",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ Cancel", callback_data="thumb_cancel"),
+                InlineKeyboardButton("❌ 取消", callback_data="thumb_cancel"),
             ]]),
         )
 
@@ -140,20 +138,20 @@ def setup_thumb_handler(app: Client):
         if _is_waiting(user_id):
             _clear_waiting(user_id)
             processing = await message.reply_text(
-                "⚡ **Setting thumbnail...**",
+                "⚡ **正在设置缩略图...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             success = await _save_thumbnail(client, message, photo, user_id)
             if success:
                 await processing.edit_text(
-                    "⚡ **Thumbnail set successfully!**\n\n"
-                    "This thumbnail will be used for your downloaded videos.\n\n"
-                    "🗑 Use `/rmthumb` to remove it.",
+                    "⚡ **缩略图设置成功！**\n\n"
+                    "此缩略图将用于你下载的视频。\n\n"
+                    "🗑 使用 `/rmthumb` 删除。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
                 await processing.edit_text(
-                    "❌ **Could not set thumbnail.** Please try again.",
+                    "❌ **无法设置缩略图。** 请重试。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             return
@@ -162,17 +160,17 @@ def setup_thumb_handler(app: Client):
         # (private chat only, to avoid group spam)
         if message.chat.type.name == "PRIVATE":
             await message.reply_text(
-                "⚡ **Set this photo as thumbnail?**\n\n"
-                "This thumbnail will be used for your downloaded videos.",
+                "⚡ **将此照片设为缩略图？**\n\n"
+                "此缩略图将用于你下载的视频。",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([
                     [
                         InlineKeyboardButton(
-                            "✅ Yes, set it",
+                            "✅ 是，设为缩略图",
                             callback_data=f"thumb_set_{photo.file_id}",
                         ),
                         InlineKeyboardButton(
-                            "❌ No",
+                            "❌ 不",
                             callback_data="thumb_skip",
                         ),
                     ]
@@ -198,7 +196,7 @@ def setup_thumb_handler(app: Client):
             except Exception:
                 pass
             await cq.answer(
-                "Canceled." if data == "thumb_cancel" else "Okay, skipped."
+                "已取消。" if data == "thumb_cancel" else "好的，已跳过。"
             )
             return
 
@@ -206,7 +204,7 @@ def setup_thumb_handler(app: Client):
         if data.startswith("thumb_set_"):
             file_id = data[len("thumb_set_"):]
 
-            await cq.answer("⚡ Setting...")
+            await cq.answer("⚡ 正在设置...")
 
             os.makedirs("Assets", exist_ok=True)
             thumb_path = f"Assets/{user_id}_thumb.jpg"
@@ -225,9 +223,9 @@ def setup_thumb_handler(app: Client):
                 LOGGER.info(f"[Callback] Thumbnail saved for user {user_id}")
                 try:
                     await cq.message.edit_text(
-                        "⚡ **Thumbnail set successfully!**\n\n"
-                        "This thumbnail will be used for your downloaded videos.\n\n"
-                        "🗑 Use `/rmthumb` to remove it.",
+                        "⚡ **缩略图设置成功！**\n\n"
+                        "此缩略图将用于你下载的视频。\n\n"
+                        "🗑 使用 `/rmthumb` 删除。",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
@@ -236,7 +234,7 @@ def setup_thumb_handler(app: Client):
                 LOGGER.error(f"[Callback] Thumbnail save error for user {user_id}: {e}")
                 try:
                     await cq.message.edit_text(
-                        "❌ **Could not set thumbnail.** Please try again.",
+                        "❌ **无法设置缩略图。** 请重试。",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
@@ -252,8 +250,8 @@ def setup_thumb_handler(app: Client):
 
         if not user_data or "thumbnail_path" not in user_data:
             await message.reply_text(
-                "❌ **No thumbnail is set.**\n\n"
-                "Use `/setthumb` to add one.",
+                "❌ **未设置缩略图。**\n\n"
+                "使用 `/setthumb` 添加一个。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -267,14 +265,14 @@ def setup_thumb_handler(app: Client):
                 {"$unset": {"thumbnail_path": "", "thumbnail_file_id": ""}},
             )
             await message.reply_text(
-                "⚡ **Thumbnail removed.**\n\n"
-                "Use `/setthumb` to set a new one.",
+                "⚡ **缩略图已删除。**\n\n"
+                "使用 `/setthumb` 设置新的。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             LOGGER.info(f"Thumbnail removed for user {user_id}")
         except Exception as e:
             await message.reply_text(
-                "❌ **Could not remove thumbnail.**",
+                "❌ **无法删除缩略图。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             LOGGER.error(f"Error removing thumbnail for user {user_id}: {e}")
@@ -289,11 +287,11 @@ def setup_thumb_handler(app: Client):
 
         if not user_data or "thumbnail_path" not in user_data:
             await message.reply_text(
-                "❌ **No thumbnail is set.**\n\n"
-                "⚡ To set one:\n"
-                "1. Send `/setthumb`\n"
-                "2. Send one photo when I ask\n\n"
-                "Or just send any photo and I will ask first.",
+                "❌ **未设置缩略图。**\n\n"
+                "⚡ 要设置缩略图：\n"
+                "1. 发送 `/setthumb`\n"
+                "2. 按提示发送一张照片\n\n"
+                "或者直接发送任何照片，我会询问你是否设为缩略图。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -305,16 +303,16 @@ def setup_thumb_handler(app: Client):
                     chat_id=message.chat.id,
                     photo=thumb_path,
                     caption=(
-                        "⚡ **Your current thumbnail**\n\n"
-                        "🗑 Remove: `/rmthumb`\n"
-                        "🔄 Change: `/setthumb`"
+                        "⚡ **你当前的缩略图**\n\n"
+                        "🗑 删除：`/rmthumb`\n"
+                        "🔄 更改：`/setthumb`"
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 LOGGER.info(f"Thumbnail retrieved for user {user_id}")
             except Exception as e:
                 await message.reply_text(
-                    "❌ **Could not show thumbnail.**",
+                    "❌ **无法显示缩略图。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 LOGGER.error(f"Error retrieving thumbnail for user {user_id}: {e}")
@@ -325,8 +323,8 @@ def setup_thumb_handler(app: Client):
                 {"$unset": {"thumbnail_path": "", "thumbnail_file_id": ""}},
             )
             await message.reply_text(
-                "❌ **Thumbnail file was not found.**\n"
-                "Please set it again with `/setthumb`.",
+                "❌ **未找到缩略图文件。**\n"
+                "请使用 `/setthumb` 重新设置。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             LOGGER.warning(f"Thumbnail file missing for user {user_id} at {thumb_path}")

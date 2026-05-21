@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/referral.py — Advanced Referral System v3.1
 #
@@ -332,13 +330,13 @@ async def _give_premium_reward(
             await client.send_message(
                 chat_id=user_id,
                 text=(
-                    f"🎉 **Referral Reward Unlocked!**\n\n"
-                    f"**🏆 Reason:** {reason}\n"
-                    f"**🎁 Reward:** `{days}` days **Premium Plan 1**\n"
-                    f"**📅 Valid Until:** `{expiry_date.strftime('%d %b %Y')}`\n\n"
-                    "Thanks for spreading the word! 💎\n"
-                    "Keep referring to earn more rewards! 🚀\n\n"
-                    "_Use /referral to see your progress_"
+                    f"🎉 **推荐奖励已解锁！**\n\n"
+                    f"**🏆 原因：** {reason}\n"
+                    f"**🎁 奖励：** `{days}` 天 **高级套餐1**\n"
+                    f"**📅 有效期至：** `{expiry_date.strftime('%Y年%m月%d日')}`\n\n"
+                    "感谢你的推荐！💎\n"
+                    "继续推荐以获取更多奖励！🚀\n\n"
+                    "_使用 /referral 查看你的进度_"
                 ),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -399,7 +397,7 @@ async def _check_and_reward_milestones(
                         f"for user {referrer_id} (+{reward_days}d)"
                     )
 
-                    reason = f"🏅 {milestone} Referrals Milestone"
+                    reason = f"🏅 {milestone} 推荐里程碑"
 
                     # Give premium FIRST, mark AFTER (bug fix)
                     success = await _give_premium_reward(
@@ -502,8 +500,8 @@ async def _check_streak_bonus(client: Client, referrer_id: int):
             return
 
         reason = (
-            f"🔥 Weekly Streak #{current_streak} "
-            f"({weekly_count} referrals this week!)"
+            f"🔥 连续推荐 #{current_streak} "
+            f"（本周 {weekly_count} 次推荐！）"
         )
         success = await _give_premium_reward(
             client, referrer_id, STREAK_BONUS_DAYS, reason
@@ -540,12 +538,12 @@ async def _maybe_notify_near_milestone(
         await client.send_message(
             chat_id=referrer_id,
             text=(
-                f"🔔 **Almost There!**\n\n"
-                f"You're just **{needed}** referral(s) away from your next reward!\n\n"
-                f"**🎯 Next Milestone:** `{next_milestone}` referrals\n"
-                f"**🎁 Reward:** `{reward_days}` days Premium\n\n"
-                f"Keep sharing your referral link! 🚀\n"
-                f"Use /referral to get your link."
+                f"🔔 **快了！**\n\n"
+                f"距离下一次奖励仅差 **{needed}** 个推荐！\n\n"
+                f"**🎯 下一里程碑：** `{next_milestone}` 次推荐\n"
+                f"**🎁 奖励：** `{reward_days}` 天高级会员\n\n"
+                f"继续分享你的推荐链接！🚀\n"
+                f"使用 /referral 获取你的链接。"
             ),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -626,25 +624,25 @@ async def process_referral(
         new_name = (
             new_user_doc.get("name") or
             new_user_doc.get("first_name") or
-            "Someone"
-        ) if new_user_doc else "Someone"
+            "某人"
+        ) if new_user_doc else "某人"
 
         if next_ms:
             progress_text = (
-                f"\n📊 **Progress:** `{count}/{next_ms}` "
-                f"(need **{needed}** more for +{MILESTONE_REWARDS[next_ms]}d reward)"
+                f"\n📊 **进度：** `{count}/{next_ms}` "
+                f"（还需 **{needed}** 次即可获得 +{MILESTONE_REWARDS[next_ms]}d 奖励）"
             )
         else:
-            progress_text = "\n🏆 **All milestones completed! You're a legend!**"
+            progress_text = "\n🏆 **所有里程碑已完成！你是传奇！**"
 
         await client.send_message(
             chat_id=referrer_id,
             text=(
-                f"🔔 **New Referral!**\n\n"
-                f"**👤 {new_name}** joined via your link!\n"
-                f"**📊 Total Referrals:** `{count}`"
+                f"🔔 **新推荐！**\n\n"
+                f"**👤 {new_name}** 通过你的链接加入！\n"
+                f"**📊 总推荐数：** `{count}`"
                 f"{progress_text}\n\n"
-                "Keep sharing to earn more rewards! 🎁"
+                "继续分享以获取更多奖励！🎁"
             ),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -690,57 +688,57 @@ async def get_referral_text(client: Client, user_id: int) -> str:
         reward_days = MILESTONE_REWARDS.get(next_ms, 0)
         progress_line = (
             f"\n`[{bar}]` {progress_pct:.0f}% → "
-            f"**{next_ms}** refs (+{reward_days}d)"
+            f"**{next_ms}** 次 (+{reward_days}d)"
         )
     else:
         bar = "▓" * 10
-        progress_line = f"\n`[{bar}]` 100% 🏆 All milestones done!"
+        progress_line = f"\n`[{bar}]` 100% 🏆 所有里程碑已完成！"
 
     milestone_lines = []
     for ms, days in sorted(MILESTONE_REWARDS.items()):
         if ms in rewarded:
             icon = "✅"
-            status = "Done"
+            status = "已完成"
         elif count >= ms:
             icon = "🔓"
-            status = "Unlocking..."
+            status = "解锁中..."
         else:
             icon = "🔒"
-            status = f"Need {ms - count} more"
+            status = f"还需 {ms - count} 次"
         milestone_lines.append(
-            f"  {icon} **{ms} refs** → +{days}d | _{status}_"
+            f"  {icon} **{ms} 次** → +{days}d | _{status}_"
         )
 
     milestones_text = "\n".join(milestone_lines)
 
     streak_line = ""
     if streak > 0:
-        streak_line = f"\n🔥 **Active Streak:** `{streak}` weeks in a row!"
+        streak_line = f"\n🔥 **连续推荐：** `{streak}` 周不间断！"
     if weekly >= STREAK_WEEKLY_MIN:
-        streak_line += f"\n⚡ **This week:** {weekly} refs (streak active!)"
+        streak_line += f"\n⚡ **本周：** {weekly} 次（连续激活中！）"
 
     return (
-        f"🔗 **Your Referral Link**\n"
+        f"🔗 **你的推荐链接**\n"
         f"`{referral_link}`\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"**📊 Your Stats**\n"
-        f"👥 **Total:** `{count}` | 📅 **Monthly:** `{monthly}` | "
-        f"📆 **Weekly:** `{weekly}`"
+        f"**📊 你的数据**\n"
+        f"👥 **总计：** `{count}` | 📅 **本月：** `{monthly}` | "
+        f"📆 **本周：** `{weekly}`"
         f"{streak_line}"
         f"{progress_line}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"**🏆 Milestone Rewards**\n"
+        f"**🏆 里程碑奖励**\n"
         f"{milestones_text}\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"**🔥 Streak Bonus**\n"
-        f"Refer `{STREAK_WEEKLY_MIN}+` friends/week = "
-        f"extra `{STREAK_BONUS_DAYS}` days each week!\n\n"
+        f"**🔥 连续推荐奖励**\n"
+        f"每周推荐 `{STREAK_WEEKLY_MIN}+` 位朋友 = "
+        f"额外 `{STREAK_BONUS_DAYS}` 天奖励！\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"**💡 How It Works**\n"
-        f"1️⃣ Share your link with friends\n"
-        f"2️⃣ They start the bot via your link\n"
-        f"3️⃣ You earn rewards automatically! 🎁\n\n"
-        f"_Tap the button below to share your link!_"
+        f"**💡 运作方式**\n"
+        f"1️⃣ 与朋友分享你的链接\n"
+        f"2️⃣ 他们通过你的链接启动机器人\n"
+        f"3️⃣ 你将自动获得奖励！🎁\n\n"
+        f"_点击下方按钮分享你的链接！_"
     )
 
 
@@ -755,8 +753,8 @@ async def _get_bot_username(client: Client) -> str:
 def _referral_keyboard(user_id: int, bot_username: str) -> InlineKeyboardMarkup:
     referral_link = f"https://t.me/{bot_username}?start={user_id}"
     share_text = (
-        f"🚀 Download restricted Telegram content easily!\n"
-        f"Join via my link: {referral_link}"
+        f"🚀 轻松下载 Telegram 受限内容！\n"
+        f"通过我的链接加入：{referral_link}"
     )
     encoded_text = urllib.parse.quote(share_text)
     encoded_link = urllib.parse.quote(referral_link)
@@ -764,12 +762,12 @@ def _referral_keyboard(user_id: int, bot_username: str) -> InlineKeyboardMarkup:
         f"https://t.me/share/url?url={encoded_link}&text={encoded_text}"
     )
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📤 Share My Link", url=share_url)],
+        [InlineKeyboardButton("📤 分享我的链接", url=share_url)],
         [
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="ref_leaderboard"),
-            InlineKeyboardButton("🔄 Refresh Stats", callback_data="ref_refresh"),
+            InlineKeyboardButton("🏆 排行榜", callback_data="ref_leaderboard"),
+            InlineKeyboardButton("🔄 刷新数据", callback_data="ref_refresh"),
         ],
-        [InlineKeyboardButton("📋 My Referrals List", callback_data="ref_mylist")],
+        [InlineKeyboardButton("📋 我的推荐列表", callback_data="ref_mylist")],
     ])
 
 
@@ -787,16 +785,16 @@ async def get_leaderboard_text() -> str:
         top_users = await referrals.aggregate(pipeline).to_list(length=10)
     except Exception as e:
         LOGGER.error(f"[Referral] Leaderboard error: {type(e).__name__}: {e}")
-        return "**🏆 Referral Leaderboard**\n\n_Error loading data. Try again._"
+        return "**🏆 推荐排行榜**\n\n_加载数据时出错。请重试。_"
 
     if not top_users:
         return (
-            "**🏆 Referral Leaderboard**\n\n"
-            "_No referrals yet! Be the first!_"
+            "**🏆 推荐排行榜**\n\n"
+            "_还没有推荐！争当第一！_"
         )
 
     medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
-    lines = ["**🏆 Referral Leaderboard — Top 10**\n━━━━━━━━━━━━━━━━━━\n"]
+    lines = ["**🏆 推荐排行榜 — 前十名**\n━━━━━━━━━━━━━━━━━━\n"]
 
     for i, entry in enumerate(top_users):
         uid = entry["_id"]
@@ -808,22 +806,22 @@ async def get_leaderboard_text() -> str:
                 total_users.find_one({"user_id": uid}),
                 timeout=_DB_TIMEOUT,
             )
-            name = "Unknown"
+            name = "未知用户"
             if user_doc:
                 name = (
                     user_doc.get("name") or
                     user_doc.get("first_name") or
-                    f"User {uid}"
+                    f"用户 {uid}"
                 )
                 if len(name) > 20:
                     name = name[:17] + "..."
         except Exception:
-            name = f"User {uid}"
+            name = f"用户 {uid}"
 
-        lines.append(f"{medals[i]} **{name}** — `{count}` referrals")
+        lines.append(f"{medals[i]} **{name}** — `{count}` 次推荐")
 
     lines.append("\n━━━━━━━━━━━━━━━━━━")
-    lines.append("_Share your link to climb the leaderboard!_")
+    lines.append("_分享你的链接以登上排行榜！_")
     return "\n".join(lines)
 
 
@@ -845,7 +843,7 @@ def setup_referral_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(
-                        "🔗 My Referral Link",
+                        "🔗 我的推荐链接",
                         callback_data="ref_refresh",
                     )],
                 ]),
@@ -888,7 +886,7 @@ def setup_referral_handler(app: Client):
                 )
             except Exception:
                 pass
-            await cq.answer("🏆 Leaderboard updated!")
+            await cq.answer("🏆 排行榜已更新！")
             return
 
         if data == "ref_mylist":
@@ -908,16 +906,16 @@ def setup_referral_handler(app: Client):
                 recent = []
 
             if not recent:
-                text = "**📋 Your Referrals**\n\n_No referrals yet! Share your link!_"
+                text = "**📋 你的推荐列表**\n\n_还没有人通过你的链接加入！分享你的链接吧！_"
             else:
                 lines = [
-                    f"**📋 Your Recent Referrals** (last {len(recent)})\n"
+                    f"**📋 最近推荐的用户**（最近 {len(recent)} 人）\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
                 ]
                 for r in recent:
                     uid = r.get("referred_user_id", "?")
                     at = r.get("referred_at")
-                    at_str = at.strftime("%d %b %Y") if isinstance(at, datetime) else "Unknown"
+                    at_str = at.strftime("%Y年%m月%d日") if isinstance(at, datetime) else "未知"
                     lines.append(f"👤 `{uid}` — {at_str}")
                 text = "\n".join(lines)
 
@@ -927,7 +925,7 @@ def setup_referral_handler(app: Client):
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(
-                            "🔗 Back to Referral",
+                            "🔗 返回推荐",
                             callback_data="ref_refresh",
                         )],
                     ]),
@@ -962,14 +960,14 @@ def setup_referral_handler(app: Client):
     async def refcheck_command(client: Client, message: Message):
         if len(message.command) < 2:
             await message.reply_text(
-                "**Usage:** `/refcheck <user_id>`",
+                "**用法：** `/refcheck <用户ID>`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
         try:
             target_id = int(message.command[1])
         except ValueError:
-            await message.reply_text("❌ **Invalid user ID!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("❌ **无效的用户ID！**", parse_mode=ParseMode.MARKDOWN)
             return
 
         count = await _count_referrals(target_id)
@@ -996,10 +994,10 @@ def setup_referral_handler(app: Client):
         for r in recent:
             uid = r.get("referred_user_id", "?")
             at = r.get("referred_at")
-            at_str = at.strftime("%d %b %Y") if isinstance(at, datetime) else "Unknown"
+            at_str = at.strftime("%Y年%m月%d日") if isinstance(at, datetime) else "未知"
             recent_lines.append(f"  • `{uid}` — {at_str}")
 
-        recent_text = "\n".join(recent_lines) if recent_lines else "  _None yet_"
+        recent_text = "\n".join(recent_lines) if recent_lines else "  _暂无_"
 
         pending_milestones = [
             ms for ms in sorted(MILESTONE_REWARDS.keys())
@@ -1007,18 +1005,18 @@ def setup_referral_handler(app: Client):
         ]
 
         await message.reply_text(
-            f"**📊 Referral Report — `{target_id}`**\n"
+            f"**📊 推荐报告 — `{target_id}`**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"**👥 Total Referrals:** `{count}`\n"
-            f"**📅 Monthly:** `{stats['monthly']}` | "
-            f"**📆 Weekly:** `{stats['weekly']}`\n"
-            f"**🔥 Streak:** `{stats['current_streak']}` weeks\n"
-            f"**🏆 Milestones Rewarded:** `{rewarded}`\n"
-            f"**⚠️ Pending (not yet given):** `{pending_milestones}`\n\n"
-            f"**📋 Recent (last 10):**\n{recent_text}\n\n"
-            f"_Quick fix commands:_\n"
-            f"`/add {target_id} 1 22` — manually grant 22d premium\n"
-            f"`/refmark {target_id}` — mark all eligible milestones as done",
+            f"**👥 总推荐数：** `{count}`\n"
+            f"**📅 本月：** `{stats['monthly']}` | "
+            f"**📆 本周：** `{stats['weekly']}`\n"
+            f"**🔥 连续：** `{stats['current_streak']}` 周\n"
+            f"**🏆 已领取里程碑：** `{rewarded}`\n"
+            f"**⚠️ 待领取（尚未发放）：** `{pending_milestones}`\n\n"
+            f"**📋 最近推荐（最近10人）：**\n{recent_text}\n\n"
+            f"_快捷修复命令：_\n"
+            f"`/add {target_id} 1 22` — 手动授予22天会员\n"
+            f"`/refmark {target_id}` — 标记所有符合条件的里程碑为已完成",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -1032,8 +1030,8 @@ def setup_referral_handler(app: Client):
     async def refgive_command(client: Client, message: Message):
         if len(message.command) < 2:
             await message.reply_text(
-                "**Usage:** `/refgive <user_id> [force]`\n\n"
-                "`force` — milestone log reset করে সব eligible reward দেবে।",
+                "**用法：** `/refgive <用户ID> [force]`\n\n"
+                "`force` — 重置里程碑日志并发放所有符合条件的奖励。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1157,16 +1155,16 @@ def setup_referral_handler(app: Client):
         """
         if len(message.command) < 2:
             await message.reply_text(
-                "**Usage:** `/refmark <user_id>`\n\n"
-                "Marks all eligible milestones as rewarded in the DB.\n"
-                "Use after manually granting premium via `/add`.",
+                "**用法：** `/refmark <用户ID>`\n\n"
+                "在数据库中标记所有符合条件的里程碑为已奖励。\n"
+                "通过 `/add` 手动授予会员后使用。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
         try:
             target_id = int(message.command[1])
         except ValueError:
-            await message.reply_text("❌ **Invalid user ID!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("❌ **无效的用户ID！**", parse_mode=ParseMode.MARKDOWN)
             return
 
         count = await _count_referrals(target_id)
@@ -1198,21 +1196,21 @@ def setup_referral_handler(app: Client):
                     )
 
         lines = [
-            f"**📋 Milestone Mark Result — `{target_id}`**\n"
+            f"**📋 里程碑标记结果 — `{target_id}`**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"**👥 Referrals:** `{count}`\n"
-            f"**Eligible milestones:** `{eligible}`\n"
-            f"**Already rewarded (before):** `{already_rewarded}`\n"
+            f"**👥 推荐数：** `{count}`\n"
+            f"**符合条件的里程碑：** `{eligible}`\n"
+            f"**已奖励（之前）：** `{already_rewarded}`\n"
         ]
 
         if newly_marked:
-            lines.append(f"**✅ Newly marked:** `{newly_marked}`")
+            lines.append(f"**✅ 新标记：** `{newly_marked}`")
         if failed_marks:
-            lines.append(f"**❌ Failed to mark:** `{failed_marks}`")
+            lines.append(f"**❌ 标记失败：** `{failed_marks}`")
         if not newly_marked and not failed_marks:
-            lines.append("_No new milestones to mark — all already done._")
+            lines.append("_没有新的里程碑需要标记 — 均已标记完成。_")
 
-        lines.append("\n✅ **Done! Run `/refcheck** to verify.**")
+        lines.append("\n✅ **完成！运行 `/refcheck` 验证。**")
 
         await message.reply_text(
             "\n".join(lines),
@@ -1293,20 +1291,20 @@ def setup_referral_handler(app: Client):
             )
 
             await message.reply_text(
-                f"**📊 Global Referral Stats**\n"
+                f"**📊 全局推荐统计**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"**🔗 Total Referrals:** `{total_ref}`\n"
-                f"**👤 Unique Referrers:** `{unique_referrers}`\n"
-                f"**📅 Monthly:** `{monthly_ref}`\n"
-                f"**📆 Weekly:** `{weekly_ref}`\n"
-                f"**🏆 Users with Milestones:** `{milestone_count}`\n"
-                f"**🥇 Top Referrer:** {top_info}\n"
+                f"**🔗 总推荐数：** `{total_ref}`\n"
+                f"**👤 推荐人数量：** `{unique_referrers}`\n"
+                f"**📅 本月：** `{monthly_ref}`\n"
+                f"**📆 本周：** `{weekly_ref}`\n"
+                f"**🏆 有里程碑的用户：** `{milestone_count}`\n"
+                f"**🥇 推荐最多：** {top_info}\n"
                 f"━━━━━━━━━━━━━━━━━━",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception as e:
             await message.reply_text(
-                f"❌ **Error fetching stats:** `{type(e).__name__}: {e}`",
+                f"❌ **获取统计信息出错：** `{type(e).__name__}: {e}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -1320,14 +1318,14 @@ def setup_referral_handler(app: Client):
     async def reflist_command(client: Client, message: Message):
         if len(message.command) < 2:
             await message.reply_text(
-                "**Usage:** `/reflist <user_id>`",
+                "**用法：** `/reflist <用户ID>`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
         try:
             target_id = int(message.command[1])
         except ValueError:
-            await message.reply_text("❌ **Invalid user ID!**", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("❌ **无效的用户ID！**", parse_mode=ParseMode.MARKDOWN)
             return
 
         try:
@@ -1344,27 +1342,27 @@ def setup_referral_handler(app: Client):
             all_refs = await cursor.to_list(length=None)
         except Exception as e:
             await message.reply_text(
-                f"❌ **DB error:** `{type(e).__name__}: {e}`",
+                f"❌ **数据库错误：** `{type(e).__name__}: {e}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         if not all_refs:
             await message.reply_text(
-                f"**No referrals found for `{target_id}`.**",
+                f"**未找到 `{target_id}` 的推荐记录。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         lines = [
-            f"**📋 All Referrals by `{target_id}`**\n"
-            f"Total: **{len(all_refs)}**\n"
+            f"**📋 `{target_id}` 的全部推荐**\n"
+            f"总计：**{len(all_refs)}**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
         ]
         for r in all_refs:
             uid = r.get("referred_user_id", "?")
             at = r.get("referred_at")
-            at_str = at.strftime("%d %b %Y %H:%M") if isinstance(at, datetime) else "Unknown"
+            at_str = at.strftime("%Y年%m月%d日 %H:%M") if isinstance(at, datetime) else "未知"
             lines.append(f"• `{uid}` — {at_str}")
 
         text = "\n".join(lines)

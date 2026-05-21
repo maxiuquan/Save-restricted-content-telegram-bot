@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/tgdl.py — Telegram File Downloader
 #

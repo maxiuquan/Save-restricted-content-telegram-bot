@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # auth/migrate/migrate.py
 # Developer Telegram থেকে /migrate command দিয়ে

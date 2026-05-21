@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/jddl.py — JDownloader Downloader
 #
@@ -205,11 +203,11 @@ async def _upload_to_telegram(
         bar     = _progress_bar(pct)
         try:
             await status_msg.edit_text(
-                f"📤 **Upload হচ্ছে...**\n\n"
+                f"📤 **上传中...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                f"⏳ **ETA:** `{get_readable_time(int(eta))}`",
+                f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+                f"⏳ **预计剩余：** `{get_readable_time(int(eta))}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             last_edit[0] = now
@@ -276,7 +274,7 @@ async def _run_jd_download(
         await jd.add_links(url, save_path)
 
         await status_msg.edit_text(
-            "🔍 **Link বিশ্লেষণ করা হচ্ছে...**",
+            "🔍 **链接 বিশ্লেষণ করা হচ্ছে...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -290,8 +288,8 @@ async def _run_jd_download(
         packages = await jd.get_grabber_packages()
         if not packages:
             await status_msg.edit_text(
-                "❌ **Link থেকে কোনো download item পাওয়া যায়নি।**\n\n"
-                "Link টি সঠিক কিনা যাচাই করুন।",
+                "❌ **链接 থেকে কোনো 下载项目 পাওয়া যায়নি।**\n\n"
+                "链接 টি সঠিক কিনা যাচাই করুন।",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -311,12 +309,12 @@ async def _run_jd_download(
             )
             return
 
-        name = packages[0].get("name", "JD Download")
+        name = packages[0].get("name", "JD 下载")
         await status_msg.edit_text(
             f"📦 **{name[:60]}**\n\n"
-            f"📊 Files: `{sum(p.get('childCount', 0) for p in packages)}`\n"
-            f"📦 Size: `{get_readable_file_size(total)}`\n\n"
-            "⬇️ Download শুরু হচ্ছে...",
+            f"📊 文件数: `{sum(p.get('childCount', 0) for p in packages)}`\n"
+            f"📦 大小: `{get_readable_file_size(total)}`\n\n"
+            "⬇️ 下载 শুরু হচ্ছে...",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -337,7 +335,7 @@ async def _run_jd_download(
                     await jd.remove_packages(dl_pkg_ids)
                 try:
                     await status_msg.edit_text(
-                        "⛔ **Download বাতিল করা হয়েছে।**",
+                        "⛔ **下载 বাতিল করা হয়েছে।**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
@@ -375,13 +373,13 @@ async def _run_jd_download(
                 status = our_packages[0].get("status", "") if our_packages else ""
                 try:
                     await status_msg.edit_text(
-                        f"⬇️ **JDownloader Download**\n"
+                        f"⬇️ **JDownloader 下载**\n"
                         f"{f'`{status}`' if status else ''}\n\n"
                         f"`[{bar}]` {pct:.1f}%\n\n"
                         f"📥 `{get_readable_file_size(total_loaded)}` / `{get_readable_file_size(total_size)}`\n"
-                        f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                        f"⏳ **ETA:** `{get_readable_time(eta) if eta else '...'}`\n"
-                        f"⏱ **Elapsed:** `{get_readable_time(int(elapsed))}`",
+                        f"⚡ **গতি:** `{get_readable_file_size(speed)}/s`\n"
+                        f"⏳ **অবশিষ্ট সময়:** `{get_readable_time(eta) if eta else '...'}`\n"
+                        f"⏱ **অতিবাহিত সময়:** `{get_readable_time(int(elapsed))}`",
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ বাতিল", callback_data=f"jd_cancel_{user_id}")
@@ -398,7 +396,7 @@ async def _run_jd_download(
                 await jd.remove_packages(dl_pkg_ids)
             try:
                 await status_msg.edit_text(
-                    "⏰ **Timeout!** Download সম্পন্ন হয়নি।",
+                    "⏰ **超时！** 下载 সম্পন্ন হয়নি।",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
@@ -407,14 +405,14 @@ async def _run_jd_download(
 
         # ── Locate file ───────────────────────────────────────────────────
         await status_msg.edit_text(
-            "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
+            "✅ **下载 সম্পন্ন!**\n\n📤 上传 করা হচ্ছে...",
             parse_mode=ParseMode.MARKDOWN,
         )
 
         upload_path = _find_downloaded_file(save_path)
         if not upload_path:
             await status_msg.edit_text(
-                "❌ Downloaded ফাইল খুঁজে পাওয়া যায়নি।",
+                "❌ 已下载 ফাইল খুঁজে পাওয়া যায়নি।",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -464,7 +462,7 @@ async def _run_jd_download(
         LOGGER.error(f"[JDDl] Pipeline error user={user_id}: {e}")
         try:
             await status_msg.edit_text(
-                f"❌ **Error:**\n`{str(e)[:300]}`",
+                f"❌ **错误：**\n`{str(e)[:300]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:
@@ -501,13 +499,13 @@ def setup_jddl_handler(app: Client):
 
         if not url:
             await message.reply_text(
-                "**🔽 JDownloader Downloader**\n"
+                "**🔽 JDownloader 下载器**\n"
                 "━━━━━━━━━━━━━━━━━━\n\n"
                 "**ব্যবহার:** `/jd <URL>`\n\n"
-                "**Supported:** YouTube, Vimeo, Dailymotion,\n"
+                "**সমর্থিত:** YouTube, Vimeo, Dailymotion,\n"
                 "Uploaded, Rapidgator, Mediafire এবং\n"
                 "আরও ১০০০+ সাইট!\n\n"
-                "**Example:**\n"
+                "**উদাহরণ:**\n"
                 "`/jd https://www.mediafire.com/file/xxxxx`",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -519,7 +517,7 @@ def setup_jddl_handler(app: Client):
         LOGGER.info(f"[JDDl] User {user_id} requested: {url[:80]}")
 
         status_msg = await message.reply_text(
-            "🔄 **JDownloader-এ link যোগ করা হচ্ছে...**",
+            "🔄 **JDownloader-এ 链接 যোগ করা হচ্ছে...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -537,12 +535,12 @@ def setup_jddl_handler(app: Client):
     async def jd_cancel_callback(client, callback_query):
         user_id = int(callback_query.data.split("_")[-1])
         if callback_query.from_user.id != user_id:
-            await callback_query.answer("এটা আপনার download নয়!", show_alert=True)
+            await callback_query.answer("এটা আপনার 下载 নয়!", show_alert=True)
             return
         _cancel_flags[user_id] = True
         try:
             await callback_query.message.edit_text(
-                "⛔ **Cancel সংকেত পাঠানো হয়েছে...**",
+                "⛔ **取消 সংকেত পাঠানো হয়েছে...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:

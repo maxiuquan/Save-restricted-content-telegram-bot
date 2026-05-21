@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from .auto_router import setup_auto_router   # ← নতুন
 from .plan import setup_plan_handler
 from .info import setup_info_handler

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/gdl.py — Google Drive Downloader
 #
@@ -553,11 +551,11 @@ async def _download_drive_file(
 
             try:
                 await status_msg.edit_text(
-                    f"📥 **⚡ Downloading from Google Drive…**\n\n"
+                    f"📥 **⚡ 正在从 Google Drive 下载…**\n\n"
                     f"`[{_progress_bar(pct)}]` {pct:.1f}%\n\n"
-                    f"📦 **Downloaded:** `{_readable_size(downloaded)}`\n"
-                    f"⚡ **Speed:** `{_readable_size(speed)}/s`\n"
-                    f"⏱ **Elapsed:** `{_readable_time(elapsed)}`\n\n"
+                    f"📦 **已下载：** `{_readable_size(downloaded)}`\n"
+                    f"⚡ **速度：** `{_readable_size(speed)}/s`\n"
+                    f"⏱ **耗时：** `{_readable_time(elapsed)}`\n\n"
                     f"📄 `{file_name}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -600,11 +598,11 @@ async def _upload_to_telegram(
         pct     = (current / total * 100) if total > 0 else 0
         try:
             await status_msg.edit_text(
-                f"📤 **⚡ Uploading to Telegram…** `[{media_type}]`\n\n"
+                f"📤 **⚡ 正在上传到 Telegram…** `[{media_type}]`\n\n"
                 f"`[{_progress_bar(pct)}]` {pct:.1f}%\n\n"
                 f"📦 `{_readable_size(current)}` / `{_readable_size(total)}`\n"
                 f"⚡ `{_readable_size(speed)}/s`  "
-                f"⏳ ETA `{_readable_time(eta)}`\n\n"
+                f"⏳ 预计 `{_readable_time(eta)}`\n\n"
                 f"📄 `{file_name}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -694,8 +692,8 @@ async def _process_gdl(client: Client, message: Message, url: str):
 
     if not GDRIVE_AVAILABLE:
         await message.reply_text(
-            "❌ **Google Drive support is not available.**\n\n"
-            "⚡ Please install the required packages:\n"
+            "❌ **Google Drive 支持不可用。**\n\n"
+            "⚡ 请安装所需的包：\n"
             "`pip install google-api-python-client google-auth-oauthlib`",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -707,9 +705,9 @@ async def _process_gdl(client: Client, message: Message, url: str):
     # ── Free user: block folder downloads ───────────────────────────────────
     if is_folder and not is_premium:
         await message.reply_text(
-            "❌ **Folder download is for Premium users only!**\n\n"
-            "Folders can contain many files which requires premium access.\n\n"
-            "💎 Upgrade to premium: /plans",
+            "❌ **文件夹下载仅限高级用户使用！**\n\n"
+            "文件夹可能包含多个文件，需要高级版权限。\n\n"
+            "💎 升级到高级版：/plans",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -720,8 +718,8 @@ async def _process_gdl(client: Client, message: Message, url: str):
         if remaining > 0:
             mins, secs = divmod(remaining, 60)
             await message.reply_text(
-                f"**⏳ Please wait {mins}m {secs}s before your next download.**\n\n"
-                f"__Upgrade to premium for instant unlimited downloads: /plans__",
+                f"**⏳ 请等待 {mins}m {secs}s 后再进行下一次下载。**\n\n"
+                f"__升级到高级版即可享受即时无限下载：/plans__",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -744,8 +742,8 @@ async def _process_gdl(client: Client, message: Message, url: str):
     if not file_id:
         LOGGER.error(f"[GDL] Could not extract ID from URL: {url}")
         await message.reply_text(
-            "❌ **Could not find the Google Drive ID.**\n\n"
-            "Supported formats:\n"
+            "❌ **无法找到 Google Drive ID。**\n\n"
+            "支持的格式：\n"
             "• `https://drive.google.com/file/d/<ID>/view`\n"
             "• `https://drive.google.com/folders/<ID>`\n"
             "• `https://drive.google.com/drive/folders/<ID>`\n"
@@ -766,19 +764,19 @@ async def _process_gdl(client: Client, message: Message, url: str):
         )
     except FileNotFoundError as e:
         await message.reply_text(
-            f"❌ **Service account key not found!**\n\n`{e}`",
+            f"❌ **未找到服务账号密钥！**\n\n`{e}`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
     except Exception as e:
         await message.reply_text(
-            f"❌ **Could not connect to Google Drive.**\n\n`{e}`",
+            f"❌ **无法连接到 Google Drive。**\n\n`{e}`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     status_msg = await message.reply_text(
-        "🔍 **⚡ Getting file info from Google Drive…**",
+        "🔍 **⚡ 正在从 Google Drive 获取文件信息…**",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -788,11 +786,11 @@ async def _process_gdl(client: Client, message: Message, url: str):
             folder_meta = await asyncio.get_event_loop().run_in_executor(
                 None, _get_file_metadata, service, file_id,
             )
-            folder_name = folder_meta.get("name", "Untitled Folder")
+            folder_name = folder_meta.get("name", "未命名文件夹")
 
             await status_msg.edit_text(
-                f"📁 **Scanning folder:** `{folder_name}`\n"
-                "⚡ Please wait…",
+                f"📁 **正在扫描文件夹：** `{folder_name}`\n"
+                "⚡ 请稍候…",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -815,9 +813,9 @@ async def _process_gdl(client: Client, message: Message, url: str):
             total_size = sum(int(f.get("size", 0)) for f in files)
             if total_size > MAX_FILE_SIZE_BYTES:
                 await status_msg.edit_text(
-                    f"❌ **Folder is too big to send.**\n\n"
-                    f"Total size: `{_readable_size(total_size)}`\n"
-                    f"Limit: `{_readable_size(MAX_FILE_SIZE_BYTES)}`",
+                    f"❌ **文件夹太大无法发送。**\n\n"
+                    f"总大小：`{_readable_size(total_size)}`\n"
+                    f"限制：`{_readable_size(MAX_FILE_SIZE_BYTES)}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 asyncio.create_task(_log_gdl_to_group(
@@ -828,10 +826,10 @@ async def _process_gdl(client: Client, message: Message, url: str):
                 return
 
             await status_msg.edit_text(
-                f"📁 **Folder:** `{folder_name}`\n"
-                f"📊 **Files:** `{len(files)}`\n"
-                f"📦 **Total size:** `{_readable_size(total_size)}`\n\n"
-                "⚡ Starting download…",
+                f"📁 **文件夹：** `{folder_name}`\n"
+                f"📊 **文件数：** `{len(files)}`\n"
+                f"📦 **总大小：** `{_readable_size(total_size)}`\n\n"
+                "⚡ 开始下载…",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -850,9 +848,9 @@ async def _process_gdl(client: Client, message: Message, url: str):
 
                 await status_msg.edit_text(
                     f"📁 **{folder_name}**\n"
-                    f"📊 Progress: `{idx}/{len(files)}`\n"
-                    f"📄 Current: `{item_name}`\n"
-                    f"📦 Size: `{_readable_size(item_size)}`",
+                    f"📊 进度：`{idx}/{len(files)}`\n"
+                    f"📄 当前：`{item_name}`\n"
+                    f"📦 大小：`{_readable_size(item_size)}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
@@ -864,10 +862,10 @@ async def _process_gdl(client: Client, message: Message, url: str):
 
                     caption = (
                         f"📄 **{os.path.basename(local_path)}**\n"
-                        f"📁 Path: `{relative_path}`\n"
-                        f"📦 Size: `{_readable_size(os.path.getsize(local_path))}`\n"
+                        f"📁 路径：`{relative_path}`\n"
+                        f"📦 大小：`{_readable_size(os.path.getsize(local_path))}`\n"
                         f"🔗 [Google Drive]({url})\n\n"
-                        f"__Downloaded by @juktijol Bot__"
+                        f""
                     )
 
                     ok = await _upload_to_telegram(
@@ -898,10 +896,10 @@ async def _process_gdl(client: Client, message: Message, url: str):
             final_status = "success" if fail_count == 0 else ("failed" if success_count == 0 else "success")
 
             await status_msg.edit_text(
-                f"✅ **Folder download done!**\n\n"
+                f"✅ **文件夹下载完成！**\n\n"
                 f"📁 `{folder_name}`\n"
-                f"✅ Success: `{success_count}`\n"
-                f"❌ Failed: `{fail_count}`",
+                f"✅ 成功：`{success_count}`\n"
+                f"❌ 失败：`{fail_count}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -924,9 +922,9 @@ async def _process_gdl(client: Client, message: Message, url: str):
             is_doc, _, _ = _is_google_doc(mime_type)
             if not is_doc and file_size > MAX_FILE_SIZE_BYTES:
                 await status_msg.edit_text(
-                    f"❌ **File is too big to send to Telegram.**\n\n"
-                    f"Size: `{_readable_size(file_size)}`\n"
-                    f"Limit: `{_readable_size(MAX_FILE_SIZE_BYTES)}`",
+                    f"❌ **文件太大无法发送到 Telegram。**\n\n"
+                    f"大小：`{_readable_size(file_size)}`\n"
+                    f"限制：`{_readable_size(MAX_FILE_SIZE_BYTES)}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 asyncio.create_task(_log_gdl_to_group(
@@ -969,9 +967,9 @@ async def _process_gdl(client: Client, message: Message, url: str):
 
                 caption = (
                     f"📄 **{os.path.basename(local_path)}**\n"
-                    f"📦 Size: `{_readable_size(actual_size)}`\n"
+                    f"📦 大小：`{_readable_size(actual_size)}`\n"
                     f"🔗 [Google Drive]({url})\n\n"
-                    f"__Downloaded by @juktijol Bot__"
+                    f""
                 )
 
                 upload_ok = await _upload_to_telegram(
@@ -984,13 +982,13 @@ async def _process_gdl(client: Client, message: Message, url: str):
 
                 if upload_ok:
                     await status_msg.edit_text(
-                        f"✅ **Done!** `{os.path.basename(local_path)}`\n"
-                        f"📦 `{_readable_size(actual_size)}` — sent as **{detected}**",
+                        f"✅ **完成！** `{os.path.basename(local_path)}`\n"
+                        f"📦 `{_readable_size(actual_size)}` — 已作为 **{detected}** 发送",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 else:
                     await status_msg.edit_text(
-                        "❌ **Upload to Telegram failed.** Please try again.",
+                        "❌ **上传到 Telegram 失败。** 请重试。",
                         parse_mode=ParseMode.MARKDOWN,
                     )
 
@@ -1024,7 +1022,7 @@ async def _process_gdl(client: Client, message: Message, url: str):
         ))
         try:
             await status_msg.edit_text(
-                f"❌ **Something went wrong:**\n`{str(e)[:300]}`",
+                f"❌ **出现错误：**\n`{str(e)[:300]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:
@@ -1035,46 +1033,46 @@ async def _process_gdl(client: Client, message: Message, url: str):
 # USAGE MESSAGES
 # ─────────────────────────────────────────────────────────────────────────────
 
-_USAGE_TEXT = """**📥 ⚡ Google Drive Downloader**
+_USAGE_TEXT = """**📥 ⚡ Google Drive 下载器**
 ━━━━━━━━━━━━━━━━━━
 
-You can use it in **3 easy ways:**
+**3 种使用方法：**
 
-**Method 1 — Give the link directly:**
+**方法 1 — 直接提供链接：**
 `/gdl https://drive.google.com/file/d/<ID>/view`
 
-**Method 2 — Just send the command:**
-Type `/gdl` and I will ask you for the link.
-__(I'll wait 60 seconds for your input)__
+**方法 2 — 仅发送命令：**
+输入 `/gdl`，我会向你索要链接。
+__（我会等待你的输入 60 秒）__
 
-**Method 3 — Reply to a message:**
-Forward a message that has a Drive link,
-then reply to it with `/gdl`
+**方法 3 — 回复消息：**
+转发一条带有 Drive 链接的消息，
+然后回复它 `/gdl`
 
 ━━━━━━━━━━━━━━━━━━
-**Supported links:**
+**支持的链接：**
 • `drive.google.com/file/d/<ID>/view`
 • `drive.google.com/folders/<ID>`
 • `drive.google.com/drive/folders/<ID>`
 • `drive.google.com/open?id=<ID>`
 • `docs.google.com/document/d/<ID>`
 
-**Features:**
-• Max: `2 GB`
-• Google Docs → Office format auto-convert
-• Smart upload: video/audio/photo/animation/doc
-• Full folder download __(💎 Premium only)__
+**功能特点：**
+• 最大：`2 GB`
+• Google 文档 → Office 格式自动转换
+• 智能上传：视频/音频/图片/动画/文档
+• 完整文件夹下载 __（💎 仅限高级用户）__
 
-**⚠️ Notes:**
-• 🆓 Free users: 5-minute cooldown between downloads
-• 🆓 Free users: folder download **not available**
-• 💎 Premium users: unlimited, folders supported"""
+**⚠️ 注意：**
+• 🆓 免费用户：两次下载间 5 分钟冷却
+• 🆓 免费用户：文件夹下载 **不可用**
+• 💎 高级用户：无限制，支持文件夹"""
 
-_ASK_URL_TEXT = """📎 **⚡ Send me the Google Drive link!**
+_ASK_URL_TEXT = """📎 **⚡ 发送 Google Drive 链接给我！**
 
-⏳ I'll wait `{timeout}` seconds for your link.
+⏳ 我会等待 `{timeout}` 秒接收链接。
 
-❌ To cancel, type `/cancel`."""
+❌ 要取消，输入 `/cancel`。"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1115,7 +1113,7 @@ def setup_gdl_handler(app: Client):
             old_status = _pending_url_requests.pop(pending_key)
             try:
                 await old_status.edit_text(
-                    "🔄 **Got a new /gdl command. Cancelled the old one.**",
+                    "🔄 **收到新的 /gdl 命令。已取消旧的。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
@@ -1151,8 +1149,8 @@ def setup_gdl_handler(app: Client):
         if url:
             if "drive.google.com" not in url and "docs.google.com" not in url:
                 await message.reply_text(
-                    "❌ **This doesn't look like a Google Drive link.**\n\n"
-                    "Please send a valid `drive.google.com` URL.",
+                    "❌ **这看起来不像 Google Drive 链接。**\n\n"
+                    "请发送有效的 `drive.google.com` 链接。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -1188,9 +1186,8 @@ def setup_gdl_handler(app: Client):
                 _pending_url_requests.pop(pending_key)
                 try:
                     await ask_msg.edit_text(
-                        f"⏰ **Time's up!** No link received in "
-                        f"`{WAIT_FOR_URL_TIMEOUT}` seconds.\n\n"
-                        "Try again with `/gdl`.",
+                        f"⏰ **时间到！** 在 `{WAIT_FOR_URL_TIMEOUT}` 秒内未收到链接。\n\n"
+                        "请重新使用 `/gdl`。",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                 except Exception:
@@ -1235,11 +1232,11 @@ def setup_gdl_handler(app: Client):
         if not urls:
             _pending_url_requests[key] = ask_msg
             await message.reply_text(
-                "❌ **This doesn't look like a Google Drive link.**\n\n"
-                "Please send a valid Drive URL.\n"
-                "Example:\n"
+                "❌ **这看起来不像 Google Drive 链接。**\n\n"
+                "请发送有效的 Drive 链接。\n"
+                "示例：\n"
                 "`https://drive.google.com/file/d/<ID>/view`\n\n"
-                "❌ To cancel, type `/cancel`.",
+                "❌ 要取消，输入 `/cancel`。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1249,7 +1246,7 @@ def setup_gdl_handler(app: Client):
 
         try:
             await ask_msg.edit_text(
-                f"✅ **Got the link!** ⚡ Starting now…\n\n"
+                f"✅ **收到链接！** ⚡ 开始处理…\n\n"
                 f"🔗 `{url}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -1277,18 +1274,18 @@ def setup_gdl_handler(app: Client):
             ask_msg = _pending_url_requests.pop(key)
             try:
                 await ask_msg.edit_text(
-                    "❌ **Cancelled.**\n\nType `/gdl` to start again.",
+                    "❌ **已取消。**\n\n输入 `/gdl` 重新开始。",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
                 pass
             await message.reply_text(
-                "✅ **GDL request cancelled.**",
+                "✅ **GDL 请求已取消。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
             await message.reply_text(
-                "ℹ️ **No active GDL request found.**",
+                "ℹ️ **未找到活跃的 GDL 请求。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
 

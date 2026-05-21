@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-#
 # core/start.py — UPDATED: Uses new process_referral() from plugins/referral.py
 
 from datetime import datetime
@@ -59,25 +56,24 @@ def setup_start_handler(app: Client):
             except Exception as e:
                 LOGGER.error(f"Referral tracking error for {user.id}: {e}")
 
-        start_message = f"""Hey there, {user_fullname}! 👋 Welcome!
+        start_message = f"""{user_fullname}，你好！👋 欢迎！
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 
-🤔 **What Does This Bot Do?**
-This bot allows you to bypass restrictions and easily download or forward content from public channels, private channels, and groups where saving or forwarding is disabled.
+🤔 **这个机器人能做什么？**
+本机器人可以绕过限制，轻松下载或转发来自公开频道、私有频道和群组的内容，即使保存和转发功能被禁用也能下载。
 
-📖 **How It Works:**
-• **Auto Download:** Simply paste any Telegram link directly into the chat — no command needed!
-• **Auto Batch:** Paste a link and the bot will ask how many messages to download at once.
-• **Private Content:** Securely log in to download files from private channels you are already a member of. Files are sent directly to your Saved Messages.
+📖 **如何使用：**
+• **自动下载：** 直接在聊天中粘贴任意 Telegram 链接 — 无需命令！
+• **自动批量：** 粘贴链接后，机器人会询问你一次要下载多少条消息。
+• **私有内容：** 安全登录后，可从你已加入的私有频道下载文件。文件会直接发送到你的收藏夹。
 
-💎 **Free vs Premium:**
-Free users have a 5-minute cooldown between downloads. Premium users get instant, unlimited access and batch downloading!
+💎 **免费 vs 高级：**
+免费用户每次下载间隔 5 分钟。高级用户可即时、无限制下载，并支持批量下载！
 
-📌 **Just paste any Telegram link to get started!**
+📌 **只需粘贴任意 Telegram 链接即可开始！**
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-📢 Stay updated → [Join @juktijol](https://t.me/juktijol)
 """
 
         await message.reply_text(
@@ -89,7 +85,7 @@ Free users have a 5-minute cooldown between downloads. Premium users get instant
 
         await client.send_message(
             chat_id=message.chat.id,
-            text="⌨️ __Use the buttons below for quick access to all features:__",
+            text="⌨️ __使用下方按钮可快速访问所有功能：__",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_main_reply_keyboard(),
         )

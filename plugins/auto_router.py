@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/auto_router.py — Fully Automatic Link Router
 # কোনো command ছাড়াই URL paste করলে অটো download শুরু হবে

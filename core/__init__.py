@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 from .start import setup_start_handler
 from .database import (
     # Main plan collections

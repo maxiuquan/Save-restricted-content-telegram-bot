@@ -1,5 +1,4 @@
 # plugins/urldl.py
-# Copyright @juktijol
 # External URL → Direct Telegram Upload (URLUploader integration)
 # গুরুত্বপূর্ণ: t.me লিংক autolink.py handle করবে, বাকি সব external URL urldl.py handle করবে — কোনো conflict নেই।
 
@@ -146,7 +145,7 @@ async def _stream_download(
 
                 if resp.status not in (200, 206):
                     await status_msg.edit_text(
-                        f"❌ **Server error: HTTP {resp.status}**",
+                        f"❌ **服务器错误：HTTP {resp.status}**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     return False
@@ -154,9 +153,9 @@ async def _stream_download(
                 total    = int(resp.headers.get("Content-Length", 0))
                 if total > 0 and total > max_size:
                     await status_msg.edit_text(
-                        f"❌ **File too large!**\n\n"
-                        f"📦 Size: `{get_readable_file_size(total)}`\n"
-                        f"🚫 Limit: `{get_readable_file_size(max_size)}`",
+                        f"❌ **文件过大！**\n\n"
+                        f"📦 大小：`{get_readable_file_size(total)}`\n"
+                        f"🚫 限制：`{get_readable_file_size(max_size)}`",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     return False
@@ -189,12 +188,12 @@ async def _stream_download(
                             )
                             try:
                                 await status_msg.edit_text(
-                                    f"⬇️ **Downloading...**\n\n"
+                                    f"⬇️ **下载中...**\n\n"
                                     f"`[{bar}]`"
                                     + (f" {pct:.1f}%" if total > 0 else "") + "\n\n"
                                     f"📥 {size_txt}\n"
-                                    f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                                    f"⏳ **ETA:** `{get_readable_time(eta) if eta else '...'}`\n\n"
+                                    f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+                                    f"⏳ **预计：** `{get_readable_time(eta) if eta else '...'}`\n\n"
                                     f"📄 `{display_name[:60]}`",
                                     parse_mode=ParseMode.MARKDOWN
                                 )
@@ -206,7 +205,7 @@ async def _stream_download(
     except asyncio.TimeoutError:
         try:
             await status_msg.edit_text(
-                "❌ **Download timeout!** Please try again.",
+                "❌ **下载超时！** 请重试。",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception:
@@ -217,7 +216,7 @@ async def _stream_download(
         LOGGER.error(f"[URLDl] Download error: {e}")
         try:
             await status_msg.edit_text(
-                f"❌ **Download failed!**\n`{str(e)[:150]}`",
+                f"❌ **下载失败！**\n`{str(e)[:150]}`",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception:
@@ -251,11 +250,11 @@ async def _upload_to_telegram(
         bar     = _progress_bar(pct)
         try:
             await status_msg.edit_text(
-                f"📤 **Uploading to Telegram...**\n\n"
+                f"📤 **正在上传到 Telegram...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-                f"⏳ **ETA:** `{get_readable_time(eta)}`",
+                f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+                f"⏳ **预计：** `{get_readable_time(eta)}`",
                 parse_mode=ParseMode.MARKDOWN
             )
             last_edit[0] = now
@@ -303,7 +302,7 @@ async def _upload_to_telegram(
 
     elapsed = get_readable_time(int(time.time() - start_ts))
     await status_msg.edit_text(
-        f"✅ **Successfully uploaded!**\n\n"
+        f"✅ **上传成功！**\n\n"
         f"📦 `{get_readable_file_size(file_size)}` | ⏱ `{elapsed}`",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -350,7 +349,7 @@ async def _process_url_download(
 
         if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
             await status_msg.edit_text(
-                "❌ **Downloaded file is empty or missing.**",
+                "❌ **下载的文件为空或不存在。**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -364,7 +363,7 @@ async def _process_url_download(
 
         # ── Upload ──────────────────────────────────────────────
         await status_msg.edit_text(
-            f"✅ **Download complete!** Uploading...\n\n"
+            f"✅ **下载完成！** 正在上传...\n\n"
             f"📄 `{filename}`\n"
             f"📦 `{get_readable_file_size(file_sz)}`",
             parse_mode=ParseMode.MARKDOWN
@@ -395,7 +394,7 @@ async def _process_url_download(
         LOGGER.error(f"[URLDl] Pipeline error: {e}")
         try:
             await status_msg.edit_text(
-                f"❌ **Unexpected error!**\n`{str(e)[:200]}`",
+                f"❌ **意外错误！**\n`{str(e)[:200]}`",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception:
@@ -458,16 +457,16 @@ def setup_urldl_handler(app: Client):
         if remaining > 0:
             mins, secs = divmod(remaining, 60)
             await message.reply_text(
-                f"⏳ **Please wait {mins}m {secs}s before next download.**\n\n"
-                f"💎 Upgrade for no cooldown: /plans",
+                f"⏳ **请等待 {mins}分{secs}秒后再进行下一次下载。**\n\n"
+                f"💎 升级以取消冷却：/plans",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         if user_id in _active_downloads:
             await message.reply_text(
-                "⏳ **You already have an active download!**\n"
-                "Please wait for it to finish.",
+                "⏳ **你已有一个活跃的下载！**\n"
+                "请等待它完成。",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -478,15 +477,15 @@ def setup_urldl_handler(app: Client):
 
         if file_size == 0:
             # Size পাওয়া যায়নি — warn করে তবু allow
-            size_display = "Unknown size"
+            size_display = "大小未知"
         else:
             size_display = get_readable_file_size(file_size)
             if file_size > max_size:
                 await message.reply_text(
-                    f"❌ **File too large for your plan!**\n\n"
-                    f"📦 **Size:** `{size_display}`\n"
-                    f"🚫 **Your limit:** `{get_readable_file_size(max_size)}`\n\n"
-                    + ("💎 Upgrade to Premium: /plans" if not is_premium else ""),
+                    f"❌ **文件大小超出你的套餐限制！**\n\n"
+                    f"📦 **大小：** `{size_display}`\n"
+                    f"🚫 **你的限制：** `{get_readable_file_size(max_size)}`\n\n"
+                    + ("💎 升级到高级版：/plans" if not is_premium else ""),
                     parse_mode=ParseMode.MARKDOWN
                 )
                 return
@@ -495,23 +494,23 @@ def setup_urldl_handler(app: Client):
         _pending_downloads[unique_id] = {"url": url, "filename": filename}
 
         await message.reply_text(
-            f"🔗 **URL Detected!**\n\n"
-            f"📄 **File:** `{filename}`\n"
-            f"📦 **Size:** `{size_display}`\n\n"
-            f"**How would you like to download?**",
+            f"🔗 **检测到链接！**\n\n"
+            f"📄 **文件：** `{filename}`\n"
+            f"📦 **大小：** `{size_display}`\n\n"
+            f"**你想如何下载？**",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
-                        "⬇️ Download",
+                        "⬇️ 下载",
                         callback_data=f"urldl_default_{unique_id}"
                     ),
                     InlineKeyboardButton(
-                        "✏️ Rename",
+                        "✏️ 重命名",
                         callback_data=f"urldl_rename_{unique_id}"
                     ),
                 ],
-                [InlineKeyboardButton("❌ Cancel", callback_data=f"urldl_cancel_{unique_id}")]
+                [InlineKeyboardButton("❌ 取消", callback_data=f"urldl_cancel_{unique_id}")]
             ])
         )
 
@@ -523,13 +522,12 @@ def setup_urldl_handler(app: Client):
         """/urldl <URL> — সরাসরি command দিয়ে download।"""
         if len(message.command) < 2:
             await message.reply_text(
-                "**📥 URL Downloader**\n\n"
-                "**Usage:** `/urldl <URL>`\n\n"
-                "যেকোনো direct download link থেকে ফাইল\n"
-                "Telegram-এ সরাসরি upload করুন!\n\n"
-                "**Example:**\n"
+                "**📥 链接下载**\n\n"
+                "**用法：** `/urldl <URL>`\n\n"
+                "从任意直链将文件直接上传到 Telegram！\n\n"
+                "**示例：**\n"
                 "`/urldl https://example.com/file.mp4`\n\n"
-                "**অথবা** শুধু URL paste করুন — bot auto-detect করবে!",
+                "**或者** 直接粘贴链接 — 机器人会自动检测！",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -542,14 +540,14 @@ def setup_urldl_handler(app: Client):
         if remaining > 0:
             mins, secs = divmod(remaining, 60)
             await message.reply_text(
-                f"⏳ **Wait {mins}m {secs}s before next download.**",
+                f"⏳ **等待 {mins}分{secs}秒后再进行下一次下载。**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         if user_id in _active_downloads:
             await message.reply_text(
-                "⏳ **Active download in progress!** Please wait.",
+                "⏳ **下载正在进行中！** 请等待。",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -557,11 +555,11 @@ def setup_urldl_handler(app: Client):
         file_size, filename = await _get_file_info(url)
         max_size = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
-        size_display = get_readable_file_size(file_size) if file_size > 0 else "Unknown"
+        size_display = get_readable_file_size(file_size) if file_size > 0 else "未知"
 
         if file_size > max_size:
             await message.reply_text(
-                f"❌ **File too large!**\n"
+                f"❌ **文件过大！**\n"
                 f"📦 `{size_display}` > `{get_readable_file_size(max_size)}`",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -571,22 +569,22 @@ def setup_urldl_handler(app: Client):
         _pending_downloads[unique_id] = {"url": url, "filename": filename}
 
         await message.reply_text(
-            f"🔗 **URL Ready to Download**\n\n"
+            f"🔗 **链接准备下载**\n\n"
             f"📄 `{filename}`\n"
             f"📦 `{size_display}`",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
-                        "⬇️ Download",
+                        "⬇️ 下载",
                         callback_data=f"urldl_default_{unique_id}"
                     ),
                     InlineKeyboardButton(
-                        "✏️ Rename",
+                        "✏️ 重命名",
                         callback_data=f"urldl_rename_{unique_id}"
                     ),
                 ],
-                [InlineKeyboardButton("❌ Cancel", callback_data=f"urldl_cancel_{unique_id}")]
+                [InlineKeyboardButton("❌ 取消", callback_data=f"urldl_cancel_{unique_id}")]
             ])
         )
 
@@ -607,11 +605,11 @@ def setup_urldl_handler(app: Client):
                 await callback_query.message.delete()
             except Exception:
                 pass
-            await callback_query.answer("Cancelled.")
+            await callback_query.answer("已取消。")
             return
 
         if not info:
-            await callback_query.answer("Session expired! Please try again.", show_alert=True)
+            await callback_query.answer("会话已过期！请重试。", show_alert=True)
             return
 
         url      = info["url"]
@@ -621,8 +619,8 @@ def setup_urldl_handler(app: Client):
             _pending_renames[user_id] = {"url": url, "filename": filename, "unique_id": unique_id}
             try:
                 await callback_query.message.edit_text(
-                    "**✏️ Send the new filename** (without extension):\n\n"
-                    f"_Current: `{filename}`_",
+                    "**✏️ 发送新文件名**（不含扩展名）：\n\n"
+                    f"_当前：`{filename}`_",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -642,11 +640,11 @@ def setup_urldl_handler(app: Client):
 
             status_msg = await client.send_message(
                 chat_id=chat_id,
-                text=f"⬇️ **Starting download...**\n📄 `{filename}`",
+                text=f"⬇️ **开始下载...**\n📄 `{filename}`",
                 parse_mode=ParseMode.MARKDOWN
             )
 
-            await callback_query.answer("Starting download...")
+            await callback_query.answer("开始下载...")
 
             asyncio.create_task(
                 _process_url_download(
@@ -684,7 +682,7 @@ def setup_urldl_handler(app: Client):
         is_premium = await _is_premium(user_id)
 
         status_msg = await message.reply_text(
-            f"⬇️ **Starting download...**\n📄 `{new_filename}`",
+            f"⬇️ **开始下载...**\n📄 `{new_filename}`",
             parse_mode=ParseMode.MARKDOWN
         )
 

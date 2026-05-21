@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 
 from pyrogram import Client
 from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -16,136 +14,136 @@ from .keyboards import (
 # MESSAGE TEMPLATES
 # ══════════════════════════════════════════════════
 
-HOME_TEXT = """🚀 **RestrictedContentDL Bot**
+HOME_TEXT = """🚀 **RestrictedContentDL 机器人**
 
-📌 Download content from any Telegram channel or group — even restricted ones!
+📌 从任意 Telegram 频道或群组下载内容 — 即使受限也能下载！
 
-Just paste a link below 👇"""
+请在下方粘贴链接 👇"""
 
-AUTOLINK_GUIDE_TEXT = """🔗 **Single Link Download**
+AUTOLINK_GUIDE_TEXT = """🔗 **单链接下载**
 
-No command needed — just paste a link! ⚡
+无需命令 — 直接粘贴链接！⚡
 
-• `https://t.me/channelname/123` → public channel
-• `https://t.me/c/1234567890/123` → private channel __(need to /login first)__
+• `https://t.me/channelname/123` → 公开频道
+• `https://t.me/c/1234567890/123` → 私有频道 __(需先 /login)__
 
-The bot will find and send the file to you. ✅
+机器人会自动找到并发送文件给你。✅
 
-⏱ Free users: wait 5 minutes between downloads.
-💎 Premium users: instant & unlimited!"""
+⏱ 免费用户：每次下载间隔 5 分钟。
+💎 高级用户：即时下载，无限制！"""
 
-AUTOBATCH_GUIDE_TEXT = """📦 **Batch Download**
+AUTOBATCH_GUIDE_TEXT = """📦 **批量下载**
 
-Want to download many files at once? Easy! 🎯
+想一次下载多个文件？简单！🎯
 
-Just send a Telegram link:
+只需发送 Telegram 链接：
 `https://t.me/channelname/123`
 
-The bot will ask how many files you want. Done! 🚀
+机器人会询问你要下载多少文件。搞定！🚀
 
-**Plan limits:**
-• Plan 1 — up to 1,000 files
-• Plan 2 — up to 2,000 files
-• Plan 3 — unlimited ♾️
+**套餐限制：**
+• 套餐1 — 最多 1,000 个文件
+• 套餐2 — 最多 2,000 个文件
+• 套餐3 — 无限制 ♾️
 
-__Batch download is for premium users only.__"""
+__批量下载仅限高级用户。__"""
 
-GUIDE_SETTHUMB_TEXT = """📌 **How to Set a Thumbnail**
+GUIDE_SETTHUMB_TEXT = """📌 **如何设置缩略图**
 
-Super easy — just 2 steps! 👇
+非常简单 — 只需 2 步！👇
 
-**Step 1:** Type `/setthumb`
-**Step 2:** Send a photo when the bot asks
+**第一步：** 输入 `/setthumb`
+**第二步：** 机器人询问时发送图片
 
-That's it! ✅ The bot will use that photo as the thumbnail for all your downloaded videos.
+就完成了！✅ 机器人会将该图片设为所有下载视频的缩略图。
 
-__Or just send any photo — the bot will ask if you want to set it as a thumbnail!__"""
+__或者直接发送任意图片 — 机器人会询问是否设为缩略图！__"""
 
-THUMB_MENU_TEXT = """🖼 **Thumbnail Settings**
+THUMB_MENU_TEXT = """🖼 **缩略图设置**
 
-A thumbnail is the small preview image shown on videos. 🎬
+缩略图是视频上显示的小预览图。🎬
 
-• **📌 Set Thumbnail** — pick a new photo to use
-• **👁 View Thumbnail** — see your current thumbnail
-• **🗑 Remove Thumbnail** — go back to no thumbnail"""
+• **📌 设置缩略图** — 选择新图片作为缩略图
+• **👁 查看缩略图** — 查看当前缩略图
+• **🗑 删除缩略图** — 恢复无缩略图状态"""
 
-LOGIN_MENU_TEXT = """🔐 **Login / Logout**
+LOGIN_MENU_TEXT = """🔐 **登录 / 退出**
 
-**Why login?** To download from private channels! 🔒
+**为何登录？** 从私有频道下载内容！🔒
 
-**Login:** Connect your Telegram account — safe & easy.
-**Logout:** Remove your saved session anytime.
+**登录：** 连接你的 Telegram 账户 — 安全便捷。
+**退出：** 随时移除已保存的会话。
 
-__All users (free & premium) can login.__"""
+__所有用户（免费和高级）均可登录。__"""
 
-HELP_TEXT = """❓ **Help & Commands**
+HELP_TEXT = """❓ **帮助与命令**
 
-**🔗 Auto Download**
-Just paste any Telegram link — no command needed!
+**🔗 自动下载**
+直接粘贴任意 Telegram 链接 — 无需命令！
 
-**📦 Auto Batch**
-Send a link → bot asks how many files → done!
+**📦 自动批量**
+发送链接 → 机器人询问下载数量 → 完成！
 
-**⚙️ Settings**
-• /settings — set caption, rename files, filter words, target chat
+**⚙️ 设置**
+• /settings — 设置标题、重命名、关键词过滤、目标对话
 
-**Your Account**
-• /login — connect your account
-• /logout — remove your session
-• /profile — see your plan & info
-• /refresh — update your profile info
+**你的账户**
+• /login — 连接账户
+• /logout — 移除会话
+• /profile — 查看套餐和信息
+• /refresh — 更新个人资料
 
-**Thumbnail**
-• /setthumb — set a thumbnail __(just send a photo when asked!)__
-• /getthumb — view your current thumbnail
-• /rmthumb — remove your thumbnail
+**缩略图**
+• /setthumb — 设置缩略图 __（询问时发送图片即可！）__
+• /getthumb — 查看当前缩略图
+• /rmthumb — 删除缩略图
 
-**Plans**
-• /plans — see all premium plans
-• /buy — get premium
-• /transfer — give your premium to a friend
-• /referral — share your link & earn rewards"""
+**套餐**
+• /plans — 查看所有高级套餐
+• /buy — 购买高级会员
+• /transfer — 转让高级会员给朋友
+• /referral — 分享推荐链接赚取奖励"""
 
-PROFILE_TEXT = """👤 **My Profile**
+PROFILE_TEXT = """👤 **个人中心**
 
-See your plan, downloads, and account info.
+查看你的套餐、下载和账户信息。
 
-• /profile — quick overview
-• /info — full details"""
+• /profile — 快速概览
+• /info — 详细信息"""
 
-ACTION_LOGIN_TEXT = """🔐 **How to Login**
+ACTION_LOGIN_TEXT = """🔐 **如何登录**
 
-Just type `/login` and follow the steps! 👇
+只需输入 `/login` 并按步骤操作！👇
 
-1. Send your phone number __(with country code, e.g. +880...)__
-2. Enter the code Telegram sends you
-3. Done! ✅
+1. 发送你的手机号 __（含国家代码，如 +86...）__
+2. 输入 Telegram 发送的验证码
+3. 完成！✅
 
-__Your session is stored safely. Use /logout to remove it anytime.__"""
+__你的会话已安全存储。随时使用 /logout 移除。__"""
 
-ACTION_LOGOUT_TEXT = """🚪 **How to Logout**
+ACTION_LOGOUT_TEXT = """🚪 **如何退出**
 
-Just type `/logout` — the bot will remove your saved session right away. ✅"""
+只需输入 `/logout` — 机器人会立即移除已保存的会话。✅"""
 
-ACTION_GETTHUMB_TEXT = """👁 **View Your Thumbnail**
+ACTION_GETTHUMB_TEXT = """👁 **查看你的缩略图**
 
-Type `/getthumb` to see the thumbnail you have saved. 🖼"""
+输入 `/getthumb` 查看已保存的缩略图。🖼"""
 
-ACTION_RMTHUMB_TEXT = """🗑 **Remove Your Thumbnail**
+ACTION_RMTHUMB_TEXT = """🗑 **删除你的缩略图**
 
-Type `/rmthumb` to delete your saved thumbnail. ✅
+输入 `/rmthumb` 删除已保存的缩略图。✅
 
-__After this, downloaded videos will have no custom thumbnail.__"""
+__之后下载的视频将不再使用自定义缩略图。__"""
 
-TRANSFER_TEXT = """🔄 **Transfer Premium**
+TRANSFER_TEXT = """🔄 **转让高级会员**
 
-Want to give your premium plan to a friend? 🎁
+想将你的高级套餐转让给朋友？🎁
 
-**How to use:**
-`/transfer <user_id>` or `/transfer @username`
+**使用方法：**
+`/transfer <用户ID>` 或 `/transfer @用户名`
 
-__The remaining days of your plan will move to them.__
-⚠️ This cannot be undone — your premium will be removed."""
+__你套餐的剩余天数将转给对方。__
+⚠️ 操作不可撤销 — 你的高级会员将被移除。"""
 
 
 # ══════════════════════════════════════════════════
@@ -166,7 +164,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         is_member = await check_force_sub(client, user_id, refresh=True)
         if is_member:
             await callback_query.answer(
-                "✅ Welcome! You can now use the bot.",
+                "✅ 欢迎！你现在可以使用机器人了。",
                 show_alert=True,
             )
             try:
@@ -175,7 +173,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
                 LOGGER.error(f"Failed to delete force sub message: {e}")
         else:
             await callback_query.answer(
-                "❌ You haven't joined yet! Please join first.",
+                "❌ 你尚未加入！请先加入。",
                 show_alert=True,
             )
         return
@@ -183,78 +181,78 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
     # ── HOME ──────────────────────────────────────
     if data in ("menu_home", "main_menu", "menu_back"):
         await _edit(client, chat_id, message_id, HOME_TEXT, get_start_inline())
-        return await callback_query.answer("🏠 Main menu")
+        return await callback_query.answer("🏠 主菜单")
 
     # ── AUTO LINK GUIDE ───────────────────────────
     if data in ("menu_autolink", "menu_dl"):
         await _edit(client, chat_id, message_id, AUTOLINK_GUIDE_TEXT, back_to_home())
-        return await callback_query.answer("🔗 Single Link DL")
+        return await callback_query.answer("🔗 单链接下载")
 
     # ── AUTO BATCH GUIDE ──────────────────────────
     if data in ("menu_autobatch", "menu_batch"):
         await _edit(client, chat_id, message_id, AUTOBATCH_GUIDE_TEXT, back_to_home())
-        return await callback_query.answer("📦 Batch DL")
+        return await callback_query.answer("📦 批量下载")
 
     # ── PLANS ─────────────────────────────────────
     if data == "menu_plans":
         from plugins.plan import PLAN_OPTIONS_TEXT
         plan_buttons = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✨ Plan 1 — 150 ⭐", callback_data="plan_select_plan1"),
-                InlineKeyboardButton("🌟 Plan 2 — 500 ⭐", callback_data="plan_select_plan2"),
+                InlineKeyboardButton("✨ 套餐1 — 150 ⭐", callback_data="plan_select_plan1"),
+                InlineKeyboardButton("🌟 套餐2 — 500 ⭐", callback_data="plan_select_plan2"),
             ],
-            [InlineKeyboardButton("💎 Plan 3 — 1000 ⭐", callback_data="plan_select_plan3")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+            [InlineKeyboardButton("💎 套餐3 — 1000 ⭐", callback_data="plan_select_plan3")],
+            [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
         ])
         await _edit(client, chat_id, message_id, PLAN_OPTIONS_TEXT, plan_buttons)
-        return await callback_query.answer("⭐ Plans")
+        return await callback_query.answer("⭐ 套餐")
 
     # ── PROFILE ───────────────────────────────────
     if data == "menu_profile":
         await _edit(client, chat_id, message_id, PROFILE_TEXT, back_to_home())
-        return await callback_query.answer("👤 Profile")
+        return await callback_query.answer("👤 个人中心")
 
     # ── THUMBNAIL MENU ────────────────────────────
     if data == "menu_thumb":
         await _edit(client, chat_id, message_id, THUMB_MENU_TEXT, get_thumb_menu())
-        return await callback_query.answer("🖼 Thumbnail")
+        return await callback_query.answer("🖼 缩略图")
 
     if data == "guide_setthumb":
         await _edit(client, chat_id, message_id, GUIDE_SETTHUMB_TEXT, back_to_home())
-        return await callback_query.answer("📌 Set Thumbnail")
+        return await callback_query.answer("📌 设置缩略图")
 
     if data == "action_getthumb":
         await _edit(client, chat_id, message_id, ACTION_GETTHUMB_TEXT, back_to_home())
-        return await callback_query.answer("👁 View Thumbnail")
+        return await callback_query.answer("👁 查看缩略图")
 
     if data == "action_rmthumb":
         await _edit(client, chat_id, message_id, ACTION_RMTHUMB_TEXT, back_to_home())
-        return await callback_query.answer("🗑 Remove Thumbnail")
+        return await callback_query.answer("🗑 删除缩略图")
 
     # ── LOGIN MENU ────────────────────────────────
     if data == "menu_login":
         await _edit(client, chat_id, message_id, LOGIN_MENU_TEXT, get_login_menu())
-        return await callback_query.answer("🔐 Login / Logout")
+        return await callback_query.answer("🔐 登录 / 退出")
 
     if data == "action_login":
         await _edit(client, chat_id, message_id, ACTION_LOGIN_TEXT, back_to_home())
-        return await callback_query.answer("🔐 Login")
+        return await callback_query.answer("🔐 登录")
 
     if data == "action_logout":
         await _edit(client, chat_id, message_id, ACTION_LOGOUT_TEXT, back_to_home())
-        return await callback_query.answer("🚪 Logout")
+        return await callback_query.answer("🚪 退出登录")
 
     # ── TRANSFER ─────────────────────────────────
     if data == "menu_transfer":
         await _edit(client, chat_id, message_id, TRANSFER_TEXT, back_to_home())
-        return await callback_query.answer("🔄 Transfer Premium")
+        return await callback_query.answer("🔄 转让高级会员")
 
     # ── REFERRAL ─────────────────────────────────
     if data == "menu_referral":
         from plugins.referral import get_referral_text
         referral_text = await get_referral_text(client, user_id)
         await _edit(client, chat_id, message_id, referral_text, back_to_home())
-        return await callback_query.answer("🔗 Referral")
+        return await callback_query.answer("🔗 推荐")
 
     # ── SETTINGS ──────────────────────────────────
     if data == "menu_settings":
@@ -271,7 +269,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             )
         except Exception as e:
             LOGGER.error(f"menu_settings edit error: {e}")
-        return await callback_query.answer("⚙️ Settings")
+        return await callback_query.answer("⚙️ 设置")
 
     # ── HELP ──────────────────────────────────────
     if data == "menu_help":
@@ -279,12 +277,12 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             client, chat_id, message_id, HELP_TEXT, back_to_home(),
             parse_mode=ParseMode.MARKDOWN
         )
-        return await callback_query.answer("❓ Help")
+        return await callback_query.answer("❓ 帮助")
 
     # ── CLOSE ─────────────────────────────────────
     if data in ("menu_close", "close_doc$", "close_logs$"):
         await callback_query.message.delete()
-        return await callback_query.answer("✅ Closed")
+        return await callback_query.answer("✅ 已关闭")
 
     return await callback_query.answer("✅")
 

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 import asyncio
 import subprocess
 import json
@@ -59,14 +57,14 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
             LOGGER.error(f"Error running speedtest task: {e}")
             try:
                 await status_message.edit_text(
-                    "**❌ Speed Test API Unavailable! ↯**",
+                    "**❌ 速度测试 API 不可用！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except FloodWait as e:
                 LOGGER.warning(f"FloodWait during API error message: waiting {e.value + 5} seconds")
                 await asyncio.sleep(e.value + 5)
                 await status_message.edit_text(
-                    "**❌ Speed Test API Unavailable! ↯**",
+                    "**❌ 速度测试 API 不可用！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -74,49 +72,49 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
     if "error" in result:
         try:
             await status_message.edit_text(
-                f"**❌ Speed Test Failed↯**",
+                f"**❌ 速度测试失败 ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
             LOGGER.warning(f"FloodWait during failure message: waiting {e.value + 5} seconds")
             await asyncio.sleep(e.value + 5)
             await status_message.edit_text(
-                f"**❌ Speed Test Failed↯**",
+                f"**❌ 速度测试失败 ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         return
 
     # Format the results with project-themed design
     response_text = (
-        "**✘《 Restricted Content Downloader Speedtest ↯ 》**\n"
+        "**✘《 下载器速度测试 ↯ 》**\n"
         "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-        f"**✘ Upload Speed:** `{speed_convert(result['upload'])}`\n"
-        f"**✘ Download Speed:** `{speed_convert(result['download'])}`\n"
-        f"**✘ Ping:**`{result['ping']:.2f} ms`\n"
-        f"**✘ Timestamp:** `{result['timestamp']}`\n"
-        f"**✘ Data Sent:** `{get_readable_file_size(int(result['bytes_sent']))}`\n"
-        f"**✘ Data Received:** `{get_readable_file_size(int(result['bytes_received']))}`\n"
-        "**✘《 Server Info ↯ 》**\n"
-        f"**✘ Name:** `{result['server']['name']}`\n"
-        f"**✘ Country:** `{result['server']['country']}, {result['server']['cc']}`\n"
-        f"**✘ Sponsor:** `{result['server']['sponsor']}`\n"
-        f"**✘ Latency:** `{result['server']['latency']:.2f} ms`\n"
-        f"**✘ Latitude:** `{result['server']['lat']}`\n"
-        f"**✘ Longitude:**`{result['server']['lon']}`\n"
-        "**✘《 Client Info ↯ 》**\n"
-        f"**✘ IP Address:** `{result['client']['ip']}`\n"
-        f"**✘ Latitude:** `{result['client']['lat']}`\n"
-        f"**✘ Longitude:** `{result['client']['lon']}`\n"
-        f"**✘ Country:** `{result['client']['country']}`\n"
-        f"**✘ ISP:** `{result['client']['isp']}`\n"
-        f"**✘ ISP Rating:** `{result['client'].get('isprating', 'N/A')}`\n"
+        f"**✘ 上传速度：** `{speed_convert(result['upload'])}`\n"
+        f"**✘ 下载速度：** `{speed_convert(result['download'])}`\n"
+        f"**✘ 延迟：**`{result['ping']:.2f} ms`\n"
+        f"**✘ 时间戳：** `{result['timestamp']}`\n"
+        f"**✘ 已发送数据：** `{get_readable_file_size(int(result['bytes_sent']))}`\n"
+        f"**✘ 已接收数据：** `{get_readable_file_size(int(result['bytes_received']))}`\n"
+        "**✘《 服务器信息 ↯ 》**\n"
+        f"**✘ 名称：** `{result['server']['name']}`\n"
+        f"**✘ 国家：** `{result['server']['country']}, {result['server']['cc']}`\n"
+        f"**✘ 赞助商：** `{result['server']['sponsor']}`\n"
+        f"**✘ 延迟：** `{result['server']['latency']:.2f} ms`\n"
+        f"**✘ 纬度：** `{result['server']['lat']}`\n"
+        f"**✘ 经度：**`{result['server']['lon']}`\n"
+        "**✘《 客户端信息 ↯ 》**\n"
+        f"**✘ IP 地址：** `{result['client']['ip']}`\n"
+        f"**✘ 纬度：** `{result['client']['lat']}`\n"
+        f"**✘ 经度：** `{result['client']['lon']}`\n"
+        f"**✘ 国家：** `{result['client']['country']}`\n"
+        f"**✘ ISP：** `{result['client']['isp']}`\n"
+        f"**✘ ISP 评级：** `{result['client'].get('isprating', 'N/A')}`\n"
         "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-        "**✘ Powered by @juktijol ↯**"
+        ""
     )
 
     # Create inline keyboard with Updates Channel button
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✘ Updates Channel ↯", url="https://t.me/juktijol")]
+    
     ])
 
     # Delete the status message
@@ -155,7 +153,7 @@ async def speedtest_handler(client: Client, message: Message):
         try:
             await client.send_message(
                 chat_id=message.chat.id,
-                text="**❌ Kids Are Disallowed To Do This ↯**",
+                text="**❌ 仅限管理员操作 ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except FloodWait as e:
@@ -163,7 +161,7 @@ async def speedtest_handler(client: Client, message: Message):
             await asyncio.sleep(e.value + 5)
             await client.send_message(
                 chat_id=message.chat.id,
-                text="**❌ Kids Are Disallowed To Do This ↯**",
+                text="**❌ 仅限管理员操作 ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
         return
@@ -172,7 +170,7 @@ async def speedtest_handler(client: Client, message: Message):
     try:
         status_message = await client.send_message(
             chat_id=message.chat.id,
-            text="**✘ Running Speedtest Wait ↯**",
+            text="**✘ 正在运行速度测试，请稍候 ↯**",
             parse_mode=ParseMode.MARKDOWN
         )
     except FloodWait as e:
@@ -180,7 +178,7 @@ async def speedtest_handler(client: Client, message: Message):
         await asyncio.sleep(e.value + 5)
         status_message = await client.send_message(
             chat_id=message.chat.id,
-            text="**✘ Running Speedtest Wait ↯**",
+            text="**✘ 正在运行速度测试，请稍候 ↯**",
             parse_mode=ParseMode.MARKDOWN
         )
 

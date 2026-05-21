@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 import os
 import asyncio
 import logging
@@ -19,7 +17,7 @@ telegraph = Telegraph()
 telegraph.create_account(
     short_name="RestrictedContentDL",
     author_name="Restricted Content Downloader",
-    author_url="https://t.me/juktijol"
+    author_url=""
 )
 
 def setup_logs_handler(app: Client):
@@ -43,7 +41,7 @@ def setup_logs_handler(app: Client):
                         title="RestrictedContentLogs",
                         html_content=f"<pre>{page_content}</pre>",
                         author_name="Restricted Content Downloader",
-                        author_url="https://t.me/juktijol"
+                        author_url=""
                     )
                     pages.append(f"https://telegra.ph/{response['path']}")
                     page_content = ""
@@ -56,7 +54,7 @@ def setup_logs_handler(app: Client):
                     title="RestrictedContentLogs",
                     html_content=f"<pre>{page_content}</pre>",
                     author_name="Restricted Content Downloader",
-                    author_url="https://t.me/juktijol"
+                    author_url=""
                 )
                 pages.append(f"https://telegra.ph/{response['path']}")
 
@@ -75,14 +73,14 @@ def setup_logs_handler(app: Client):
             logger.info("User is not developer, sending restricted message")
             await client.send_message(
                 chat_id=message.chat.id,
-                text="**❌ Unauthorized Access Denied! Only the Developer Can View Logs! ↯**",
+                text="**❌ 未授权！仅开发者可查看日志！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         loading_message = await client.send_message(
             chat_id=message.chat.id,
-            text="**📜 Fetching Restricted Content Logs... ↯**",
+            text="**📜 获取下载器日志中... ↯**",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -90,7 +88,7 @@ def setup_logs_handler(app: Client):
 
         if not os.path.exists("botlog.txt"):
             await loading_message.edit_text(
-                text="**❌ No Logs Found! ↯**",
+                text="**❌ 未找到日志！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
             await asyncio.sleep(3)
@@ -102,15 +100,15 @@ def setup_logs_handler(app: Client):
             chat_id=message.chat.id,
             document="botlog.txt",
             caption=(
-                "**✘ Restricted Content Downloader Logs ↯**\n"
+                "**✘ 下载器日志 ↯**\n"
                 "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                "**✘ Logs Exported Successfully! ↯**\n"
-                "**✘ Access Restricted to Developer Only ↯**\n"
+                "**✘ 日志导出成功！↯**\n"
+                "**✘ 仅限开发者访问 ↯**\n"
                 "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                "**✘ Choose an Option to View Logs:**\n"
-                "**✘ Fastest Access via Inline Display or Web Paste ↯**\n"
+                "**✘ 选择查看日志的方式：**\n"
+                "**✘ 通过内联显示或网页粘贴快速访问 ↯**\n"
                 "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                "**✘ Developer Access Granted ↯**"
+                "**✘ 开发者访问已授权 ↯**"
             ),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
@@ -118,7 +116,7 @@ def setup_logs_handler(app: Client):
                     InlineKeyboardButton("✘ Show Logs ↯", callback_data="display_logs"),
                     InlineKeyboardButton("✘ Web Paste ↯", callback_data="web_paste$")
                 ],
-                [InlineKeyboardButton("✘ Close ↯", callback_data="close_doc$")]
+                [InlineKeyboardButton("✘ 关闭 ↯", callback_data="close_doc$")]
             ])
         )
 
@@ -135,7 +133,7 @@ def setup_logs_handler(app: Client):
         if user_id != DEVELOPER_USER_ID:
             logger.info("User is not developer, sending callback answer")
             await query.answer(
-                text="❌ Unauthorized! Only the Developer Can Access Logs! ↯",
+                text="❌ 未授权！仅开发者可访问日志！↯",
                 show_alert=True
             )
             return
@@ -150,14 +148,14 @@ def setup_logs_handler(app: Client):
             await query.answer()
             return
         elif data == "web_paste$":
-            await query.answer("Uploading logs to Telegraph...")
+            await query.answer("正在上传日志到 Telegraph...")
             await query.message.edit_caption(
-                caption="**✘ Uploading Logs to Telegraph ↯**",
+                caption="**✘ 上传日志到 Telegraph ↯**",
                 parse_mode=ParseMode.MARKDOWN
             )
             if not os.path.exists("botlog.txt"):
                 await query.message.edit_caption(
-                    caption="**❌ No Logs Found! ↯**",
+                    caption="**❌ 未找到日志！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
                 await query.answer()
@@ -170,36 +168,36 @@ def setup_logs_handler(app: Client):
                     buttons = []
                     for i in range(0, len(telegraph_urls), 2):
                         row = [
-                            InlineKeyboardButton(f"✘ Web Part {i+1} ↯", url=telegraph_urls[i])
+                            InlineKeyboardButton(f"✘ 网页第 {i+1} 部分 ↯", url=telegraph_urls[i])
                         ]
                         if i + 1 < len(telegraph_urls):
-                            row.append(InlineKeyboardButton(f"✘ Web Part {i+2} ↯", url=telegraph_urls[i+1]))
+                            row.append(InlineKeyboardButton(f"✘ 网页第 {i+2} 部分 ↯", url=telegraph_urls[i+1]))
                         buttons.append(row)
-                    buttons.append([InlineKeyboardButton("✘ Close ↯", callback_data="close_doc$")])
+                    buttons.append([InlineKeyboardButton("✘ 关闭 ↯", callback_data="close_doc$")])
                     await query.message.edit_caption(
                         caption=(
-                            "**✘ Restricted Content Downloader Logs ↯**\n"
+                            "**✘ 下载器日志 ↯**\n"
                             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                            "**✘ Logs Uploaded to Telegraph! ↯**\n"
-                            "**✘ Access Restricted to Developer Only ↯**\n"
+                            "**✘ 日志已上传到 Telegraph！↯**\n"
+                            "**✘ 仅限开发者访问 ↯**\n"
                             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                            "**✘ Select a Page to View Logs:**\n"
-                            "**✘ Web Paste for Easy Access ↯**\n"
+                            "**✘ 选择页面查看日志：**\n"
+                            "**✘ 网页粘贴便捷访问 ↯**\n"
                             "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
-                            "**✘ Developer Access Granted ↯**"
+                            "**✘ 开发者访问已授权 ↯**"
                         ),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup(buttons)
                     )
                 else:
                     await query.message.edit_caption(
-                        caption="**❌ Unable to Upload to Telegraph! ↯**",
+                        caption="**❌ 无法上传到 Telegraph！↯**",
                         parse_mode=ParseMode.MARKDOWN
                     )
             except Exception as e:
                 logger.error(f"Error uploading to Telegraph: {e}")
                 await query.message.edit_caption(
-                    caption="**❌ Unable to Upload to Telegraph! ↯**",
+                    caption="**❌ 无法上传到 Telegraph！↯**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
@@ -226,16 +224,16 @@ def setup_logs_handler(app: Client):
                 text = text[-4096:]
             await client.send_message(
                 chat_id=chat_id,
-                text=text if text else "**❌ No Logs Available! ↯**",
+                text=text if text else "**❌ 无可用日志！↯**",
                 parse_mode=ParseMode.DISABLED,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✘ Back ↯", callback_data="close_logs$")]
+                    [InlineKeyboardButton("✘ 返回 ↯", callback_data="close_logs$")]
                 ])
             )
         except Exception as e:
             logger.error(f"Error sending logs: {e}")
             await client.send_message(
                 chat_id=chat_id,
-                text="**❌ Server Error While Fetching Logs! ↯**",
+                text="**❌ 获取日志时服务器错误！↯**",
                 parse_mode=ParseMode.MARKDOWN
             )

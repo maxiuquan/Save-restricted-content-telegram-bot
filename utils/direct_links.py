@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-#
 # utils/direct_links.py — Direct Link Generator
 #
 # Resolves indirect links from 40+ file hosting sites to direct download URLs.

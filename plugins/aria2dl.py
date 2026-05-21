@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/aria2dl.py — Aria2c Downloader (Azure Safe — Pyrogram MTProto Upload)
 #
@@ -155,8 +153,8 @@ async def _check_and_set_cooldown(user_id: int) -> Optional[str]:
                 remaining = int(FREE_COOLDOWN - elapsed)
                 mins, secs = divmod(remaining, 60)
                 return (
-                    f"⏳ Please wait **{mins}m {secs}s** before your next download.\n\n"
-                    f"💎 Upgrade for no limits: /plans"
+                    f"⏳ 请等待 **{mins} 分 {secs} 秒** 后再进行下载。\n\n"
+                    f"💎 升级无限制：/plans"
                 )
         await asyncio.wait_for(
             daily_limit.update_one(
@@ -205,20 +203,20 @@ async def _log_to_group(
         size_str  = get_readable_file_size(file_size) if file_size > 0 else "N/A"
 
         text = (
-            f"📥 **Aria2DL Log**\n{'─' * 30}\n"
-            f"👤 **User:** [{full_name}](tg://user?id={user.id}) | `{user.id}`\n"
-            f"📋 **Plan:** {plan} | {username}\n"
-            f"📄 **File:** `{file_name}` | `{size_str}`\n"
-            f"📊 **Status:** {status}\n"
+            f"📥 **Aria2DL 日志**\n{'─' * 30}\n"
+            f"👤 **用户：** [{full_name}](tg://user?id={user.id}) | `{user.id}`\n"
+            f"📋 **套餐：** {plan} | {username}\n"
+            f"📄 **文件：** `{file_name}` | `{size_str}`\n"
+            f"📊 **状态：** {status}\n"
         )
         if error_msg:
-            text += f"❌ **Error:** `{error_msg[:200]}`\n"
+            text += f"❌ **错误：** `{error_msg[:200]}`\n"
 
         markup = None
         if source_url and source_url.startswith(("http", "magnet:")):
             btn_url = source_url if source_url.startswith("http") else "https://t.me"
             markup  = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🔗 Source", url=btn_url)]]
+                [[InlineKeyboardButton("🔗 来源", url=btn_url)]]
             )
 
         await client.send_message(
@@ -287,11 +285,11 @@ async def _check_http_size(url: str, max_allowed: int) -> Optional[str]:
                     length = int(resp.headers.get("Content-Length", 0))
                     if length > 0 and length > max_allowed:
                         return (
-                            f"❌ **File too large!**\n\n"
-                            f"📦 **Remote size:** `{get_readable_file_size(length)}`\n"
-                            f"🚫 **Telegram limit:** `{get_readable_file_size(TELEGRAM_MAX)}`\n\n"
-                            f"Telegram supports a maximum of **2 GB** per file upload.\n"
-                            f"This file cannot be downloaded or uploaded."
+                            f"❌ **文件过大！**\n\n"
+                            f"📦 **远程大小：** `{get_readable_file_size(length)}`\n"
+                            f"🚫 **Telegram 限制：** `{get_readable_file_size(TELEGRAM_MAX)}`\n\n"
+                            f"Telegram 每文件最大支持 **2 GB**。\n"
+                            f"此文件无法下载和上传。"
                         )
     except Exception:
         pass
@@ -340,9 +338,9 @@ async def _upload_file(
         bar      = _progress_bar(pct)
 
         header = (
-            f"📤 **Uploading ({file_num}/{total_files})...**\n\n"
+            f"📤 **上传中 ({file_num}/{total_files})...**\n\n"
             if total_files > 1
-            else "📤 **Uploading...**\n\n"
+            else "📤 **上传中...**\n\n"
         )
 
         await _safe_edit(
@@ -350,9 +348,9 @@ async def _upload_file(
             f"{header}"
             f"`[{bar}]` {pct:.1f}%\n\n"
             f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-            f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
-            f"⏳ **ETA:** `{get_readable_time(eta)}`\n"
-            f"📡 **Method:** `Pyrogram MTProto`",
+            f"⚡ **速度：** `{get_readable_file_size(speed)}/s`\n"
+            f"⏳ **预计：** `{get_readable_time(eta)}`\n"
+            f"📡 **方法：** `Pyrogram MTProto`",
         )
         last_edit[0] = now
 
@@ -475,12 +473,12 @@ async def _run_download(
 
         cancel_btn = InlineKeyboardMarkup(
             [[InlineKeyboardButton(
-                "⛔ Cancel",
+                "⛔ 取消",
                 callback_data=f"aria2_cancel_{status_msg.id}"
             )]]
         )
 
-        await _safe_edit(status_msg, "⬇️ **Downloading...**\n\n`Connecting...`", markup=cancel_btn)
+        await _safe_edit(status_msg, "⬇️ **下载中...**\n\n`连接中...`", markup=cancel_btn)
 
         # ── Read stdout line by line ──────────────────────────────────────
         while True:
@@ -490,8 +488,8 @@ async def _run_download(
                     process.kill()
                 except Exception:
                     pass
-                await _safe_edit(status_msg, "⛔ **Download cancelled by user.**")
-                error = "Cancelled by user"
+                await _safe_edit(status_msg, "⛔ **用户取消下载。**")
+                error = "用户取消"
                 return
 
             # Check timeout
@@ -500,8 +498,8 @@ async def _run_download(
                     process.kill()
                 except Exception:
                     pass
-                await _safe_edit(status_msg, "❌ **Download timed out (6 hours limit).**")
-                error = "Timeout"
+                await _safe_edit(status_msg, "❌ **下载超时（6 小时限制）。**")
+                error = "超时"
                 return
 
             # Read one line with a short timeout to allow cancel checks
@@ -541,16 +539,16 @@ async def _run_download(
                     except Exception:
                         pass
                     error = (
-                        f"Single file exceeds Telegram 2 GB limit: "
+                        f"单个文件超出 Telegram 2 GB 限制: "
                         f"{prog['total']}"
                     )
                     await _safe_edit(
                         status_msg,
-                        f"❌ **Cannot download this file!**\n\n"
-                        f"📦 **File size:** `{prog['total']}`\n"
-                        f"🚫 **Telegram limit:** `2 GB`\n\n"
-                        f"Telegram supports a maximum of **2 GB** per file.\n"
-                        f"This file cannot be uploaded to Telegram.",
+                        f"❌ **无法下载此文件！**\n\n"
+                        f"📦 **文件大小：** `{prog['total']}`\n"
+                        f"🚫 **Telegram 限制：** `2 GB`\n\n"
+                        f"Telegram 每文件最大支持 **2 GB**。\n"
+                        f"此文件无法上传到 Telegram。",
                     )
                     return
 
@@ -560,14 +558,14 @@ async def _run_download(
                         process.kill()
                     except Exception:
                         pass
-                    error = f"File exceeds free limit: {prog['total']}"
+                    error = f"文件超出免费计划限制: {prog['total']}"
                     await _safe_edit(
                         status_msg,
-                        f"❌ **File too large for Free plan!**\n\n"
-                        f"📦 **Size:** `{prog['total']}`\n"
-                        f"🆓 **Free limit:** `{get_readable_file_size(FREE_FILE_LIMIT)}`\n"
-                        f"💎 **Telegram max:** `2 GB`\n\n"
-                        f"Upgrade to Premium for up to 2 GB: /plans",
+                        f"❌ **文件过大，超出免费计划限制！**\n\n"
+                        f"📦 **大小：** `{prog['total']}`\n"
+                        f"🆓 **免费限制：** `{get_readable_file_size(FREE_FILE_LIMIT)}`\n"
+                        f"💎 **Telegram 最大：** `2 GB`\n\n"
+                        f"升级到高级会员支持最高 2 GB：/plans",
                     )
                     return
 
@@ -578,12 +576,12 @@ async def _run_download(
                     elapsed = int(now - start_ts)
                     await _safe_edit(
                         status_msg,
-                        f"⬇️ **Downloading...**\n\n"
+                        f"⬇️ **下载中...**\n\n"
                         f"`[{bar}]` {prog['pct']}%\n\n"
                         f"📥 `{prog['done']}` / `{prog['total']}`\n"
-                        f"⚡ **Speed:** `{prog['speed']}/s`\n"
-                        f"⏳ **ETA:** `{prog['eta']}`\n"
-                        f"⏱ **Elapsed:** `{get_readable_time(elapsed)}`",
+                        f"⚡ **速度：** `{prog['speed']}/s`\n"
+                        f"⏳ **预计：** `{prog['eta']}`\n"
+                        f"⏱ **已用时间：** `{get_readable_time(elapsed)}`",
                         markup=cancel_btn,
                     )
                     last_edit_ts = now
@@ -598,11 +596,11 @@ async def _run_download(
             err_detail = (
                 " | ".join(error_lines[-3:])
                 if error_lines
-                else f"aria2c exited with code {process.returncode}"
+                else f"aria2c 退出，返回码 {process.returncode}"
             )
             await _safe_edit(
                 status_msg,
-                f"❌ **Download failed!**\n\n"
+                f"❌ **下载失败！**\n\n"
                 f"`{err_detail[:400]}`",
             )
             error = err_detail
@@ -611,7 +609,7 @@ async def _run_download(
         # ══════════════════════════════════════════════════════════════════
         # STEP 4 — Scan downloaded files
         # ══════════════════════════════════════════════════════════════════
-        await _safe_edit(status_msg, "✅ **Download complete!**\n\n🔍 Scanning files...")
+        await _safe_edit(status_msg, "✅ **下载完成！**\n\n🔍 扫描文件中...")
 
         # files_to_upload  → (filepath, size_bytes)
         # skipped_too_big  → (filename, size_bytes) — exceed Telegram 2 GB
@@ -641,8 +639,8 @@ async def _run_download(
 
         # Nothing to upload
         if not files_to_upload and not skipped_too_big:
-            await _safe_edit(status_msg, "❌ **No files found after download.**")
-            error = "No files found"
+            await _safe_edit(status_msg, "❌ **下载后未找到文件。**")
+            error = "未找到文件"
             return
 
         # All files are too big
@@ -653,11 +651,11 @@ async def _run_download(
             )
             await _safe_edit(
                 status_msg,
-                f"❌ **Cannot upload — all files exceed Telegram's 2 GB limit!**\n\n"
-                f"**Skipped files:**\n{skip_text}\n\n"
-                f"Telegram supports a maximum of **2 GB** per file upload.",
+                f"❌ **无法上传 — 所有文件均超出 Telegram 2 GB 限制！**\n\n"
+                f"**跳过的文件：**\n{skip_text}\n\n"
+                f"Telegram 每文件最大支持 **2 GB**。",
             )
-            error = "All files exceed 2 GB limit"
+            error = "所有文件均超出 2 GB 限制"
             return
 
         # ══════════════════════════════════════════════════════════════════
@@ -678,8 +676,8 @@ async def _run_download(
         ):
             # Check cancel between uploads
             if cancel_event.is_set():
-                error = "Cancelled during upload"
-                await _safe_edit(status_msg, "⛔ **Upload cancelled by user.**")
+                error = "上传过程中取消"
+                await _safe_edit(status_msg, "⛔ **用户取消上传。**")
                 return
 
             name = os.path.basename(fp)
@@ -724,22 +722,22 @@ async def _run_download(
         # STEP 6 — Final report
         # ══════════════════════════════════════════════════════════════════
         elapsed   = get_readable_time(int(time() - start_ts))
-        report    = f"✅ **All done!** ⏱ `{elapsed}`\n\n"
+        report    = f"✅ **全部完成！** ⏱ `{elapsed}`\n\n"
 
         if total_valid > 0:
             report += (
-                f"📤 **Uploaded:** `{total_valid}` file(s)\n"
-                f"📦 **Total size:** `{get_readable_file_size(total_uploaded_size)}`\n"
-                f"📡 **Method:** `Pyrogram MTProto`\n"
+                f"📤 **已上传：** `{total_valid}` 个文件\n"
+                f"📦 **总大小：** `{get_readable_file_size(total_uploaded_size)}`\n"
+                f"📡 **方法：** `Pyrogram MTProto`\n"
             )
 
         if skipped_too_big:
-            report += f"\n⚠️ **Skipped (exceed Telegram 2 GB limit):**\n"
+            report += f"\n⚠️ **已跳过（超出 Telegram 2 GB 限制）：**\n"
             for sf_name, sf_sz in skipped_too_big:
                 report += f"• `{sf_name}` — `{get_readable_file_size(sf_sz)}`\n"
 
         if upload_errors:
-            report += f"\n❌ **Upload errors:**\n"
+            report += f"\n❌ **上传错误：**\n"
             for ue in upload_errors:
                 report += f"• `{ue}`\n"
             error = "; ".join(upload_errors)
@@ -758,7 +756,7 @@ async def _run_download(
         error = str(pipeline_err)
         await _safe_edit(
             status_msg,
-            f"❌ **Unexpected error!**\n\n`{str(pipeline_err)[:400]}`",
+            f"❌ **意外错误！**\n\n`{str(pipeline_err)[:400]}`",
         )
 
     finally:
@@ -809,8 +807,8 @@ def setup_aria2dl_handler(app: Client):
         # ── Verify aria2c is installed ────────────────────────────────────
         if not shutil.which("aria2c"):
             await message.reply_text(
-                "❌ **aria2c is not installed on this server!**\n\n"
-                "Ask admin to run: `sudo apt install aria2`",
+                "❌ **此服务器未安装 aria2c！**\n\n"
+                "请联系管理员运行：`sudo apt install aria2`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -840,7 +838,7 @@ def setup_aria2dl_handler(app: Client):
             ):
                 # Download the .torrent file locally
                 init_msg = await message.reply_text(
-                    "⬇️ **Fetching .torrent file...**",
+                    "⬇️ **获取 .torrent 文件中...**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 torrent_path = await message.reply_to_message.download()
@@ -861,25 +859,25 @@ def setup_aria2dl_handler(app: Client):
         if not torrent_path and not args_text:
             # Show usage help
             plan_info = (
-                f"💎 **Premium:** up to `{get_readable_file_size(TELEGRAM_MAX)}` per file"
+                f"💎 **高级会员：** 每文件最高 `{get_readable_file_size(TELEGRAM_MAX)}`"
                 if is_premium
                 else (
-                    f"🆓 **Free:** up to `{get_readable_file_size(FREE_FILE_LIMIT)}` per file "
-                    f"| 5 min cooldown"
+                    f"🆓 **免费：** 每文件最高 `{get_readable_file_size(FREE_FILE_LIMIT)}` "
+                    f"| 5 分钟冷却"
                 )
             )
             await message.reply_text(
-                "🌊 **Aria2 Downloader**\n"
+                "🌊 **Aria2 下载器**\n"
                 "━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "**Usage:**\n"
+                "**使用方法：**\n"
                 "`/dl <URL>` — HTTP / HTTPS / FTP\n"
-                "`/dl <magnet:...>` — Magnet link\n"
-                "Reply to a `.torrent` file with `/dl`\n\n"
-                f"📊 **Your plan:** {plan_info}\n\n"
-                "📡 **Upload method:** Pyrogram MTProto\n"
-                "🚫 **Hard limit:** 2 GB per file (Telegram)\n\n"
-                "__Multi-file torrents are uploaded separately.__\n"
-                "__Files >2 GB are skipped (Telegram limit).__",
+                "`/dl <magnet:...>` — 磁力链接\n"
+                "回复 `.torrent` 文件并发送 `/dl`\n\n"
+                f"📊 **你的套餐：** {plan_info}\n\n"
+                "📡 **上传方式：** Pyrogram MTProto\n"
+                "🚫 **硬限制：** 每文件 2 GB（Telegram）\n\n"
+                "__多文件种子会分别上传。__\n"
+                "__超过 2 GB 的文件将被跳过（Telegram 限制）。__",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -896,7 +894,7 @@ def setup_aria2dl_handler(app: Client):
 
         # ── Start download task ───────────────────────────────────────────
         status_msg = await message.reply_text(
-            "🔄 **Starting download...**",
+            "🔄 **开始下载...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -924,14 +922,14 @@ def setup_aria2dl_handler(app: Client):
 
         if event:
             event.set()
-            await callback_query.answer("⛔ Cancelling download...")
+            await callback_query.answer("⛔ 正在取消下载...")
             await _safe_edit(
                 callback_query.message,
-                "⛔ **Cancelling... please wait.**",
+                "⛔ **正在取消... 请稍候。**",
             )
         else:
             await callback_query.answer(
-                "⚠️ No active download found for this session.",
+                "⚠️ 此会话未找到活动下载。",
                 show_alert=True,
             )
 

@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 # UPDATED: New button labels, English UI, fixed italic markdown, new thumb flow
 
 from pyrogram import Client, filters
@@ -18,69 +16,69 @@ def setup_button_router(app: Client):
 
     _hints: dict[str, str] = {
         "autolink": (
-            "🔗 **Single Link Download**\n\n"
-            "No command needed! ⚡\n\n"
-            "Just paste a Telegram link in the chat:\n"
-            "• `https://t.me/channelname/123` → public channel\n"
-            "• `https://t.me/c/1234567890/123` → private channel "
-            "__(need to /login first)__\n\n"
-            "The bot will detect the link and download it for you. ✅"
+            "🔗 **单链接下载**\n\n"
+            "无需命令！⚡\n\n"
+            "只需在聊天中粘贴 Telegram 链接：\n"
+            "• `https://t.me/channelname/123` → 公开频道\n"
+            "• `https://t.me/c/1234567890/123` → 私有频道 "
+            "__(需先 /login)__\n\n"
+            "机器人会自动检测链接并下载。✅"
         ),
         "autobatch": (
-            "📦 **Batch Download**\n\n"
-            "Download many files at once! 🎯\n\n"
-            "**Public batch:**\n"
+            "📦 **批量下载**\n\n"
+            "一次性下载多个文件！🎯\n\n"
+            "**公开批量：**\n"
             "`https://t.me/channelname/123`\n\n"
-            "**Private batch** __(need to /login first)__:\n"
+            "**私有批量** __(需先 /login)__：\n"
             "`https://t.me/c/1234567890/123`\n\n"
-            "Send the link → the bot will ask how many files you want. 🚀\n\n"
-            "__Premium users only. Higher plans = more files per batch.__"
+            "发送链接 → 机器人会询问你要下载多少文件。🚀\n\n"
+            "__仅限高级用户。更高级套餐 = 每批更多文件。__"
         ),
         "ytdl": (
-            "🌐 **Website Video Download**\n\n"
-            "**How to use:** `/ytdl <link>`\n\n"
-            "**Works with:**\n"
+            "🌐 **网站视频下载**\n\n"
+            "**使用方法：** `/ytdl <链接>`\n\n"
+            "**支持的网站：**\n"
             "• YouTube 🎥\n"
             "• Instagram 📸\n"
             "• TikTok 🎵\n"
             "• Twitter / X 🐦\n"
             "• Facebook 📘\n"
-            "• Vimeo, Dailymotion, Twitch\n"
-            "• SoundCloud, Reddit, Bilibili\n"
-            "• And **1000+** more sites!\n\n"
-            "**Example:**\n"
+            "• Vimeo、Dailymotion、Twitch\n"
+            "• SoundCloud、Reddit、Bilibili\n"
+            "• 以及 **1000+** 更多网站！\n\n"
+            "**示例：**\n"
             "`/ytdl https://youtube.com/watch?v=xxxxx`"
         ),
         "setthumb": (
-            "📌 **Set Thumbnail**\n\n"
-            "Super easy — just 2 steps! 👇\n\n"
-            "**Step 1:** Type `/setthumb`\n"
-            "**Step 2:** Send a photo when the bot asks\n\n"
-            "That's it! ✅\n\n"
-            "__Or just send any photo — the bot will ask if you want to set it as a thumbnail!__"
+            "📌 **设置缩略图**\n\n"
+            "非常简单 — 只需 2 步！👇\n\n"
+            "**第一步：** 输入 `/setthumb`\n"
+            "**第二步：** 机器人询问时发送一张图片\n\n"
+            "就完成了！✅\n\n"
+            "__或者直接发送任意图片 — 机器人会询问是否设为缩略图！__"
         ),
         "transfer": (
-            "🔄 **Transfer Premium**\n\n"
-            "Want to give your premium to a friend? 🎁\n\n"
-            "**How to use:**\n"
-            "`/transfer <user_id>` or `/transfer @username`\n\n"
-            "⚠️ This cannot be undone — your premium will be removed."
+            "🔄 **转让高级会员**\n\n"
+            "想把你的高级会员转给朋友？🎁\n\n"
+            "**使用方法：**\n"
+            "`/transfer <用户ID>` 或 `/transfer @用户名`\n\n"
+            "⚠️ 操作不可撤销 — 你的高级会员将被移除。"
         ),
     }
 
     def _autolink_buttons() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+            [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
         ])
 
     def _plan_buttons() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✨ Plan 1 — 150 ⭐", callback_data="plan_select_plan1"),
-                InlineKeyboardButton("🌟 Plan 2 — 500 ⭐", callback_data="plan_select_plan2"),
+                InlineKeyboardButton("✨ 套餐1 — 150 ⭐", callback_data="plan_select_plan1"),
+                InlineKeyboardButton("🌟 套餐2 — 500 ⭐", callback_data="plan_select_plan2"),
             ],
-            [InlineKeyboardButton("💎 Plan 3 — 1000 ⭐", callback_data="plan_select_plan3")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_home")],
+            [InlineKeyboardButton("💎 套餐3 — 1000 ⭐", callback_data="plan_select_plan3")],
+            [InlineKeyboardButton("🏠 主菜单", callback_data="menu_home")],
         ])
 
     @app.on_message(
@@ -146,7 +144,7 @@ def setup_button_router(app: Client):
                 f"{message.from_user.last_name or ''}".strip()
             )
             await message.reply_text(
-                f"🏠 **Main Menu** — Hey {user_fullname}!\n\nChoose an option below 👇",
+                f"🏠 **主菜单** — {user_fullname}，你好！\n\n请在下方选择 👇",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_start_inline(),
                 disable_web_page_preview=True,
@@ -155,25 +153,25 @@ def setup_button_router(app: Client):
         # ── help ─────────────────────────────────────────────────────────────
         elif command == "help":
             await message.reply_text(
-                "**❓ Help Menu**\n"
+                "**❓ 帮助菜单**\n"
                 "━━━━━━━━━━━━━━━━\n"
-                "**🔗 Auto Download:** Paste any Telegram link!\n"
-                "**📦 Auto Batch:** Send a link → pick how many files to download.\n"
-                "**⚙️ Settings:** /settings — set caption, rename, word filter, target chat.\n"
+                "**🔗 自动下载：** 粘贴任意 Telegram 链接即可！\n"
+                "**📦 自动批量：** 发送链接 → 选择下载文件数量。\n"
+                "**⚙️ 设置：** /settings — 设置标题、重命名、关键词过滤、目标对话。\n"
                 "━━━━━━━━━━━━━━━━\n"
-                "**/plans** — view premium plans\n"
-                "**/buy** — get premium\n"
-                "**/transfer** — give your premium to a friend\n"
-                "**/referral** — share your link & earn rewards\n"
-                "**/profile** — your profile & plan info\n"
-                "**/refresh** — update your Telegram profile\n"
-                "**/getthumb** — see your thumbnail\n"
-                "**/setthumb** — set a thumbnail __(just send a photo when asked!)__\n"
-                "**/rmthumb** — remove your thumbnail\n"
-                "**/settings** — all download settings\n"
-                "**/info** — detailed account info\n"
-                "**/login** — connect your account\n"
-                "**/logout** — remove your session\n"
+                "**/plans** — 查看高级套餐\n"
+                "**/buy** — 购买高级会员\n"
+                "**/transfer** — 转让高级会员给朋友\n"
+                "**/referral** — 分享推荐链接赚取奖励\n"
+                "**/profile** — 个人主页和套餐信息\n"
+                "**/refresh** — 更新 Telegram 个人资料\n"
+                "**/getthumb** — 查看缩略图\n"
+                "**/setthumb** — 设置缩略图 __（询问时发送图片即可！）__\n"
+                "**/rmthumb** — 删除缩略图\n"
+                "**/settings** — 所有下载设置\n"
+                "**/info** — 详细账户信息\n"
+                "**/login** — 连接账户\n"
+                "**/logout** — 移除会话\n"
                 "━━━━━━━━━━━━━━━━",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -207,30 +205,30 @@ def setup_button_router(app: Client):
             plan2 = await prem_plan2.find_one({"user_id": user_id})
             plan3 = await prem_plan3.find_one({"user_id": user_id})
 
-            membership = "🆓 Free"
+            membership = "🆓 免费"
             expiry_str = None
             if plan3 and plan3.get("expiry_date", now) > now:
-                membership = "💎 Plan 3"
+                membership = "💎 套餐3"
                 expiry_str = plan3["expiry_date"].replace(
-                    tzinfo=timezone.utc).astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
+                    tzinfo=timezone.utc).astimezone(IST).strftime("%Y年%m月%d日 %H:%M")
             elif plan2 and plan2.get("expiry_date", now) > now:
-                membership = "🌟 Plan 2"
+                membership = "🌟 套餐2"
                 expiry_str = plan2["expiry_date"].replace(
-                    tzinfo=timezone.utc).astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
+                    tzinfo=timezone.utc).astimezone(IST).strftime("%Y年%m月%d日 %H:%M")
             elif plan1 and plan1.get("expiry_date", now) > now:
-                membership = "✨ Plan 1"
+                membership = "✨ 套餐1"
                 expiry_str = plan1["expiry_date"].replace(
-                    tzinfo=timezone.utc).astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
+                    tzinfo=timezone.utc).astimezone(IST).strftime("%Y年%m月%d日 %H:%M")
 
             session       = await user_sessions.find_one({"user_id": user_id})
             sessions_list = session.get("sessions", []) if session else []
             if not sessions_list:
-                login_status = "Not logged in"
+                login_status = "未登录"
             elif len(sessions_list) == 1:
-                login_status = f"Logged in as {sessions_list[0].get('account_name', 'Unknown')}"
+                login_status = f"已登录：{sessions_list[0].get('account_name', '未知')}"
             else:
-                names = ", ".join(s.get("account_name", "Unknown") for s in sessions_list)
-                login_status = f"{len(sessions_list)} accounts: {names}"
+                names = "、".join(s.get("account_name", "未知") for s in sessions_list)
+                login_status = f"{len(sessions_list)} 个账户：{names}"
 
             daily_record = await daily_limit.find_one({"user_id": user_id})
             total_dl     = daily_record.get("total_downloads", 0) if daily_record else 0
@@ -241,24 +239,24 @@ def setup_button_router(app: Client):
             if plan3: total_stars += 1000
 
             expiry_line = (
-                f"\n<b>📅 Plan Expires:</b> <code>{expiry_str}</code>"
+                f"\n<b>📅 到期时间：</b> <code>{expiry_str}</code>"
                 if expiry_str else ""
             )
 
             await message.reply_text(
                 f"<b>━━━━━━━━━━━━━━━━</b>\n"
-                f"<b>👤 My Profile</b>\n"
+                f"<b>👤 个人中心</b>\n"
                 f"<b>━━━━━━━━━━━━━━━━</b>\n"
-                f"<b>🆔 ID:</b> <code>{user_id}</code>\n"
-                f"<b>👤 Name:</b> <code>{full_name}</code>\n"
-                f"<b>📛 Username:</b> <code>{username}</code>\n"
+                f"<b>🆔 ID：</b> <code>{user_id}</code>\n"
+                f"<b>👤 姓名：</b> <code>{full_name}</code>\n"
+                f"<b>📛 用户名：</b> <code>{username}</code>\n"
                 f"<b>━━━━━━━━━━━━━━━━</b>\n"
-                f"<b>💎 Plan:</b> <code>{membership}</code>"
+                f"<b>💎 套餐：</b> <code>{membership}</code>"
                 f"{expiry_line}\n"
-                f"<b>⭐ Stars Spent:</b> <code>{total_stars}</code>\n"
+                f"<b>⭐ 已消费星星：</b> <code>{total_stars}</code>\n"
                 f"<b>━━━━━━━━━━━━━━━━</b>\n"
-                f"<b>🔗 Login:</b> <code>{login_status}</code>\n"
-                f"<b>📥 Total Downloads:</b> <code>{total_dl}</code>\n"
+                f"<b>🔗 登录状态：</b> <code>{login_status}</code>\n"
+                f"<b>📥 总下载数：</b> <code>{total_dl}</code>\n"
                 f"<b>━━━━━━━━━━━━━━━━</b>",
                 parse_mode=ParseMode.HTML,
             )
@@ -274,19 +272,19 @@ def setup_button_router(app: Client):
                     chat_id=message.chat.id,
                     photo=thumb_path,
                     caption=(
-                        "🖼 **Your current thumbnail**\n\n"
-                        "🗑 Remove it: `/rmthumb`\n"
-                        "🔄 Change it: `/setthumb`"
+                        "🖼 **你当前的缩略图**\n\n"
+                        "🗑 删除：`/rmthumb`\n"
+                        "🔄 更换：`/setthumb`"
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
                 await message.reply_text(
-                    "❌ **You don't have a thumbnail set yet.**\n\n"
-                    "📌 **How to set one — super easy!**\n"
-                    "**Step 1:** Type `/setthumb`\n"
-                    "**Step 2:** Send a photo when the bot asks\n\n"
-                    "__Or just send any photo — the bot will ask if you want to set it!__",
+                    "❌ **你还没有设置缩略图。**\n\n"
+                    "📌 **如何设置 — 非常简单！**\n"
+                    "**第一步：** 输入 `/setthumb`\n"
+                    "**第二步：** 机器人询问时发送图片\n\n"
+                    "__或者直接发送任意图片 — 机器人会询问是否设为缩略图！__",
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
@@ -298,7 +296,7 @@ def setup_button_router(app: Client):
             user_data = await user_activity_collection.find_one({"user_id": user_id})
             if not user_data or "thumbnail_path" not in user_data:
                 await message.reply_text(
-                    "❌ **You don't have any thumbnail set.**",
+                    "❌ **你没有任何缩略图。**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -310,29 +308,29 @@ def setup_button_router(app: Client):
                 {"$unset": {"thumbnail_path": "", "thumbnail_file_id": ""}},
             )
             await message.reply_text(
-                "✅ **Thumbnail removed!**\n\n"
-                "__Downloaded videos will no longer have a custom thumbnail.__",
+                "✅ **缩略图已删除！**\n\n"
+                "__下载的视频将不再使用自定义缩略图。__",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
         # ── login ──────────────────────────────────────────────────────────────
         elif command == "login":
             await message.reply_text(
-                "🔐 **Type `/login` to connect your Telegram account.**\n\n"
-                "__You'll need to login to download from private channels.__",
+                "🔐 **请输入 `/login` 连接你的 Telegram 账户。**\n\n"
+                "__需要登录才能从私有频道下载。__",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
         # ── logout ─────────────────────────────────────────────────────────────
         elif command == "logout":
             await message.reply_text(
-                "🚪 **Type `/logout` to remove your saved session.**",
+                "🚪 **请输入 `/logout` 移除已保存的会话。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
         else:
             await message.reply_text(
-                f"Please type `/{command}` to use this feature.",
+                f"请输入 `/{command}` 来使用此功能。",
                 parse_mode=ParseMode.MARKDOWN,
             )
 
@@ -348,14 +346,14 @@ def setup_button_router(app: Client):
             f"{message.from_user.last_name or ''}".strip()
         )
         await message.reply_text(
-            f"🏠 **Main Menu** — Hey {user_fullname}!\n\nChoose an option below 👇",
+            f"🏠 **主菜单** — {user_fullname}，你好！\n\n请在下方选择 👇",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_start_inline(),
             disable_web_page_preview=True,
         )
         await client.send_message(
             chat_id=message.chat.id,
-            text="__Keyboard refreshed.__",
+            text="__键盘已刷新。__",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_main_reply_keyboard(),
         )

@@ -1,6 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
-#
 # utils/force_sub.py — Ultra-fast Force Subscribe System
 # ─────────────────────────────────────────────────────────
 # ✅ FIXED: stop_propagation() in the correct place
@@ -48,7 +45,7 @@ CHECK_SUB_CALLBACK_DATA = "check_sub"
 # ══════════════════════════════════════════════════════════════════
 
 # Force subscribe channel — feature is disabled when None
-_RAW_CHANNEL = FORCE_SUB_CHANNEL  # e.g. "juktijol" or None
+_RAW_CHANNEL = FORCE_SUB_CHANNEL
 
 if _RAW_CHANNEL:
     # Ensure @ prefix for API calls
@@ -170,16 +167,16 @@ async def check_force_sub(client: Client, user_id: int, refresh: bool = False) -
 
 def _not_sub_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Join our channel", url=CHANNEL_LINK)],
-        [InlineKeyboardButton("⚡ I joined - Continue", callback_data=CHECK_SUB_CALLBACK_DATA)],
+        [InlineKeyboardButton("⚡ 加入频道", url=CHANNEL_LINK)],
+        [InlineKeyboardButton("⚡ 已加入 - 继续", callback_data=CHECK_SUB_CALLBACK_DATA)],
     ])
 
 
 NOT_SUBSCRIBED_TEXT = (
-    "⚡ **Access Restricted**\n\n"
-    "To use this bot, please join our official channel first.\n\n"
-    "Tap the button below to join, then press\n"
-    "**⚡ I Joined - Continue**."
+    "⚡ **访问受限**\n\n"
+    "要使用本机器人，请先加入我们的官方频道。\n\n"
+    "点击下方按钮加入，然后点击\n"
+    "**⚡ 已加入 - 继续**。"
 )
 
 
@@ -252,7 +249,7 @@ def setup_force_sub_handler(app: Client):
 
         if not is_sub:
             await callback_query.answer(
-                "⚡ Please join the channel first.",
+                "⚡ 请先加入频道。",
                 show_alert=True,
             )
             # Send the join-channel prompt message
@@ -291,14 +288,14 @@ def setup_force_sub_handler(app: Client):
             except Exception:
                 pass
             await callback_query.answer(
-                "⚡ Verified! You can now use the bot.",
+                "⚡ 验证通过！你现在可以使用机器人了。",
                 show_alert=True,
             )
             LOGGER.info(f"[ForceSub] User {user_id} verified as member ✅")
         else:
             # ❌ User is not joined yet
             await callback_query.answer(
-                "⚡ You are not in the channel yet.\nPlease join and try again.",
+                "⚡ 你尚未加入频道。\n请加入后再试。",
                 show_alert=True,
             )
 

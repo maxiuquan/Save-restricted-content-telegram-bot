@@ -1,5 +1,3 @@
-# Copyright @juktijol
-# Channel t.me/juktijol
 #
 # plugins/directdl.py  ─  File Hosting Sites Downloader (Enhanced v2.0)
 #
@@ -61,8 +59,6 @@ _THREAD_POOL = ThreadPoolExecutor(max_workers=4)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BOT_VERSION   = "2.0.0"
-BOT_CHANNEL   = "t.me/juktijol"
-BOT_AUTHOR    = "@juktijol"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SUPPORTED SITES DISPLAY TEXT
@@ -70,28 +66,28 @@ BOT_AUTHOR    = "@juktijol"
 
 SUPPORTED_SITES_TEXT = """
 ╔══════════════════════════════════╗
-║   📥 Direct Link Downloader v{ver}   ║
+║   📥 DDL 直链下载器 v{ver}   ║
 ║        {ch}        ║
 ╚══════════════════════════════════╝
 
-**⚙️ ব্যবহার পদ্ধতি:**
+**⚙️ 使用方法：**
 ┌──────────────────────────────────
 │ `/ddl <URL>`
 │ `/ddl <URL>::<password>`
 └──────────────────────────────────
 
-**🌐 Supported Sites (40+):**
+**🌐 支持的网站 (40+):**
 
-🗂 **Cloud Storage:**
-  • MediaFire (File + Folder)
-  • Google Drive _(via index)_
+🗂 **云存储：**
+  • MediaFire（文件 + 文件夹）
+  • Google Drive（通过索引）
   • OneDrive
   • pCloud
   • Yandex Disk
   • TeraBox
   • GoFile
 
-💾 **Direct Hosts:**
+💾 **直链托管：**
   • Pixeldrain
   • KrakenFiles
   • Solidfiles
@@ -101,7 +97,7 @@ SUPPORTED_SITES_TEXT = """
   • BuzzHeavier
   • HxFile
 
-📦 **Transfer Services:**
+📦 **传输服务：**
   • WeTransfer
   • SwissTransfer
   • Send.cm
@@ -110,8 +106,8 @@ SUPPORTED_SITES_TEXT = """
   • Transfer.it
   • LinkBox
 
-🎬 **Video Hosts:**
-  • Doodstream (& family)
+🎬 **视频托管：**
+  • Doodstream（及系列站点）
   • StreamTape
   • StreamHub
   • StreamVid
@@ -120,7 +116,7 @@ SUPPORTED_SITES_TEXT = """
   • mp4upload
   • Racaty
 
-🔧 **Dev / Other:**
+🔧 **开发/其他：**
   • GitHub Releases
   • OSDN
   • Shrdsk
@@ -130,8 +126,9 @@ SUPPORTED_SITES_TEXT = """
   • Lulacloud
   • MediaFile
   • BerkasDrive
+  • Transfer.it
 
-**📋 উদাহরণ:**
+**📋 使用示例：**
 ```
 /ddl https://www.mediafire.com/file/xxx
 /ddl https://gofile.io/d/xxxxx
@@ -139,13 +136,13 @@ SUPPORTED_SITES_TEXT = """
 /ddl https://1fichier.com/?xxx::mypass
 ```
 
-**ℹ️ সীমাবদ্ধতা:**
+**ℹ️ 限制说明：**
 ┌──────────────────────────────────
-│ 👤 Free User  → সর্বোচ্চ 500 MB
-│ 👑 Premium    → সর্বোচ্চ 2 GB
+│ 👤 免费用户  → 最高 500 MB
+│ 👑 高级会员    → 最高 2 GB
 └──────────────────────────────────
-_Powered by {author} | {ch}_
-""".format(ver=BOT_VERSION, ch=BOT_CHANNEL, author=BOT_AUTHOR)
+
+""".format(ver=BOT_VERSION)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,7 +261,7 @@ def _get_domain(url: str) -> str:
         domain = parsed.netloc.replace("www.", "")
         return domain
     except Exception:
-        return "Unknown"
+        return "未知"
 
 
 async def _get_user_thumbnail(user_id: int) -> Optional[str]:
@@ -350,9 +347,9 @@ async def _stream_download(
                 if resp.status not in (200, 206):
                     if resp.status in (429, 503) and attempt <= MAX_RETRIES:
                         await status_msg.edit_text(
-                            f"⚠️ **Server busy (HTTP {resp.status})**\n"
-                            f"🔄 Retry `{attempt}/{MAX_RETRIES}` — "
-                            f"`{RETRY_DELAY}s` পরে আবার চেষ্টা হবে...",
+                            f"⚠️ **服务器繁忙 (HTTP {resp.status})**\n"
+                            f"🔄 重试 `{attempt}/{MAX_RETRIES}` — "
+                            f"`{RETRY_DELAY}s` 后再次尝试...",
                             parse_mode=ParseMode.MARKDOWN,
                         )
                         await asyncio.sleep(RETRY_DELAY)
@@ -361,7 +358,7 @@ async def _stream_download(
                             status_msg, display_name, max_size, attempt + 1,
                         )
                     await status_msg.edit_text(
-                        f"❌ **Server Error: HTTP `{resp.status}`**\n\n"
+                        f"❌ **服务器错误：HTTP `{resp.status}`**\n\n"
                         f"🔗 `{url[:80]}`",
                         parse_mode=ParseMode.MARKDOWN,
                     )
@@ -370,16 +367,16 @@ async def _stream_download(
                 total = int(resp.headers.get("Content-Length", 0))
 
                 # ── Content-Type display ──────────────────────────────────────
-                content_type = resp.headers.get("Content-Type", "অজানা").split(";")[0]
+                content_type = resp.headers.get("Content-Type", "未知").split(";")[0]
 
                 # ── Size guard ────────────────────────────────────────────────
                 if total > 0 and total > max_size:
                     await status_msg.edit_text(
-                        f"❌ **ফাইল সীমার বেশি বড়!**\n\n"
+                        f"❌ **文件超过大小限制！**\n\n"
                         f"{file_icon} `{display_name[:50]}`\n"
-                        f"📦 Size:  `{get_readable_file_size(total)}`\n"
-                        f"🚫 Limit: `{get_readable_file_size(max_size)}`\n\n"
-                        f"💡 _Premium upgrade করলে 2 GB পর্যন্ত ডাউনলোড করা যাবে।_",
+                        f"📦 大小：`{get_readable_file_size(total)}`\n"
+                        f"🚫 限制：`{get_readable_file_size(max_size)}`\n\n"
+                        f"💡 _升级高级会员后最高可下载 2 GB。_",
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     return False
@@ -432,16 +429,16 @@ async def _stream_download(
 
                             try:
                                 await status_msg.edit_text(
-                                    f"⬇️ **ডাউনলোড হচ্ছে...**\n"
+                                    f"⬇️ **下载中...**\n"
                                     f"┌─────────────────────────\n"
                                     f"│ `[{bar}]{pct_text}`\n"
                                     f"├─────────────────────────\n"
                                     f"│ {file_icon} `{display_name[:45]}`\n"
-                                    f"│ 📥 **Downloaded:** {size_text}\n"
-                                    f"│ ⚡ **Speed:**  `{get_readable_file_size(speed)}/s`\n"
-                                    f"│ ⏳ **ETA:**    `{get_readable_time(eta) if eta else '...'}`\n"
-                                    f"│ ⏱ **Elapsed:** `{get_readable_time(int(elapsed))}`\n"
-                                    f"│ 🗂 **Type:**   `{content_type}`\n"
+                                    f"│ 📥 **已下载：** {size_text}\n"
+                                    f"│ ⚡ **速度：**  `{get_readable_file_size(speed)}/s`\n"
+                                    f"│ ⏳ **预计：**  `{get_readable_time(eta) if eta else '...'}`\n"
+                                    f"│ ⏱ **已用：** `{get_readable_time(int(elapsed))}`\n"
+                                    f"│ 🗂 **类型：**  `{content_type}`\n"
                                     f"└─────────────────────────",
                                     parse_mode=ParseMode.MARKDOWN,
                                 )
@@ -455,8 +452,8 @@ async def _stream_download(
         LOGGER.warning(f"[DirectDL] Timeout: {url[:60]}")
         if attempt <= MAX_RETRIES:
             await status_msg.edit_text(
-                f"⏰ **Download timeout!**\n"
-                f"🔄 Retry `{attempt}/{MAX_RETRIES}`...",
+                f"⏰ **下载超时！**\n"
+                f"🔄 重试 `{attempt}/{MAX_RETRIES}`...",
                 parse_mode=ParseMode.MARKDOWN,
             )
             await asyncio.sleep(RETRY_DELAY)
@@ -465,7 +462,7 @@ async def _stream_download(
                 status_msg, display_name, max_size, attempt + 1,
             )
         await status_msg.edit_text(
-            "❌ **Download timeout!** সার্ভার সাড়া দিচ্ছে না।",
+            "❌ **下载超时！** 服务器无响应。",
             parse_mode=ParseMode.MARKDOWN,
         )
         return False
@@ -474,7 +471,7 @@ async def _stream_download(
         LOGGER.error(f"[DirectDL] Network error {url[:60]}: {e}")
         if attempt <= MAX_RETRIES:
             await status_msg.edit_text(
-                f"🌐 **Network error!** Retry `{attempt}/{MAX_RETRIES}`...\n"
+                f"🌐 **网络错误！** 重试 `{attempt}/{MAX_RETRIES}`...\n"
                 f"`{str(e)[:100]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -484,7 +481,7 @@ async def _stream_download(
                 status_msg, display_name, max_size, attempt + 1,
             )
         await status_msg.edit_text(
-            f"❌ **Network error:**\n`{str(e)[:200]}`",
+            f"❌ **网络错误：**\n`{str(e)[:200]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return False
@@ -529,15 +526,15 @@ async def _upload_to_telegram(
         bar     = _progress_bar(pct)
         try:
             await status_msg.edit_text(
-                f"📤 **Telegram-এ Upload হচ্ছে...**\n"
+                f"📤 **正在上传到 Telegram...**\n"
                 f"┌─────────────────────────\n"
                 f"│ `[{bar}]` {pct:.1f}%\n"
                 f"├─────────────────────────\n"
                 f"│ {file_icon} `{os.path.basename(file_path)[:45]}`\n"
                 f"│ 📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                f"│ ⚡ **Speed:**  `{get_readable_file_size(speed)}/s`\n"
-                f"│ ⏳ **ETA:**    `{get_readable_time(int(eta))}`\n"
-                f"│ ⏱ **Elapsed:** `{get_readable_time(int(elapsed))}`\n"
+                f"│ ⚡ **速度：**  `{get_readable_file_size(speed)}/s`\n"
+                f"│ ⏳ **预计：**  `{get_readable_time(int(eta))}`\n"
+                f"│ ⏱ **已用：** `{get_readable_time(int(elapsed))}`\n"
                 f"└─────────────────────────",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -594,10 +591,10 @@ async def _upload_to_telegram(
 
     elapsed = get_readable_time(int(time() - start_ts))
     await status_msg.edit_text(
-        f"✅ **সফলভাবে পাঠানো হয়েছে!**\n\n"
+        f"✅ **发送成功！**\n\n"
         f"{file_icon} `{os.path.basename(file_path)[:60]}`\n"
         f"📦 `{get_readable_file_size(file_size)}`\n"
-        f"⏱ মোট সময়: `{elapsed}`",
+        f"⏱ 总耗时：`{elapsed}`",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -627,9 +624,9 @@ async def _download_single(
     dest_path = os.path.join(user_dir, file_name)
 
     await status_msg.edit_text(
-        f"⬇️ **Download শুরু হচ্ছে...**\n\n"
+        f"⬇️ **开始下载...**\n\n"
         f"{file_icon} `{file_name[:55]}`\n"
-        f"🌐 Source: `{domain}`",
+        f"🌐 来源：`{domain}`",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -643,7 +640,7 @@ async def _download_single(
 
     if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
         await status_msg.edit_text(
-            "❌ **Downloaded ফাইল পাওয়া যায়নি বা খালি।**",
+            "❌ **下载的文件未找到或为空。**",
             parse_mode=ParseMode.MARKDOWN,
         )
         await _log_activity(user_id, original_url, 0, "empty")
@@ -652,7 +649,7 @@ async def _download_single(
     file_sz = os.path.getsize(dest_path)
 
     await status_msg.edit_text(
-        f"✅ **Download সম্পন্ন!** Upload হচ্ছে...\n\n"
+        f"✅ **下载完成！** 正在上传...\n\n"
         f"{file_icon} `{file_name[:55]}`\n"
         f"📦 `{get_readable_file_size(file_sz)}`",
         parse_mode=ParseMode.MARKDOWN,
@@ -661,11 +658,11 @@ async def _download_single(
     caption = (
         f"{file_icon} **{file_name[:70]}**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 **Size:**   `{get_readable_file_size(file_sz)}`\n"
-        f"🌐 **Source:** `{domain}`\n"
-        f"🔗 **Link:**   `{original_url[:60]}`\n"
+        f"📦 **大小：** `{get_readable_file_size(file_sz)}`\n"
+        f"🌐 **来源：** `{domain}`\n"
+        f"🔗 **链接：** `{original_url[:60]}`\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"_Downloaded via {BOT_CHANNEL}_"
+        f"_通过 {BOT_CHANNEL} 下载_"
     )
 
     await _upload_to_telegram(
@@ -701,7 +698,7 @@ async def _download_folder(
     """
     chat_id  = message.chat.id
     user_id  = message.from_user.id
-    title    = details.get("title", "Folder") or "Folder"
+    title    = details.get("title", "文件夹") or "文件夹"
     contents = details.get("contents") or []
     total_sz = int(details.get("total_size") or 0)
     raw_hdr  = details.get("header")
@@ -710,18 +707,18 @@ async def _download_folder(
 
     if not contents:
         await status_msg.edit_text(
-            "❌ **Folder empty — কোনো file নেই।**",
+            "❌ **文件夹为空 — 没有文件。**",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     if total_sz > 0 and total_sz > max_size:
         await status_msg.edit_text(
-            f"❌ **Folder অনেক বড়!**\n\n"
+            f"❌ **文件夹过大！**\n\n"
             f"📁 `{title[:50]}`\n"
-            f"📦 Size:  `{get_readable_file_size(total_sz)}`\n"
-            f"🚫 Limit: `{get_readable_file_size(max_size)}`\n\n"
-            f"💡 _Premium upgrade করলে 2 GB পর্যন্ত ডাউনলোড করা যাবে।_",
+            f"📦 大小：`{get_readable_file_size(total_sz)}`\n"
+            f"🚫 限制：`{get_readable_file_size(max_size)}`\n\n"
+            f"💡 _升级高级会员后最高可下载 2 GB。_",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -739,11 +736,11 @@ async def _download_folder(
     await status_msg.edit_text(
         f"📁 **{title[:55]}**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 Files: `{len(contents)}`\n"
-        f"📦 Total: `{get_readable_file_size(total_sz) if total_sz else 'অজানা'}`\n"
-        f"🗂 Types: {type_summary}\n"
+        f"📊 文件数：`{len(contents)}`\n"
+        f"📦 总计：`{get_readable_file_size(total_sz) if total_sz else '未知'}`\n"
+        f"🗂 类型：{type_summary}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        "⬇️ Download শুরু হচ্ছে...",
+        "⬇️ 开始下载...",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -769,8 +766,8 @@ async def _download_folder(
         await status_msg.edit_text(
             f"📁 **{title[:45]}**\n"
             f"┌─────────────────────────\n"
-            f"│ 📊 Progress: `{idx}/{len(contents)}`\n"
-            f"│ ✅ Done: `{success}` | ❌ Failed: `{failed}`\n"
+            f"│ 📊 进度：`{idx}/{len(contents)}`\n"
+            f"│ ✅ 已完成：`{success}` | ❌ 失败：`{failed}`\n"
             f"├─────────────────────────\n"
             f"│ {file_icon} `{item_name[:50]}`\n"
             f"└─────────────────────────",
@@ -785,7 +782,7 @@ async def _download_folder(
         if not ok or not os.path.exists(dest) or os.path.getsize(dest) == 0:
             failed += 1
             await message.reply_text(
-                f"⚠️ **Skipped:** {file_icon} `{item_name}`",
+                f"⚠️ **已跳过：** {file_icon} `{item_name}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             if os.path.exists(dest):
@@ -798,17 +795,17 @@ async def _download_folder(
         caption = (
             f"{file_icon} **{item_name[:70]}**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📦 **Size:** `{get_readable_file_size(item_sz)}`\n"
-            f"📁 **Folder:** `{title[:40]}`"
-            + (f"\n📂 **Sub:** `{item_sub[:40]}`" if item_sub else "") +
-            f"\n📊 **File:** `{idx}/{len(contents)}`\n"
+            f"📦 **大小：** `{get_readable_file_size(item_sz)}`\n"
+            f"📁 **文件夹：** `{title[:40]}`"
+            + (f"\n📂 **子目录：** `{item_sub[:40]}`" if item_sub else "") +
+            f"\n📊 **文件：** `{idx}/{len(contents)}`\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"_Downloaded via {BOT_CHANNEL}_"
+            f"_通过 {BOT_CHANNEL} 下载_"
         )
 
         try:
             await status_msg.edit_text(
-                f"📤 **Upload হচ্ছে `{idx}/{len(contents)}`...**\n\n"
+                f"📤 **正在上传 `{idx}/{len(contents)}`...**\n\n"
                 f"{file_icon} `{item_name[:50]}`\n"
                 f"📦 `{get_readable_file_size(item_sz)}`",
                 parse_mode=ParseMode.MARKDOWN,
@@ -823,7 +820,7 @@ async def _download_folder(
             LOGGER.error(f"[DirectDL] Upload failed '{item_name}': {exc}")
             failed += 1
             await message.reply_text(
-                f"⚠️ **Upload failed:** `{item_name}`\n`{str(exc)[:100]}`",
+                f"⚠️ **上传失败：** `{item_name}`\n`{str(exc)[:100]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
         finally:
@@ -835,15 +832,15 @@ async def _download_folder(
     icon    = "✅" if failed == 0 else ("⚠️" if success > 0 else "❌")
 
     await status_msg.edit_text(
-        f"{icon} **Folder Download সম্পন্ন!**\n"
+        f"{icon} **文件夹下载完成！**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📁 `{title[:55]}`\n"
-        f"✅ **Sent:**   `{success}` files\n"
-        f"❌ **Failed:** `{failed}` files\n"
-        f"📦 **Uploaded:** `{get_readable_file_size(total_up)}`\n"
-        f"⏱ **Time:**   `{elapsed}`\n"
+        f"✅ **已发送：** `{success}` 个文件\n"
+        f"❌ **失败：** `{failed}` 个文件\n"
+        f"📦 **已上传：** `{get_readable_file_size(total_up)}`\n"
+        f"⏱ **耗时：** `{elapsed}`\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"_Powered by {BOT_CHANNEL}_",
+        f"",
         parse_mode=ParseMode.MARKDOWN,
     )
     await _log_activity(user_id, title, total_up, "folder_done")
@@ -885,12 +882,12 @@ async def _process_ddl(
     try:
         # ── Step 1: Resolve ───────────────────────────────────────────────────
         await status_msg.edit_text(
-            f"🔍 **Link resolve করা হচ্ছে...**\n"
+            f"🔍 **正在解析链接...**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🌐 **Site:**  `{domain}`\n"
-            f"🔗 **URL:**   `{url[:60]}`\n"
-            f"💼 **Plan:**  {plan_label} "
-            f"(`{get_readable_file_size(max_size)}` limit)\n"
+            f"🌐 **网站：** `{domain}`\n"
+            f"🔗 **URL：** `{url[:60]}`\n"
+            f"💼 **套餐：** {plan_label} "
+            f"(`{get_readable_file_size(max_size)}` 限制)\n"
             f"━━━━━━━━━━━━━━━━━━━━",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -900,19 +897,19 @@ async def _process_ddl(
         except DirectLinkException as exc:
             err_msg = str(exc)
             await status_msg.edit_text(
-                f"❌ **Link resolve ব্যর্থ!**\n"
+                f"❌ **链接解析失败！**\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌐 **Site:** `{domain}`\n"
-                f"⚠️ **Error:** `{err_msg[:300]}`\n"
+                f"🌐 **网站：** `{domain}`\n"
+                f"⚠️ **错误：** `{err_msg[:300]}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 _Link টি সঠিক ও accessible কিনা যাচাই করুন।_",
+                f"💡 _请检查链接是否正确且可访问。_",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
         except Exception as exc:
             LOGGER.error(f"[DirectDL] Resolve error user={user_id}: {exc}")
             await status_msg.edit_text(
-                f"❌ **Unexpected resolve error:**\n`{str(exc)[:300]}`",
+                f"❌ **解析时发生意外错误：**\n`{str(exc)[:300]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -935,8 +932,8 @@ async def _process_ddl(
 
         if not isinstance(result, str) or not result.startswith("http"):
             await status_msg.edit_text(
-                "❌ **Valid direct link পাওয়া যায়নি।**\n\n"
-                "🌐 Link টি সঠিক কিনা যাচাই করুন অথবা পরে আবার চেষ্টা করুন।",
+                "❌ **未找到有效的直链。**\n\n"
+                "🌐 请检查链接是否正确，或稍后重试。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -951,7 +948,7 @@ async def _process_ddl(
         LOGGER.error(f"[DirectDL] Pipeline error user={user_id}: {exc}")
         try:
             await status_msg.edit_text(
-                f"❌ **Unexpected error:**\n`{str(exc)[:300]}`",
+                f"❌ **意外错误：**\n`{str(exc)[:300]}`",
                 parse_mode=ParseMode.MARKDOWN,
             )
         except Exception:
@@ -1008,8 +1005,8 @@ def setup_directdl_handler(app: Client) -> None:
         # ── Basic URL sanity check ────────────────────────────────────────────
         if not url_for_check.startswith(("http://", "https://")):
             await message.reply_text(
-                "❌ **Invalid URL!**\n\n"
-                "`http://` বা `https://` দিয়ে শুরু হওয়া URL দিন।",
+                "❌ **无效的 URL！**\n\n"
+                "请提供以 `http://` 或 `https://` 开头的 URL。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1018,8 +1015,8 @@ def setup_directdl_handler(app: Client) -> None:
         if not is_supported_site(url_for_check):
             domain = _get_domain(url_for_check)
             await message.reply_text(
-                f"⚠️ **`{domain}` supported নয়।**\n\n"
-                "সমস্ত supported site দেখতে শুধু `/ddl` লিখুন।",
+                f"⚠️ **`{domain}` 不受支持。**\n\n"
+                "输入 `/ddl` 查看所有支持的网站。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -1030,7 +1027,7 @@ def setup_directdl_handler(app: Client) -> None:
         )
 
         status_msg = await message.reply_text(
-            "🔄 **Processing...**",
+            "🔄 **处理中...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
