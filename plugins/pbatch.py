@@ -699,6 +699,21 @@ def setup_pbatch_handler(app: Client):
                     else:
                         fail_count += group_size
                         consecutive_fails += 1
+
+                    now = time()
+                    if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+                        try:
+                            await status_message.edit_text(
+                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=InlineKeyboardMarkup([[
+                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                ]]),
+                            )
+                            last_edit = now
+                        except Exception:
+                            pass
+
                     await asyncio.sleep(0.5)
                     continue
 
@@ -955,6 +970,21 @@ def setup_pbatch_handler(app: Client):
                     else:
                         fail_count += group_size
                         consecutive_fails += 1
+
+                    now = time()
+                    if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+                        try:
+                            await status_message.edit_text(
+                                _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=InlineKeyboardMarkup([[
+                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                ]]),
+                            )
+                            last_edit = now
+                        except Exception:
+                            pass
+
                     await asyncio.sleep(1.0)
                     continue
 
