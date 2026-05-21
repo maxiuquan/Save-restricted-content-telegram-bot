@@ -630,6 +630,7 @@ def setup_pbatch_handler(app: Client):
         message_ids  = list(range(start_message_id, start_message_id + count))
         success_count = 0
         fail_count    = 0
+        consecutive_fails = 0
         processed_media_groups = set()
 
         CHUNK = 200
@@ -692,9 +693,11 @@ def setup_pbatch_handler(app: Client):
 
                     if result:
                         success_count += group_size
+                        consecutive_fails = 0
                     else:
                         fail_count += group_size
-                    await asyncio.sleep(0.3)
+                        consecutive_fails += 1
+                    await asyncio.sleep(0.5)
                     continue
 
                 source_file_id = None
@@ -845,6 +848,7 @@ def setup_pbatch_handler(app: Client):
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
         fail_count     = 0
+        consecutive_fails = 0
         processed_media_groups = set()
 
         try:
@@ -905,6 +909,7 @@ def setup_pbatch_handler(app: Client):
 
             if not chat_message or not chat_message.id:
                 fail_count += 1
+                consecutive_fails += 1
                 continue
 
             try:
@@ -916,6 +921,7 @@ def setup_pbatch_handler(app: Client):
                     )
                     if not await fileSizeLimit(file_size, status_message, "download", True):
                         fail_count += 1
+                        consecutive_fails += 1
                         continue
 
                 parsed_caption = await get_parsed_msg(
@@ -943,9 +949,11 @@ def setup_pbatch_handler(app: Client):
 
                     if result:
                         success_count += group_size
+                        consecutive_fails = 0
                     else:
                         fail_count += group_size
-                    await asyncio.sleep(0.3)
+                        consecutive_fails += 1
+                    await asyncio.sleep(1.0)
                     continue
 
                 if chat_message.media:
@@ -989,6 +997,7 @@ def setup_pbatch_handler(app: Client):
                             thumbnail_path=thumbnail_path,
                         )
                         success_count += 1
+                        consecutive_fails = 0
                         if LOG_GROUP_ID and log_user and os.path.exists(media_path):
                             try:
                                 await log_file_to_group(
@@ -1037,6 +1046,7 @@ def setup_pbatch_handler(app: Client):
                     except Exception as upload_err:
                         LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
                         fail_count += 1
+                        consecutive_fails += 1
                         try:
                             await progress_msg.delete()
                         except Exception:
@@ -1052,6 +1062,7 @@ def setup_pbatch_handler(app: Client):
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     success_count += 1
+                    consecutive_fails = 0
                     if LOG_GROUP_ID and log_user:
                         try:
                             await log_file_to_group(
@@ -1068,6 +1079,18 @@ def setup_pbatch_handler(app: Client):
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}")
                 fail_count += 1
+                consecutive_fails += 1
+                try:
+                    await progress_msg.delete()
+                except Exception:
+                    pass
+                if consecutive_fails >= 5:
+                    LOGGER.warning(
+                        f"[PrivateBatch] {consecutive_fails} consecutive failures — "
+                        f"pausing 10s to recover from rate limits"
+                    )
+                    await asyncio.sleep(10)
+                    consecutive_fails = 0
 
             now = time()
             if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
@@ -1083,7 +1106,7 @@ def setup_pbatch_handler(app: Client):
                 except Exception:
                     pass
 
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(1.0)
 
         elapsed = int(time() - start_ts)
         completion_msg = await bot.send_message(
