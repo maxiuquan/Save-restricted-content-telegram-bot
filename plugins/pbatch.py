@@ -362,14 +362,14 @@ def setup_pbatch_handler(app: Client):
     # Callback handler
     # ────────────────────────────────────────────────────────────────────
 
-    @app.on_callback_query(filters.regex(r"^batch_(confirm|cancel|session_select)_(\d+)$"))
+    @app.on_callback_query(filters.regex(r"^batch_(confirm|cancel|session_select)_(-?\d+)$"))
     async def batch_callback_handler(client: Client, callback_query):
         data      = callback_query.data
         chat_id   = callback_query.message.chat.id
         user_id   = callback_query.from_user.id
         state     = batch_data.get(chat_id)
 
-        if re.match(r"^batch_cancel_\d+$", data):
+        if re.match(r"^batch_cancel_-?\d+$", data):
             if state and state.get("stage") == "running":
                 cancel_flags[chat_id] = True
                 _del_state(chat_id)
@@ -386,7 +386,7 @@ def setup_pbatch_handler(app: Client):
             await callback_query.answer("已取消")
             return
 
-        if re.match(r"^batch_session_select_\d+$", data):
+        if re.match(r"^batch_session_select_-?\d+$", data):
             if not state or state.get("user_id") != user_id:
                 await callback_query.answer("❌ 无效的会话！", show_alert=True)
                 return
