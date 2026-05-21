@@ -161,6 +161,7 @@ async def handle_batch_start(client: Client, message: Message):
         )
         return
 
+    _del_state(chat_id)
     _set_state(chat_id, {"user_id": user_id, "stage": "await_url"})
     await message.reply_text(
         "**📥 发送 Telegram 链接开始批量下载：**\n\n"
@@ -371,6 +372,7 @@ def setup_pbatch_handler(app: Client):
         if re.match(r"^batch_cancel_\d+$", data):
             if state and state.get("stage") == "running":
                 cancel_flags[chat_id] = True
+                _del_state(chat_id)
                 await callback_query.message.edit_text(
                     "**⛔ 已发送取消信号。当前文件完成后将停止...**",
                     parse_mode=ParseMode.MARKDOWN,
