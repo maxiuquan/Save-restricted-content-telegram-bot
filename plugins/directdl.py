@@ -67,7 +67,6 @@ BOT_VERSION   = "2.0.0"
 SUPPORTED_SITES_TEXT = """
 ╔══════════════════════════════════╗
 ║   📥 DDL 直链下载器 v{ver}   ║
-║        {ch}        ║
 ╚══════════════════════════════════╝
 
 **⚙️ 使用方法：**
@@ -662,7 +661,6 @@ async def _download_single(
         f"🌐 **来源：** `{domain}`\n"
         f"🔗 **链接：** `{original_url[:60]}`\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"_通过 {BOT_CHANNEL} 下载_"
     )
 
     await _upload_to_telegram(
@@ -800,7 +798,6 @@ async def _download_folder(
             + (f"\n📂 **子目录：** `{item_sub[:40]}`" if item_sub else "") +
             f"\n📊 **文件：** `{idx}/{len(contents)}`\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"_通过 {BOT_CHANNEL} 下载_"
         )
 
         try:
