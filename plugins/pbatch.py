@@ -658,6 +658,27 @@ def setup_pbatch_handler(app: Client):
 
         last_edit = time()
 
+        idx = 0
+        _progress_running = True
+
+        async def _bg_update():
+            while _progress_running:
+                await asyncio.sleep(3)
+                if not _progress_running:
+                    break
+                try:
+                    await status_message.edit_text(
+                        _progress_text(idx, count, success_count, fail_count, start_ts, False),
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                        ]]),
+                    )
+                except Exception:
+                    pass
+
+        _bg_task = asyncio.create_task(_bg_update())
+
         for idx, source_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
                 await status_message.edit_text(
@@ -666,6 +687,11 @@ def setup_pbatch_handler(app: Client):
                     f"**📊 已处理：** `{idx - 1}/{count}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
+                _progress_running = False
+                try:
+                    _bg_task.cancel()
+                except Exception:
+                    pass
                 _del_state(chat_id)
                 return
 
@@ -814,6 +840,12 @@ def setup_pbatch_handler(app: Client):
 
             await asyncio.sleep(0.5)
 
+        _progress_running = False
+        try:
+            _bg_task.cancel()
+        except Exception:
+            pass
+
         elapsed = int(time() - start_ts)
         completion_msg = await client.send_message(
             chat_id=chat_id,
@@ -868,6 +900,35 @@ def setup_pbatch_handler(app: Client):
         )
         last_edit = time()
 
+        idx = 0
+        _progress_running = True
+
+        async def _bg_update():
+            while _progress_running:
+                await asyncio.sleep(3)
+                if not _progress_running:
+                    break
+                try:
+                    await status_message.edit_text(
+                        _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                        ]]),
+                    )
+                except Exception:
+                    pass
+
+        _bg_task = asyncio.create_task(_bg_update())
+
+        def _cleanup_bg():
+            nonlocal _progress_running
+            _progress_running = False
+            try:
+                _bg_task.cancel()
+            except Exception:
+                pass
+
         user_data      = await user_activity_collection.find_one({"user_id": user_id})
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
@@ -885,6 +946,7 @@ def setup_pbatch_handler(app: Client):
             pvt_chat_id, start_message_id = getChatMsgID(url)
         except ValueError as e:
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
+            _cleanup_bg()
             _del_state(chat_id)
             # ✅ use safe_stop_client
             await safe_stop_client(user_client)
@@ -911,6 +973,7 @@ def setup_pbatch_handler(app: Client):
                 "请确保登录的账号是该频道/群组的成员。**",
                 parse_mode=ParseMode.MARKDOWN,
             )
+            _cleanup_bg()
             _del_state(chat_id)
             # ✅ use safe_stop_client
             await safe_stop_client(user_client)
@@ -926,6 +989,7 @@ def setup_pbatch_handler(app: Client):
                     f"**📊 已处理：** `{idx - 1}/{count}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
+                _cleanup_bg()
                 _del_state(chat_id)
                 # ✅ use safe_stop_client
                 await safe_stop_client(user_client)
@@ -1077,6 +1141,7 @@ def setup_pbatch_handler(app: Client):
                             )
                         except Exception:
                             pass
+                        _cleanup_bg()
                         _del_state(chat_id)
                         # ✅ use safe_stop_client
                         await safe_stop_client(user_client)
@@ -1168,6 +1233,8 @@ def setup_pbatch_handler(app: Client):
                     pass
 
             await asyncio.sleep(1.0)
+
+        _cleanup_bg()
 
         elapsed = int(time() - start_ts)
         completion_msg = await bot.send_message(
