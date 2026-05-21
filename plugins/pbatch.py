@@ -18,7 +18,9 @@ from pyrogram.errors import (
     ChannelPrivate,
     PeerIdInvalid,
     FileReferenceExpired,
-    AuthKeyUnregistered,  # ✅ new import
+    AuthKeyUnregistered,
+    FloodWait,
+    FloodPremiumWait,
 )
 from pyleaves import Leaves
 from config import COMMAND_PREFIX, LOG_GROUP_ID
@@ -787,6 +789,11 @@ def setup_pbatch_handler(app: Client):
             except FileReferenceExpired:
                 fail_count += 1
                 LOGGER.warning(f"[PublicBatch] File ref expired: msg {source_message.id}")
+            except (FloodWait, FloodPremiumWait) as flood_err:
+                wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+                LOGGER.warning(f"[PublicBatch] 限流 {wait_seconds}s，等待中...")
+                await asyncio.sleep(wait_seconds + 2)
+                fail_count += 1
             except Exception as e:
                 fail_count += 1
                 LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
@@ -1075,6 +1082,17 @@ def setup_pbatch_handler(app: Client):
                         await safe_stop_client(user_client)
                         return
 
+                    except (FloodWait, FloodPremiumWait) as flood_err:
+                        wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+                        LOGGER.warning(f"[PrivateBatch] 限流 {wait_seconds}s，等待中...")
+                        await asyncio.sleep(wait_seconds + 2)
+                        fail_count += 1
+                        consecutive_fails += 1
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+
                     except Exception as upload_err:
                         LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
                         fail_count += 1
@@ -1107,6 +1125,17 @@ def setup_pbatch_handler(app: Client):
                             )
                         except Exception as log_err:
                             LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
+
+            except (FloodWait, FloodPremiumWait) as flood_err:
+                wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+                LOGGER.warning(f"[PrivateBatch] 限流 {wait_seconds}s，等待中...")
+                await asyncio.sleep(wait_seconds + 2)
+                fail_count += 1
+                consecutive_fails += 1
+                try:
+                    await progress_msg.delete()
+                except Exception:
+                    pass
 
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}")

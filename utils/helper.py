@@ -12,6 +12,7 @@ from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
+from pyrogram.errors import FloodWait, FloodPremiumWait
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -551,6 +552,18 @@ async def send_media_to_saved(
             f"for user {message.from_user.id}"
         )
         return True
+
+    except (FloodWait, FloodPremiumWait) as flood_err:
+        wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+        LOGGER.warning(
+            f"[USER CLIENT] 上传触发限流，等待 {wait_seconds}s 后重试..."
+        )
+        try:
+            await progress_message.delete()
+        except Exception:
+            pass
+        await asyncio.sleep(wait_seconds + 2)
+        raise
 
     except Exception as e:
         LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
