@@ -719,7 +719,6 @@ async def processMediaGroup(
         except Exception as e:
             err_str = str(e).lower()
             if "topics" in err_str or "messages.init" in err_str:
-                # Pyrofork false positive — ignore
                 LOGGER.info(
                     f"[MediaGroup] Ignoring Pyrofork false error: {e}"
                 )
@@ -738,51 +737,83 @@ async def processMediaGroup(
                         )
                     )
             else:
-                await message.reply(
-                    "**❌ 无法批量发送媒体组，"
-                    "正在逐个发送文件...**"
-                )
-                for media in valid_media:
-                    try:
-                        if isinstance(media, InputMediaPhoto):
-                            await upload_client.send_photo(
-                                chat_id=upload_target,
-                                photo=media.media,
-                                caption=media.caption,
-                            )
-                        elif isinstance(media, InputMediaVideo):
-                            # ✅ individual send-এও width/height দাও
-                            await upload_client.send_video(
-                                chat_id=upload_target,
-                                video=media.media,
-                                caption=media.caption,
-                                duration=getattr(media, "duration", 0),
-                                width=getattr(media, "width", 0),
-                                height=getattr(media, "height", 0),
-                                thumb=getattr(media, "thumb", None),
-                                supports_streaming=True,
-                            )
-                        elif isinstance(media, InputMediaDocument):
-                            await upload_client.send_document(
-                                chat_id=upload_target,
-                                document=media.media,
-                                caption=media.caption,
-                            )
-                        elif isinstance(media, InputMediaAudio):
-                            await upload_client.send_audio(
-                                chat_id=upload_target,
-                                audio=media.media,
-                                caption=media.caption,
-                                duration=getattr(media, "duration", 0),
-                            )
-                    except Exception as individual_e:
-                        await message.reply(
-                            f"**❌ 上传失败：{individual_e}**"
-                        )
+                LOGGER.info(f"[MediaGroup] send_media_group failed, falling back to individual sends: {e}")
+                try:
+                    await progress_message.edit_text(
+                        "**📤 正在逐个发送媒体组文件...**"
+                    )
+                except Exception:
+                    pass
+
+                sem = asyncio.Semaphore(3)
+                send_tasks = []
+
+                async def _send_one(item_idx, media_item):
+                    async with sem:
+                        try:
+                            if isinstance(media_item, InputMediaPhoto):
+                                await upload_client.send_photo(
+                                    chat_id=upload_target,
+                                    photo=media_item.media,
+                                    caption=media_item.caption,
+                                )
+                            elif isinstance(media_item, InputMediaVideo):
+                                await upload_client.send_video(
+                                    chat_id=upload_target,
+                                    video=media_item.media,
+                                    caption=media_item.caption,
+                                    duration=getattr(media_item, "duration", 0),
+                                    width=getattr(media_item, "width", 0),
+                                    height=getattr(media_item, "height", 0),
+                                    thumb=getattr(media_item, "thumb", None),
+                                    supports_streaming=True,
+                                )
+                            elif isinstance(media_item, InputMediaDocument):
+                                await upload_client.send_document(
+                                    chat_id=upload_target,
+                                    document=media_item.media,
+                                    caption=media_item.caption,
+                                )
+                            elif isinstance(media_item, InputMediaAudio):
+                                await upload_client.send_audio(
+                                    chat_id=upload_target,
+                                    audio=media_item.media,
+                                    caption=media_item.caption,
+                                    duration=getattr(media_item, "duration", 0),
+                                )
+                            return True
+                        except Exception as item_e:
+                            LOGGER.warning(f"[MediaGroup] Individual send {item_idx} failed: {item_e}")
+                            try:
+                                await message.reply(
+                                    f"**⚠️ 第 {item_idx} 个文件上传失败：{item_e}**"
+                                )
+                            except Exception:
+                                pass
+                            return False
+
+                for i, media_item in enumerate(valid_media, 1):
+                    send_tasks.append(_send_one(i, media_item))
+
+                results = await asyncio.gather(*send_tasks)
+                success_count = sum(1 for r in results if r)
+                fail_count = len(results) - success_count
+
                 try:
                     await progress_message.delete()
                 except Exception:
                     pass
+                if user_client:
+                    summary = (
+                        f"**✅ 媒体组已发送到你的收藏夹！**\n"
+                        f"**✅ 成功：** `{success_count}`"
+                    )
+                    if fail_count:
+                        summary += f"\n**❌ 失败：** `{fail_count}`"
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text=summary,
+                    )
 
         if log_group_id and log_user:
             from .tracker import log_file_to_group
