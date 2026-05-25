@@ -783,6 +783,20 @@ def setup_pbatch_handler(app: Client):
                         if msg and msg.media_group_id == group_id
                     )
 
+                    now = time()
+                    if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
+                        try:
+                            await status_message.edit_text(
+                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=InlineKeyboardMarkup([[
+                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                ]]),
+                            )
+                            last_edit = now
+                        except Exception:
+                            pass
+
                     result = await processMediaGroup(
                         source_message,
                         client,
@@ -801,7 +815,7 @@ def setup_pbatch_handler(app: Client):
                         consecutive_fails += 1
 
                     now = time()
-                    if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+                    if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
                         try:
                             await status_message.edit_text(
                                 _progress_text(idx, count, success_count, fail_count, start_ts, False),
@@ -1106,6 +1120,20 @@ def setup_pbatch_handler(app: Client):
                         if msg and msg.media_group_id == group_id
                     )
 
+                    now = time()
+                    if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
+                        try:
+                            await status_message.edit_text(
+                                _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=InlineKeyboardMarkup([[
+                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                ]]),
+                            )
+                            last_edit = now
+                        except Exception:
+                            pass
+
                     result = await processMediaGroup(
                         chat_message, bot, status_message, user_client=user_client
                     )
@@ -1119,7 +1147,7 @@ def setup_pbatch_handler(app: Client):
                         consecutive_fails += 1
 
                     now = time()
-                    if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+                    if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
                         try:
                             await status_message.edit_text(
                                 _progress_text(idx, count, success_count, fail_count, start_ts, True),
