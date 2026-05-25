@@ -565,6 +565,14 @@ async def send_media_to_saved(
         await asyncio.sleep(wait_seconds + 2)
         raise
 
+    except AttributeError as attr_err:
+        LOGGER.warning(f"[USER CLIENT] 上传连接错误: {attr_err}")
+        try:
+            await progress_message.delete()
+        except Exception:
+            pass
+        raise
+
     except Exception as e:
         LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
         try:

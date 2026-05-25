@@ -8,6 +8,7 @@ import os
 import re
 import json
 import asyncio
+import shutil
 from time import time
 from datetime import datetime
 from pyrogram import Client, filters
@@ -92,6 +93,15 @@ def _del_state(chat_id: int):
     batch_data.pop(chat_id, None)
     cancel_flags.pop(chat_id, None)
     _save_state()
+
+
+def _get_free_disk_gb(path: str = ".") -> float:
+    try:
+        usage = shutil.disk_usage(path)
+        return usage.free / (1024 ** 3)
+    except Exception as e:
+        LOGGER.warning(f"[DiskCheck] Failed to check disk space: {e}")
+        return -1
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -344,6 +354,7 @@ def setup_pbatch_handler(app: Client):
                 return
 
             state["count"] = count
+            state["processed_ids"] = []
             state["stage"] = "confirmed"
             _set_state(chat_id, state)
 
@@ -935,6 +946,7 @@ def setup_pbatch_handler(app: Client):
         fail_count     = 0
         consecutive_fails = 0
         processed_media_groups = set()
+        processed_ids = set(state.get("processed_ids", []))
 
         try:
             log_user = await bot.get_users(user_id)
@@ -1000,6 +1012,9 @@ def setup_pbatch_handler(app: Client):
                 consecutive_fails += 1
                 continue
 
+            if chat_message.id in processed_ids:
+                continue
+
             try:
                 if chat_message.document or chat_message.video or chat_message.audio:
                     file_size = (
@@ -1060,6 +1075,20 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 if chat_message.media:
+                    free_gb = _get_free_disk_gb()
+                    if 0 < free_gb < 0.5:
+                        await status_message.edit_text(
+                            f"**⚠️ 磁盘空间不足！剩余 `{free_gb:.1f}GB`。**\n\n"
+                            f"**✅ 成功：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+                            f"**📊 已处理：** `{idx - 1}/{count}`",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                        LOGGER.error(f"[PrivateBatch] Low disk space: {free_gb:.1f}GB, stopping batch")
+                        _cleanup_bg()
+                        _del_state(chat_id)
+                        await safe_stop_client(user_client)
+                        return
+
                     dl_start = time()
                     progress_msg = await bot.send_message(
                         chat_id=chat_id,
@@ -1074,10 +1103,44 @@ def setup_pbatch_handler(app: Client):
 
                     if not media_path or not os.path.exists(media_path):
                         fail_count += 1
+                        consecutive_fails += 1
                         try:
                             await progress_msg.delete()
                         except Exception:
                             pass
+                        continue
+
+                    file_size = os.path.getsize(media_path)
+                    expected_size = (
+                        chat_message.document.file_size if chat_message.document else
+                        chat_message.video.file_size   if chat_message.video   else
+                        chat_message.audio.file_size   if chat_message.audio   else
+                        chat_message.photo.file_size   if chat_message.photo   else
+                        0
+                    )
+                    if file_size == 0:
+                        LOGGER.warning(f"[PrivateBatch] Downloaded empty file: msg {chat_message.id}")
+                        fail_count += 1
+                        consecutive_fails += 1
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+                        os.remove(media_path)
+                        continue
+
+                    if expected_size > 0 and file_size < expected_size * 0.9:
+                        LOGGER.warning(
+                            f"[PrivateBatch] Partial download: got {file_size}, expected {expected_size} "
+                            f"for msg {chat_message.id}"
+                        )
+                        fail_count += 1
+                        consecutive_fails += 1
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+                        os.remove(media_path)
                         continue
 
                     media_type = (
@@ -1101,6 +1164,9 @@ def setup_pbatch_handler(app: Client):
                         )
                         success_count += 1
                         consecutive_fails = 0
+                        processed_ids.add(chat_message.id)
+                        state["processed_ids"] = list(processed_ids)
+                        _save_state()
                         if LOG_GROUP_ID and log_user and os.path.exists(media_path):
                             try:
                                 await log_file_to_group(
@@ -1158,6 +1224,15 @@ def setup_pbatch_handler(app: Client):
                         except Exception:
                             pass
 
+                    except AttributeError as attr_err:
+                        LOGGER.warning(f"[PrivateBatch] Connection error for msg {chat_message.id}: {attr_err}")
+                        fail_count += 1
+                        consecutive_fails += 1
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+
                     except Exception as upload_err:
                         LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
                         fail_count += 1
@@ -1178,6 +1253,9 @@ def setup_pbatch_handler(app: Client):
                     )
                     success_count += 1
                     consecutive_fails = 0
+                    processed_ids.add(chat_message.id)
+                    state["processed_ids"] = list(processed_ids)
+                    _save_state()
                     if LOG_GROUP_ID and log_user:
                         try:
                             await log_file_to_group(
@@ -1195,6 +1273,15 @@ def setup_pbatch_handler(app: Client):
                 wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
                 LOGGER.warning(f"[PrivateBatch] 限流 {wait_seconds}s，等待中...")
                 await asyncio.sleep(wait_seconds + 2)
+                fail_count += 1
+                consecutive_fails += 1
+                try:
+                    await progress_msg.delete()
+                except Exception:
+                    pass
+
+            except AttributeError as attr_err:
+                LOGGER.warning(f"[PrivateBatch] Connection error for msg {chat_message.id}: {attr_err}")
                 fail_count += 1
                 consecutive_fails += 1
                 try:
