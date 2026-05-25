@@ -104,6 +104,67 @@ def _get_free_disk_gb(path: str = ".") -> float:
         return -1
 
 
+def _cleanup_stale_downloads(base_dir: str = ".") -> float:
+    freed_bytes = 0
+    media_exts = {
+        ".mp4", ".mkv", ".webm", ".mov", ".avi",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp",
+        ".mp3", ".ogg", ".wav", ".flac",
+        ".pdf", ".zip", ".rar", ".7z",
+    }
+    dirs_to_scan = [base_dir, os.path.join(base_dir, "downloads")]
+    cleaned = 0
+
+    for scan_dir in dirs_to_scan:
+        if not os.path.isdir(scan_dir):
+            continue
+        try:
+            for entry in os.scandir(scan_dir):
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                ext = os.path.splitext(entry.name)[1].lower()
+                if ext not in media_exts:
+                    continue
+                try:
+                    file_size = entry.stat().st_size
+                    os.remove(entry.path)
+                    freed_bytes += file_size
+                    cleaned += 1
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
+    if cleaned > 0:
+        freed_gb = freed_bytes / (1024 ** 3)
+        LOGGER.info(f"[DiskCheck] Cleaned {cleaned} stale downloads, freed {freed_gb:.2f}GB")
+    return freed_bytes / (1024 ** 3)
+
+
+async def _ensure_disk_space(status_message, chat_id, success_count, fail_count, idx, count) -> bool:
+    free_gb = _get_free_disk_gb()
+    if free_gb < 0:
+        return True
+
+    if free_gb < 1.0:
+        LOGGER.warning(f"[DiskCheck] Low disk: {free_gb:.2f}GB, running cleanup...")
+        freed = _cleanup_stale_downloads()
+        free_gb = _get_free_disk_gb()
+        LOGGER.warning(f"[DiskCheck] After cleanup: {free_gb:.2f}GB (freed {freed:.2f}GB)")
+
+    if 0 < free_gb < 0.5:
+        await status_message.edit_text(
+            f"**⚠️ 磁盘空间不足！剩余 `{free_gb:.1f}GB`。**\n\n"
+            f"**✅ 成功：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+            f"**📊 已处理：** `{idx - 1}/{count}`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        LOGGER.error(f"[DiskCheck] Still low after cleanup: {free_gb:.2f}GB, stopping")
+        return False
+
+    return True
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ═════════════════════════════════════════════════════════════════════════
@@ -1075,15 +1136,7 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 if chat_message.media:
-                    free_gb = _get_free_disk_gb()
-                    if 0 < free_gb < 0.5:
-                        await status_message.edit_text(
-                            f"**⚠️ 磁盘空间不足！剩余 `{free_gb:.1f}GB`。**\n\n"
-                            f"**✅ 成功：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                            f"**📊 已处理：** `{idx - 1}/{count}`",
-                            parse_mode=ParseMode.MARKDOWN,
-                        )
-                        LOGGER.error(f"[PrivateBatch] Low disk space: {free_gb:.1f}GB, stopping batch")
+                    if not await _ensure_disk_space(status_message, chat_id, success_count, fail_count, idx, count):
                         _cleanup_bg()
                         _del_state(chat_id)
                         await safe_stop_client(user_client)
