@@ -255,6 +255,28 @@ async def handle_batch_start(client: Client, message: Message):
 # MAIN SETUP
 # ═════════════════════════════════════════════════════════════════════════
 
+async def _per_file_progress(current: int, total: int, action: str, prog_msg, start_time: float, *args):
+    now = time()
+    if now - start_time < 0.5 and current < total:
+        return
+    elapsed = now - start_time
+    speed = current / elapsed if elapsed > 0 else 0
+    eta = int((total - current) / speed) if speed > 0 else 0
+    pct = (current / total * 100) if total > 0 else 0
+    filled = int(20 * pct / 100)
+    bar = "▓" * filled + "░" * (20 - filled)
+    try:
+        await prog_msg.edit_text(
+            f"{action}\n\n"
+            f"`[{bar}]` {pct:.1f}%\n\n"
+            f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
+            f"⚡ `{get_readable_file_size(speed)}/s`\n"
+            f"⏳ 预计 `{get_readable_time(eta)}`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception:
+        pass
+
 def setup_pbatch_handler(app: Client):
 
     global batch_data
@@ -731,28 +753,6 @@ def setup_pbatch_handler(app: Client):
                 InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
             ]]),
         )
-
-        async def _per_file_progress(current: int, total: int, action: str, prog_msg, start_time: float, *args):
-            now = time()
-            if now - start_time < 0.5 and current < total:
-                return
-            elapsed = now - start_time
-            speed = current / elapsed if elapsed > 0 else 0
-            eta = int((total - current) / speed) if speed > 0 else 0
-            pct = (current / total * 100) if total > 0 else 0
-            filled = int(20 * pct / 100)
-            bar = "▓" * filled + "░" * (20 - filled)
-            try:
-                await prog_msg.edit_text(
-                    f"{action}\n\n"
-                    f"`[{bar}]` {pct:.1f}%\n\n"
-                    f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-                    f"⚡ `{get_readable_file_size(speed)}/s`\n"
-                    f"⏳ 预计 `{get_readable_time(eta)}`",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            except Exception:
-                pass
 
         last_edit = time()
 
