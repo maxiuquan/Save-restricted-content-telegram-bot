@@ -1171,6 +1171,8 @@ def setup_pbatch_handler(app: Client):
                                         message=status_message,
                                         media_path=dl_path, media_type=media_type,
                                         caption=parsed_caption,
+                                        progress_message=status_message,
+                                        start_time=time(),
                                     )
                                     group_success += 1
                                     os.remove(dl_path)
@@ -1248,6 +1250,8 @@ def setup_pbatch_handler(app: Client):
                                     message=status_message,
                                     media_path=dl_path, media_type=media_type,
                                     caption=parsed_caption,
+                                    progress_message=status_message,
+                                    start_time=time(),
                                 )
                                 success_count += 1
                                 consecutive_fails = 0

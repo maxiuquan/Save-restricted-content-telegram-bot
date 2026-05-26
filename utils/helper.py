@@ -358,8 +358,8 @@ async def send_media_to_saved(
     media_path,
     media_type,
     caption,
-    progress_message,
-    start_time,
+    progress_message=None,
+    start_time=None,
     thumbnail_path=None,
     # ✅ নতুন optional parameters — autolink.py থেকে metadata পাস করা যাবে
     # যদি পাস না করা হয়, ffprobe দিয়ে নিজেই detect করবে
@@ -381,8 +381,17 @@ async def send_media_to_saved(
     """
     file_size = os.path.getsize(media_path)
 
+    if progress_message is None:
+        progress_message = message
+
+    if start_time is None:
+        start_time = time()
+
     if not await fileSizeLimit(file_size, message, "upload"):
-        await progress_message.delete()
+        try:
+            await progress_message.delete()
+        except Exception:
+            pass
         return False
 
     saved_messages_chat = "me"
