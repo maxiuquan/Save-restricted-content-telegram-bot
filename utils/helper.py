@@ -704,6 +704,7 @@ async def processMediaGroup(
                 upload_client = user_client if user_client else bot
                 upload_target = "me" if user_client else message.chat.id
                 dl_success = 0
+                total = sum(1 for m in media_group_messages if m.photo or m.video or m.document or m.audio)
 
                 for idx, msg in enumerate(media_group_messages, 1):
                     if not (msg.photo or msg.video or msg.document or msg.audio):
@@ -712,13 +713,29 @@ async def processMediaGroup(
                         caption_text = await get_parsed_msg(
                             msg.caption or "", msg.caption_entities
                         )
-                        dl_path = await msg.download()
+
+                        await progress_message.edit_text(
+                            f"**📥 下载中 ({dl_success + 1}/{total})...**"
+                        )
+
+                        dl_start = time()
+                        dl_path = await msg.download(
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs("📥 下载中", progress_message, dl_start),
+                        )
                         if not dl_path or not os.path.exists(dl_path):
                             continue
+
+                        await progress_message.edit_text(
+                            f"**📤 上传中 ({dl_success + 1}/{total})...**"
+                        )
+
                         try:
                             if msg.photo:
                                 await upload_client.send_photo(
-                                    chat_id=upload_target, photo=dl_path, caption=caption_text
+                                    chat_id=upload_target, photo=dl_path, caption=caption_text,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.video:
                                 await upload_client.send_video(
@@ -726,15 +743,21 @@ async def processMediaGroup(
                                     duration=msg.video.duration or 0,
                                     width=msg.video.width or 0, height=msg.video.height or 0,
                                     supports_streaming=True,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.document:
                                 await upload_client.send_document(
-                                    chat_id=upload_target, document=dl_path, caption=caption_text
+                                    chat_id=upload_target, document=dl_path, caption=caption_text,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.audio:
                                 await upload_client.send_audio(
                                     chat_id=upload_target, audio=dl_path, caption=caption_text,
                                     duration=msg.audio.duration or 0,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             dl_success += 1
                         finally:
