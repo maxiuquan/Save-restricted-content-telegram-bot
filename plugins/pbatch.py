@@ -1133,6 +1133,7 @@ def setup_pbatch_handler(app: Client):
                     media_group_msgs = await chat_message.get_media_group()
                     for grp_msg in media_group_msgs:
                         dl_path = None
+                        prog_msg = None
                         try:
                             if not await _ensure_disk_space(status_message, chat_id, success_count, fail_count, idx, count):
                                 break
@@ -1140,8 +1141,13 @@ def setup_pbatch_handler(app: Client):
                             parsed_caption = await get_parsed_msg(
                                 grp_msg.caption or "", grp_msg.caption_entities
                             )
+                            prog_msg = await bot.send_message(
+                                chat_id=chat_id,
+                                text="**⏳ 准备下载当前文件...**",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
                             dl_start = time()
-                            dl_args = progressArgs("📥 下载中", status_message, dl_start)
+                            dl_args = progressArgs("📥 下载中", prog_msg, dl_start)
                             dl_path = await grp_msg.download(
                                 progress=Leaves.progress_for_pyrogram,
                                 progress_args=dl_args,
@@ -1158,7 +1164,7 @@ def setup_pbatch_handler(app: Client):
                                     message=status_message,
                                     media_path=dl_path, media_type=media_type,
                                     caption=parsed_caption,
-                                    progress_message=status_message,
+                                    progress_message=prog_msg,
                                     start_time=time(),
                                 )
                                 group_success += 1
@@ -1168,6 +1174,11 @@ def setup_pbatch_handler(app: Client):
                             if dl_path:
                                 try:
                                     os.remove(dl_path)
+                                except Exception:
+                                    pass
+                            if prog_msg:
+                                try:
+                                    await prog_msg.delete()
                                 except Exception:
                                     pass
 
@@ -1226,12 +1237,25 @@ def setup_pbatch_handler(app: Client):
                         "document"
                     )
 
-                    dl_start = time()
-                    dl_args = progressArgs("📥 下载中", status_message, dl_start)
-                    dl_path = await chat_message.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=dl_args,
+                    prog_msg = await bot.send_message(
+                        chat_id=chat_id,
+                        text="**⏳ 准备下载当前文件...**",
+                        parse_mode=ParseMode.MARKDOWN,
                     )
+                    dl_start = time()
+                    dl_args = progressArgs("📥 下载中", prog_msg, dl_start)
+                    try:
+                        dl_path = await chat_message.download(
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=dl_args,
+                        )
+                    except Exception:
+                        try:
+                            await prog_msg.delete()
+                        except Exception:
+                            pass
+                        raise
+
                     if dl_path and os.path.exists(dl_path):
                         try:
                             await send_media_to_saved(
@@ -1239,7 +1263,7 @@ def setup_pbatch_handler(app: Client):
                                 message=status_message,
                                 media_path=dl_path, media_type=media_type,
                                 caption=parsed_caption,
-                                progress_message=status_message,
+                                progress_message=prog_msg,
                                 start_time=time(),
                             )
                             success_count += 1
@@ -1256,6 +1280,10 @@ def setup_pbatch_handler(app: Client):
                             except Exception:
                                 pass
                     else:
+                        try:
+                            await prog_msg.delete()
+                        except Exception:
+                            pass
                         raise Exception("Download returned no file")
 
                     now = time()
