@@ -36,6 +36,8 @@ from utils import (
     progressArgs,
     send_media_to_saved,
     log_file_to_group,
+    get_readable_file_size,
+    get_readable_time,
 )
 from utils.helper import create_optimized_user_client, safe_stop_client  # ✅ safe_stop_client added
 from core import (
@@ -730,6 +732,28 @@ def setup_pbatch_handler(app: Client):
             ]]),
         )
 
+        async def _per_file_progress(current: int, total: int, action: str, prog_msg, start_time: float, *args):
+            now = time()
+            if now - start_time < 0.5 and current < total:
+                return
+            elapsed = now - start_time
+            speed = current / elapsed if elapsed > 0 else 0
+            eta = int((total - current) / speed) if speed > 0 else 0
+            pct = (current / total * 100) if total > 0 else 0
+            filled = int(20 * pct / 100)
+            bar = "▓" * filled + "░" * (20 - filled)
+            try:
+                await prog_msg.edit_text(
+                    f"{action}\n\n"
+                    f"`[{bar}]` {pct:.1f}%\n\n"
+                    f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
+                    f"⚡ `{get_readable_file_size(speed)}/s`\n"
+                    f"⏳ 预计 `{get_readable_time(eta)}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+
         last_edit = time()
 
         idx = 0
@@ -1146,11 +1170,9 @@ def setup_pbatch_handler(app: Client):
                                 text="**⏳ 准备下载当前文件...**",
                                 parse_mode=ParseMode.MARKDOWN,
                             )
-                            dl_start = time()
-                            dl_args = progressArgs("📥 下载中", prog_msg, dl_start)
                             dl_path = await grp_msg.download(
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=dl_args,
+                                progress=_per_file_progress,
+                                progress_args=("📥 下载中", prog_msg, time()),
                             )
                             if dl_path and os.path.exists(dl_path):
                                 media_type = (
@@ -1166,6 +1188,7 @@ def setup_pbatch_handler(app: Client):
                                     caption=parsed_caption,
                                     progress_message=prog_msg,
                                     start_time=time(),
+                                    progress_callback=_per_file_progress,
                                 )
                                 group_success += 1
                         except Exception as grp_e:
@@ -1242,12 +1265,10 @@ def setup_pbatch_handler(app: Client):
                         text="**⏳ 准备下载当前文件...**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
-                    dl_start = time()
-                    dl_args = progressArgs("📥 下载中", prog_msg, dl_start)
                     try:
                         dl_path = await chat_message.download(
-                            progress=Leaves.progress_for_pyrogram,
-                            progress_args=dl_args,
+                            progress=_per_file_progress,
+                            progress_args=("📥 下载中", prog_msg, time()),
                         )
                     except Exception:
                         try:
@@ -1265,6 +1286,7 @@ def setup_pbatch_handler(app: Client):
                                 caption=parsed_caption,
                                 progress_message=prog_msg,
                                 start_time=time(),
+                                progress_callback=_per_file_progress,
                             )
                             success_count += 1
                             consecutive_fails = 0

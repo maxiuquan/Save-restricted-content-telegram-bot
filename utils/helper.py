@@ -366,6 +366,7 @@ async def send_media_to_saved(
     width: int = 0,
     height: int = 0,
     duration: int = 0,
+    progress_callback=None,
 ):
     """
     Upload a file to the user's own Saved Messages using the user client.
@@ -395,6 +396,7 @@ async def send_media_to_saved(
         return False
 
     saved_messages_chat = "me"
+    progress_cb = progress_callback or Leaves.progress_for_pyrogram
     progress_args_tuple = progressArgs(
         "📤 上传中", progress_message, start_time
     )
@@ -410,7 +412,7 @@ async def send_media_to_saved(
                 chat_id=saved_messages_chat,
                 photo=media_path,
                 caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
+                progress=progress_cb,
                 progress_args=progress_args_tuple,
             )
 
@@ -492,14 +494,12 @@ async def send_media_to_saved(
                 chat_id=saved_messages_chat,
                 video=media_path,
                 duration=final_duration,
-                # ✅ এখন actual video resolution পাঠানো হচ্ছে
-                # thumbnail-এর size নয়
                 width=final_width,
                 height=final_height,
                 thumb=final_thumb,
                 caption=caption or "",
                 supports_streaming=True,
-                progress=Leaves.progress_for_pyrogram,
+                progress=progress_cb,
                 progress_args=progress_args_tuple,
             )
 
@@ -522,7 +522,7 @@ async def send_media_to_saved(
                     else None
                 ),
                 caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
+                progress=progress_cb,
                 progress_args=progress_args_tuple,
             )
 
@@ -536,7 +536,7 @@ async def send_media_to_saved(
                     else None
                 ),
                 caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
+                progress=progress_cb,
                 progress_args=progress_args_tuple,
             )
 
