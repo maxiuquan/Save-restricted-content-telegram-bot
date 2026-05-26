@@ -1140,7 +1140,12 @@ def setup_pbatch_handler(app: Client):
                             parsed_caption = await get_parsed_msg(
                                 grp_msg.caption or "", grp_msg.caption_entities
                             )
-                            dl_path = await grp_msg.download()
+                            dl_start = time()
+                            dl_args = progressArgs("📥 下载中", status_message, dl_start)
+                            dl_path = await grp_msg.download(
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=dl_args,
+                            )
                             if dl_path and os.path.exists(dl_path):
                                 media_type = (
                                     "photo" if grp_msg.photo else
@@ -1221,7 +1226,12 @@ def setup_pbatch_handler(app: Client):
                         "document"
                     )
 
-                    dl_path = await chat_message.download()
+                    dl_start = time()
+                    dl_args = progressArgs("📥 下载中", status_message, dl_start)
+                    dl_path = await chat_message.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=dl_args,
+                    )
                     if dl_path and os.path.exists(dl_path):
                         try:
                             await send_media_to_saved(
