@@ -1124,37 +1124,65 @@ def setup_pbatch_handler(app: Client):
                     )
                     last_edit = now = time()
 
-                    try:
-                        done = False
-                        for attempt in range(3):
+                    async def _copy_group():
+                        for attempt in range(2):
                             try:
                                 await user_client.copy_media_group(
                                     chat_id="me",
                                     from_chat_id=pvt_chat_id,
                                     message_id=chat_message.id,
                                 )
-                                done = True
-                                break
+                                return True
                             except (FloodWait, FloodPremiumWait) as fw:
                                 wait_s = fw.value if hasattr(fw, 'value') else 60
-                                LOGGER.warning(f"[PrivateBatch] copy_media_group FloodWait {wait_s}s, attempt {attempt + 1}")
                                 copy_delay = min(copy_delay * 2, 5.0)
                                 await asyncio.sleep(wait_s + 2)
-                        if done:
-                            success_count += group_size
-                            consecutive_fails = 0
-                            for msg in all_messages:
-                                if msg and msg.media_group_id == group_id and msg.id:
-                                    processed_ids.add(msg.id)
-                            state["processed_ids"] = list(processed_ids)
-                            _save_state()
-                            copy_delay = max(copy_delay * 0.7, 0.5)
-                        else:
-                            raise Exception("copy_media_group failed after 3 retries")
-                    except Exception as e:
-                        LOGGER.warning(f"[PrivateBatch] copy_media_group failed for msg {chat_message.id}: {e}")
-                        fail_count += group_size
-                        consecutive_fails += 1
+                        return False
+
+                    group_ok = await _copy_group()
+                    if group_ok:
+                        success_count += group_size
+                        consecutive_fails = 0
+                        for msg in all_messages:
+                            if msg and msg.media_group_id == group_id and msg.id:
+                                processed_ids.add(msg.id)
+                        state["processed_ids"] = list(processed_ids)
+                        _save_state()
+                        copy_delay = max(copy_delay * 0.7, 0.5)
+                    else:
+                        LOGGER.warning(f"[PrivateBatch] copy_media_group failed, falling back to download+upload")
+                        group_success = 0
+                        media_group_msgs = await chat_message.get_media_group()
+                        for grp_msg in media_group_msgs:
+                            try:
+                                parsed_caption = await get_parsed_msg(
+                                    grp_msg.caption or "", grp_msg.caption_entities
+                                )
+                                dl_path = await grp_msg.download()
+                                if dl_path and os.path.exists(dl_path):
+                                    media_type = (
+                                        "photo" if grp_msg.photo else
+                                        "video" if grp_msg.video else
+                                        "audio" if grp_msg.audio else
+                                        "document"
+                                    )
+                                    await send_media_to_saved(
+                                        user_client=user_client, bot=bot,
+                                        message=status_message,
+                                        media_path=dl_path, media_type=media_type,
+                                        caption=parsed_caption,
+                                    )
+                                    group_success += 1
+                                    os.remove(dl_path)
+                            except Exception as grp_e:
+                                LOGGER.warning(f"[PrivateBatch] Group item download+upload failed: {grp_e}")
+                                try:
+                                    os.remove(dl_path)
+                                except Exception:
+                                    pass
+                        success_count += group_success
+                        fail_count += (group_size - group_success)
+                        consecutive_fails = 0 if group_success > 0 else consecutive_fails + 1
 
                     await status_message.edit_text(
                         _progress_text(idx + group_size - 1, count, success_count, fail_count, start_ts, True),
@@ -1178,33 +1206,66 @@ def setup_pbatch_handler(app: Client):
                     )
                     last_edit = now = time()
 
-                    try:
-                        done = False
-                        for attempt in range(3):
+                    async def _copy_one():
+                        for attempt in range(2):
                             try:
                                 await user_client.copy_message(
                                     chat_id="me",
                                     from_chat_id=pvt_chat_id,
                                     message_id=chat_message.id,
                                 )
-                                done = True
-                                break
+                                return True
                             except (FloodWait, FloodPremiumWait) as fw:
                                 wait_s = fw.value if hasattr(fw, 'value') else 60
-                                LOGGER.warning(f"[PrivateBatch] copy_message FloodWait {wait_s}s, attempt {attempt + 1}")
                                 copy_delay = min(copy_delay * 2, 5.0)
                                 await asyncio.sleep(wait_s + 2)
-                        if done:
-                            success_count += 1
-                            consecutive_fails = 0
-                            processed_ids.add(chat_message.id)
-                            state["processed_ids"] = list(processed_ids)
-                            _save_state()
-                            copy_delay = max(copy_delay * 0.7, 0.5)
-                        else:
-                            raise Exception("copy_message failed after 3 retries")
-                    except Exception as e:
-                        LOGGER.warning(f"[PrivateBatch] copy_message failed for msg {chat_message.id}: {e}")
+                        return False
+
+                    msg_ok = await _copy_one()
+                    if msg_ok:
+                        success_count += 1
+                        consecutive_fails = 0
+                        processed_ids.add(chat_message.id)
+                        state["processed_ids"] = list(processed_ids)
+                        _save_state()
+                        copy_delay = max(copy_delay * 0.7, 0.5)
+                    elif chat_message.media:
+                        LOGGER.warning(f"[PrivateBatch] copy_message failed, fallback download+upload msg {chat_message.id}")
+                        try:
+                            parsed_caption = await get_parsed_msg(
+                                chat_message.caption or "", chat_message.caption_entities
+                            )
+                            dl_path = await chat_message.download()
+                            if dl_path and os.path.exists(dl_path):
+                                media_type = (
+                                    "photo" if chat_message.photo else
+                                    "video" if chat_message.video else
+                                    "audio" if chat_message.audio else
+                                    "document"
+                                )
+                                await send_media_to_saved(
+                                    user_client=user_client, bot=bot,
+                                    message=status_message,
+                                    media_path=dl_path, media_type=media_type,
+                                    caption=parsed_caption,
+                                )
+                                success_count += 1
+                                consecutive_fails = 0
+                                processed_ids.add(chat_message.id)
+                                state["processed_ids"] = list(processed_ids)
+                                _save_state()
+                                os.remove(dl_path)
+                            else:
+                                raise Exception("Download returned no file")
+                        except Exception as fb_e:
+                            LOGGER.warning(f"[PrivateBatch] Fallback also failed for msg {chat_message.id}: {fb_e}")
+                            fail_count += 1
+                            consecutive_fails += 1
+                            try:
+                                os.remove(dl_path)
+                            except Exception:
+                                pass
+                    else:
                         fail_count += 1
                         consecutive_fails += 1
 
