@@ -690,6 +690,76 @@ async def processMediaGroup(
                     )
                 return True
 
+            forwards_restricted = "forwards_restricted" in err_str or "chat_forwards_restricted" in err_str
+
+            if forwards_restricted:
+                LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload")
+                try:
+                    await progress_message.edit_text(
+                        "**📥 频道禁止转发，正在下载并重新上传...**"
+                    )
+                except Exception:
+                    pass
+
+                upload_client = user_client if user_client else bot
+                upload_target = "me" if user_client else message.chat.id
+                dl_success = 0
+
+                for idx, msg in enumerate(media_group_messages, 1):
+                    if not (msg.photo or msg.video or msg.document or msg.audio):
+                        continue
+                    try:
+                        caption_text = await get_parsed_msg(
+                            msg.caption or "", msg.caption_entities
+                        )
+                        dl_path = await msg.download()
+                        if not dl_path or not os.path.exists(dl_path):
+                            continue
+                        try:
+                            if msg.photo:
+                                await upload_client.send_photo(
+                                    chat_id=upload_target, photo=dl_path, caption=caption_text
+                                )
+                            elif msg.video:
+                                await upload_client.send_video(
+                                    chat_id=upload_target, video=dl_path, caption=caption_text,
+                                    duration=msg.video.duration or 0,
+                                    width=msg.video.width or 0, height=msg.video.height or 0,
+                                    supports_streaming=True,
+                                )
+                            elif msg.document:
+                                await upload_client.send_document(
+                                    chat_id=upload_target, document=dl_path, caption=caption_text
+                                )
+                            elif msg.audio:
+                                await upload_client.send_audio(
+                                    chat_id=upload_target, audio=dl_path, caption=caption_text,
+                                    duration=msg.audio.duration or 0,
+                                )
+                            dl_success += 1
+                        finally:
+                            try:
+                                os.remove(dl_path)
+                            except Exception:
+                                pass
+                    except Exception as dl_e:
+                        LOGGER.warning(f"[MediaGroup] Download+upload item {idx} failed: {dl_e}")
+
+                try:
+                    await progress_message.delete()
+                except Exception:
+                    pass
+                if user_client:
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text=(
+                            f"**✅ 媒体组已发送到你的收藏夹！**\n"
+                            f"**✅ 成功：** `{dl_success}`"
+                            + (f"\n**❌ 失败：** `{len([m for m in media_group_messages if m.photo or m.video or m.document or m.audio]) - dl_success}`" if dl_success == 0 else "")
+                        ),
+                    )
+                return True
+
             LOGGER.info(f"[MediaGroup] send_media_group failed, copying individually: {e}")
             try:
                 await progress_message.edit_text(
