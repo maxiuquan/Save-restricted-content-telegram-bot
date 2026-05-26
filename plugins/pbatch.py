@@ -1067,6 +1067,7 @@ def setup_pbatch_handler(app: Client):
             return
 
         last_edit = time()
+        copy_delay = 0.5
 
         for idx, chat_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
@@ -1124,18 +1125,32 @@ def setup_pbatch_handler(app: Client):
                     last_edit = now = time()
 
                     try:
-                        await user_client.copy_media_group(
-                            chat_id="me",
-                            from_chat_id=pvt_chat_id,
-                            message_id=chat_message.id,
-                        )
-                        success_count += group_size
-                        consecutive_fails = 0
-                        for msg in all_messages:
-                            if msg and msg.media_group_id == group_id and msg.id:
-                                processed_ids.add(msg.id)
-                        state["processed_ids"] = list(processed_ids)
-                        _save_state()
+                        done = False
+                        for attempt in range(3):
+                            try:
+                                await user_client.copy_media_group(
+                                    chat_id="me",
+                                    from_chat_id=pvt_chat_id,
+                                    message_id=chat_message.id,
+                                )
+                                done = True
+                                break
+                            except (FloodWait, FloodPremiumWait) as fw:
+                                wait_s = fw.value if hasattr(fw, 'value') else 60
+                                LOGGER.warning(f"[PrivateBatch] copy_media_group FloodWait {wait_s}s, attempt {attempt + 1}")
+                                copy_delay = min(copy_delay * 2, 5.0)
+                                await asyncio.sleep(wait_s + 2)
+                        if done:
+                            success_count += group_size
+                            consecutive_fails = 0
+                            for msg in all_messages:
+                                if msg and msg.media_group_id == group_id and msg.id:
+                                    processed_ids.add(msg.id)
+                            state["processed_ids"] = list(processed_ids)
+                            _save_state()
+                            copy_delay = max(copy_delay * 0.7, 0.5)
+                        else:
+                            raise Exception("copy_media_group failed after 3 retries")
                     except Exception as e:
                         LOGGER.warning(f"[PrivateBatch] copy_media_group failed for msg {chat_message.id}: {e}")
                         fail_count += group_size
@@ -1150,7 +1165,7 @@ def setup_pbatch_handler(app: Client):
                     )
                     last_edit = now = time()
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(copy_delay)
                     continue
 
                 if chat_message.media or chat_message.text or chat_message.caption:
@@ -1164,16 +1179,30 @@ def setup_pbatch_handler(app: Client):
                     last_edit = now = time()
 
                     try:
-                        await user_client.copy_message(
-                            chat_id="me",
-                            from_chat_id=pvt_chat_id,
-                            message_id=chat_message.id,
-                        )
-                        success_count += 1
-                        consecutive_fails = 0
-                        processed_ids.add(chat_message.id)
-                        state["processed_ids"] = list(processed_ids)
-                        _save_state()
+                        done = False
+                        for attempt in range(3):
+                            try:
+                                await user_client.copy_message(
+                                    chat_id="me",
+                                    from_chat_id=pvt_chat_id,
+                                    message_id=chat_message.id,
+                                )
+                                done = True
+                                break
+                            except (FloodWait, FloodPremiumWait) as fw:
+                                wait_s = fw.value if hasattr(fw, 'value') else 60
+                                LOGGER.warning(f"[PrivateBatch] copy_message FloodWait {wait_s}s, attempt {attempt + 1}")
+                                copy_delay = min(copy_delay * 2, 5.0)
+                                await asyncio.sleep(wait_s + 2)
+                        if done:
+                            success_count += 1
+                            consecutive_fails = 0
+                            processed_ids.add(chat_message.id)
+                            state["processed_ids"] = list(processed_ids)
+                            _save_state()
+                            copy_delay = max(copy_delay * 0.7, 0.5)
+                        else:
+                            raise Exception("copy_message failed after 3 retries")
                     except Exception as e:
                         LOGGER.warning(f"[PrivateBatch] copy_message failed for msg {chat_message.id}: {e}")
                         fail_count += 1
@@ -1188,12 +1217,13 @@ def setup_pbatch_handler(app: Client):
                     )
                     last_edit = now = time()
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(copy_delay)
                     continue
 
             except (FloodWait, FloodPremiumWait) as flood_err:
                 wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
                 LOGGER.warning(f"[PrivateBatch] 限流 {wait_seconds}s，等待中...")
+                copy_delay = min(copy_delay * 2, 5.0)
                 await asyncio.sleep(wait_seconds + 2)
                 fail_count += 1
                 consecutive_fails += 1
@@ -1240,7 +1270,7 @@ def setup_pbatch_handler(app: Client):
                     await asyncio.sleep(10)
                     consecutive_fails = 0
 
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(copy_delay)
 
         _cleanup_bg()
 

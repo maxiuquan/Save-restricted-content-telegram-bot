@@ -1,9 +1,11 @@
 # core/start.py — UPDATED: Uses new process_referral() from plugins/referral.py
 
 from datetime import datetime
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode
+from pyrogram.errors import FloodWait
 from utils import LOGGER
 
 from misc.keyboards import get_main_reply_keyboard, get_start_inline
@@ -83,11 +85,24 @@ def setup_start_handler(app: Client):
             disable_web_page_preview=True,
         )
 
-        await client.send_message(
-            chat_id=message.chat.id,
-            text="⌨️ __使用下方按钮可快速访问所有功能：__",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_main_reply_keyboard(),
-        )
+        try:
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="⌨️ __使用下方按钮可快速访问所有功能：__",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_main_reply_keyboard(),
+            )
+        except FloodWait as fw:
+            LOGGER.warning(f"[Start] FloodWait {fw.value}s, waiting...")
+            await asyncio.sleep(fw.value + 2)
+            try:
+                await client.send_message(
+                    chat_id=message.chat.id,
+                    text="⌨️ __使用下方按钮可快速访问所有功能：__",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_main_reply_keyboard(),
+                )
+            except Exception:
+                pass
 
         LOGGER.info(f"Start command triggered by {user.id}")
