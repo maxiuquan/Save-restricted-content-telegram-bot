@@ -397,208 +397,172 @@ async def send_media_to_saved(
 
     saved_messages_chat = "me"
     progress_cb = progress_callback or Leaves.progress_for_pyrogram
-    progress_args_tuple = progressArgs(
-        "📤 上传中", progress_message, start_time
-    )
     LOGGER.info(
         f"[USER CLIENT] Uploading to Saved Messages: {media_path} ({media_type})"
     )
 
     auto_generated_thumb = None
 
-    try:
-        if media_type == "photo":
-            await user_client.send_photo(
-                chat_id=saved_messages_chat,
-                photo=media_path,
-                caption=caption or "",
-                progress=progress_cb,
-                progress_args=progress_args_tuple,
+    if media_type == "video" and not (thumbnail_path and os.path.exists(thumbnail_path)):
+        if duration and duration > 0:
+            final_duration = duration
+        else:
+            final_duration, _, _ = await get_media_info(media_path)
+            final_duration = final_duration or 0
+
+        auto_generated_thumb = await get_video_thumbnail(media_path, final_duration)
+
+    MAX_UPLOAD_RETRIES = 3
+    for upload_attempt in range(MAX_UPLOAD_RETRIES):
+        try:
+            progress_args_tuple = progressArgs(
+                "📤 上传中", progress_message, time()
             )
 
-        elif media_type == "video":
-            # ── Duration ──────────────────────────────────────────────────
-            # autolink.py থেকে পাস হলে সেটা ব্যবহার করো
-            # না হলে ffprobe দিয়ে বের করো
-            if duration and duration > 0:
-                final_duration = duration
-                LOGGER.info(
-                    f"[send_media_to_saved] Using passed duration: {final_duration}s"
-                )
-            else:
-                final_duration, _, _ = await get_media_info(media_path)
-                final_duration = final_duration or 0
-                LOGGER.info(
-                    f"[send_media_to_saved] ffprobe duration: {final_duration}s"
+            if media_type == "photo":
+                await user_client.send_photo(
+                    chat_id=saved_messages_chat,
+                    photo=media_path,
+                    caption=caption or "",
+                    progress=progress_cb,
+                    progress_args=progress_args_tuple,
                 )
 
-            # ── Thumbnail ─────────────────────────────────────────────────
-            final_thumb = None
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                final_thumb = thumbnail_path
-                LOGGER.info(f"Using custom thumbnail: {thumbnail_path}")
-            else:
-                LOGGER.info(
-                    "No custom thumbnail, auto-generating from video..."
-                )
-                auto_generated_thumb = await get_video_thumbnail(
-                    media_path, final_duration
-                )
-                if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-                    final_thumb = auto_generated_thumb
-                    LOGGER.info(f"Auto-generated thumbnail: {final_thumb}")
+            elif media_type == "video":
+                if duration and duration > 0:
+                    final_duration = duration
                 else:
-                    LOGGER.warning(
-                        f"Could not auto-generate thumbnail for {media_path}"
-                    )
+                    if not auto_generated_thumb:
+                        final_duration, _, _ = await get_media_info(media_path)
+                        final_duration = final_duration or 0
 
-            # ── Width / Height ────────────────────────────────────────────
-            # ✅ FIXED — এটাই squished ভিডিওর মূল সমাধান
-            #
-            # ❌ আগের পদ্ধতি (ভুল):
-            #    PIL দিয়ে thumbnail open করে width/height নেওয়া হত
-            #    thumbnail হয়তো 320x240 (4:3) কিন্তু ভিডিও 1920x1080 (16:9)
-            #    এই ভুল dimension Telegram-এ পাঠালে ভিডিও squish হয়
-            #
-            # ✅ নতুন পদ্ধতি (সঠিক):
-            #    1. autolink.py থেকে যদি width/height পাস হয় → সেটা ব্যবহার করো
-            #       (Telegram message object থেকে নেওয়া, সবচেয়ে accurate)
-            #    2. পাস না হলে ffprobe দিয়ে video file থেকে detect করো
-            #       (local file scan, reliable)
-            #    3. দুটোই fail করলে 1280x720 fallback
+                final_thumb = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    final_thumb = thumbnail_path
+                elif auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                    final_thumb = auto_generated_thumb
 
-            if width and height and width > 0 and height > 0:
-                # autolink.py থেকে পাস হয়েছে — সবচেয়ে accurate
-                final_width  = width
-                final_height = height
-                LOGGER.info(
-                    f"[send_media_to_saved] Using passed resolution: "
-                    f"{final_width}x{final_height}"
+                if width and height and width > 0 and height > 0:
+                    final_width = width
+                    final_height = height
+                else:
+                    final_width, final_height = await get_video_resolution(media_path)
+
+                await user_client.send_video(
+                    chat_id=saved_messages_chat,
+                    video=media_path,
+                    duration=final_duration,
+                    width=final_width,
+                    height=final_height,
+                    thumb=final_thumb,
+                    caption=caption or "",
+                    supports_streaming=True,
+                    progress=progress_cb,
+                    progress_args=progress_args_tuple,
                 )
+
+            elif media_type == "audio":
+                audio_duration, artist, title = await get_media_info(media_path)
+                final_audio_duration = (
+                    duration if duration and duration > 0
+                    else audio_duration or 0
+                )
+                await user_client.send_audio(
+                    chat_id=saved_messages_chat,
+                    audio=media_path,
+                    duration=final_audio_duration,
+                    performer=artist,
+                    title=title,
+                    thumb=(
+                        thumbnail_path
+                        if thumbnail_path and os.path.exists(thumbnail_path)
+                        else None
+                    ),
+                    caption=caption or "",
+                    progress=progress_cb,
+                    progress_args=progress_args_tuple,
+                )
+
+            elif media_type == "document":
+                await user_client.send_document(
+                    chat_id=saved_messages_chat,
+                    document=media_path,
+                    thumb=(
+                        thumbnail_path
+                        if thumbnail_path and os.path.exists(thumbnail_path)
+                        else None
+                    ),
+                    caption=caption or "",
+                    progress=progress_cb,
+                    progress_args=progress_args_tuple,
+                )
+
             else:
-                # ffprobe দিয়ে local video file scan করো
-                final_width, final_height = await get_video_resolution(media_path)
-                LOGGER.info(
-                    f"[send_media_to_saved] ffprobe resolution: "
-                    f"{final_width}x{final_height}"
+                LOGGER.error(f"Unknown media_type: {media_type}")
+                await progress_message.delete()
+                return False
+
+            await progress_message.delete()
+
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=(
+                    "**✅ 消息保存成功！🚀**\n\n"
+                    "📂 打开 **Telegram → 收藏夹** 查找文件。\n\n"
+                    "__(机器人不会存储你的文件 — 你的隐私受到保护)__"
                 )
+            )
 
             LOGGER.info(
-                f"[send_media_to_saved] Sending video: "
-                f"{final_width}x{final_height}, "
-                f"duration={final_duration}s, "
-                f"thumb={final_thumb}"
+                f"[USER CLIENT] Upload successful to Saved Messages "
+                f"for user {message.from_user.id}"
             )
+            return True
 
-            await user_client.send_video(
-                chat_id=saved_messages_chat,
-                video=media_path,
-                duration=final_duration,
-                width=final_width,
-                height=final_height,
-                thumb=final_thumb,
-                caption=caption or "",
-                supports_streaming=True,
-                progress=progress_cb,
-                progress_args=progress_args_tuple,
-            )
-
-        elif media_type == "audio":
-            audio_duration, artist, title = await get_media_info(media_path)
-            # passed duration আছে কিনা চেক করো
-            final_audio_duration = (
-                duration if duration and duration > 0
-                else audio_duration or 0
-            )
-            await user_client.send_audio(
-                chat_id=saved_messages_chat,
-                audio=media_path,
-                duration=final_audio_duration,
-                performer=artist,
-                title=title,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
-                caption=caption or "",
-                progress=progress_cb,
-                progress_args=progress_args_tuple,
-            )
-
-        elif media_type == "document":
-            await user_client.send_document(
-                chat_id=saved_messages_chat,
-                document=media_path,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
-                caption=caption or "",
-                progress=progress_cb,
-                progress_args=progress_args_tuple,
-            )
-
-        else:
-            LOGGER.error(f"Unknown media_type: {media_type}")
-            await progress_message.delete()
-            return False
-
-        await progress_message.delete()
-
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=(
-                "**✅ 消息保存成功！🚀**\n\n"
-                "📂 打开 **Telegram → 收藏夹** 查找文件。\n\n"
-                "__(机器人不会存储你的文件 — 你的隐私受到保护)__"
-            )
-        )
-
-        LOGGER.info(
-            f"[USER CLIENT] Upload successful to Saved Messages "
-            f"for user {message.from_user.id}"
-        )
-        return True
-
-    except (FloodWait, FloodPremiumWait) as flood_err:
-        wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
-        LOGGER.warning(
-            f"[USER CLIENT] 上传触发限流，等待 {wait_seconds}s 后重试..."
-        )
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        await asyncio.sleep(wait_seconds + 2)
-        raise
-
-    except AttributeError as attr_err:
-        LOGGER.warning(f"[USER CLIENT] 上传连接错误: {attr_err}")
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        raise
-
-    except Exception as e:
-        LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        raise
-
-    finally:
-        if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-            try:
-                os.remove(auto_generated_thumb)
-                LOGGER.info(
-                    f"Cleaned up auto-generated thumb: {auto_generated_thumb}"
+        except (FloodWait, FloodPremiumWait) as flood_err:
+            wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+            if upload_attempt < MAX_UPLOAD_RETRIES - 1:
+                LOGGER.warning(
+                    f"[USER CLIENT] 上传触发限流 {wait_seconds}s，"
+                    f"等待后重试 ({upload_attempt + 2}/{MAX_UPLOAD_RETRIES})..."
                 )
-            except Exception as e:
-                LOGGER.warning(f"Could not remove temp thumbnail: {e}")
+                await asyncio.sleep(wait_seconds + 2)
+            else:
+                LOGGER.error(
+                    f"[USER CLIENT] 上传触发限流，{MAX_UPLOAD_RETRIES} 次重试均已耗尽"
+                )
+                try:
+                    await progress_message.delete()
+                except Exception:
+                    pass
+                raise
+
+        except AttributeError as attr_err:
+            LOGGER.warning(f"[USER CLIENT] 上传连接错误: {attr_err}")
+            try:
+                await progress_message.delete()
+            except Exception:
+                pass
+            raise
+
+        except Exception as e:
+            LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
+            try:
+                await progress_message.delete()
+            except Exception:
+                pass
+            raise
+
+    if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+        try:
+            os.remove(auto_generated_thumb)
+        except Exception:
+            pass
+    try:
+        await progress_message.delete()
+    except Exception:
+        pass
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
