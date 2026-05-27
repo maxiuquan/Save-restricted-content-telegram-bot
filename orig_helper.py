@@ -1,3 +1,7 @@
+# Copyright @TheSmartBisnu
+# Channel t.me/ItsSmartDev
+# Update Author @juktijol
+# Channel t.me/juktijol
 # ✅ FIXED: sqlite3 closed database + OSError TCPTransport + AUTH_KEY_UNREGISTERED
 # ✅ FIXED: Video aspect ratio (squished) → actual video resolution used for width/height
 # ✅ FIXED: Thumbnail scale → aspect ratio preserved with scale=320:-2
@@ -12,7 +16,6 @@ from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
-from pyrogram.errors import FloodWait, FloodPremiumWait
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -22,37 +25,6 @@ from pyrogram.types import (
 )
 
 from .logging_setup import LOGGER
-
-
-def apply_flood_premium_wait_patch():
-    from pyrogram.session import Session
-    import pyrogram
-
-    _original_invoke = Session.invoke
-
-    async def _patched_invoke(
-        self,
-        query: "pyrogram.raw.core.TLObject",
-        retries: int = Session.MAX_RETRIES,
-        timeout: float = Session.WAIT_TIMEOUT,
-        sleep_threshold: float = Session.SLEEP_THRESHOLD
-    ):
-        while True:
-            try:
-                return await _original_invoke(self, query, retries, timeout, sleep_threshold)
-            except FloodPremiumWait as e:
-                wait_seconds = e.value
-                LOGGER.warning(
-                    f"[FloodPremiumWait Patch] Waiting {wait_seconds}s "
-                    f"before retrying upload chunk (sleep_threshold was {sleep_threshold}s)..."
-                )
-                await asyncio.sleep(wait_seconds)
-
-    Session.invoke = _patched_invoke
-    LOGGER.info("[FloodPremiumWait Patch] Applied to pyrogram.session.Session.invoke")
-
-
-apply_flood_premium_wait_patch()
 
 SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
 
@@ -64,7 +36,7 @@ def get_readable_file_size(size_in_bytes: Optional[float]) -> str:
         if size_in_bytes < 1024:
             return f"{size_in_bytes:.2f} {unit}"
         size_in_bytes /= 1024
-    return "文件过大"
+    return "File too large"
 
 
 def get_readable_time(seconds: int) -> str:
@@ -90,9 +62,9 @@ async def fileSizeLimit(file_size, message, action_type="download", is_premium=F
     MAX_FILE_SIZE = 2 * 2097152000 if is_premium else 2097152000
     if file_size > MAX_FILE_SIZE:
         await message.reply(
-            f"文件大小超过了 "
-            f"{get_readable_file_size(MAX_FILE_SIZE)} 的限制，"
-            f"无法{action_type}。"
+            f"The file size exceeds the "
+            f"{get_readable_file_size(MAX_FILE_SIZE)} limit "
+            f"and cannot be {action_type}ed."
         )
         return False
     return True
@@ -103,9 +75,9 @@ async def get_parsed_msg(text, entities):
 
 
 PROGRESS_BAR = """
-百分比：{percentage:.2f}% | {current}/{total}
-速度：{speed}/s
-预计剩余时间：{est_time} 秒
+Percentage: {percentage:.2f}% | {current}/{total}
+Speed: {speed}/s
+Estimated Time Left: {est_time} seconds
 """
 
 
@@ -130,14 +102,14 @@ def getChatMsgID(link: str):
             chat_id = linkps[3]
             if chat_id == "m":
                 raise ValueError(
-                    "用于解析此消息链接的客户端类型无效"
+                    "Invalid ClientType used to parse this message link"
                 )
             message_id = int(linkps[4])
     except (ValueError, TypeError):
-        raise ValueError("无效的帖子 URL。必须以数字 ID 结尾。")
+        raise ValueError("Invalid post URL. Must end with a numeric ID.")
 
     if not chat_id or not message_id:
-        raise ValueError("请发送有效的 Telegram 帖子 URL。")
+        raise ValueError("Please send a valid Telegram post URL.")
 
     return chat_id, message_id
 
@@ -151,11 +123,11 @@ async def cmd_exec(cmd, shell=False):
     try:
         stdout = stdout.decode().strip()
     except Exception:
-        stdout = "无法解码响应！"
+        stdout = "Unable to decode the response!"
     try:
         stderr = stderr.decode().strip()
     except Exception:
-        stderr = "无法解码错误！"
+        stderr = "Unable to decode the error!"
     return stdout, stderr, proc.returncode
 
 
@@ -362,7 +334,7 @@ def create_optimized_user_client(session_name: str, session_string: str):
         handle_updates() coroutine does not start.
         → OSError: TCPTransport closed — fix
 
-    ✅ workers=1:
+    ✅ workers=4:
         RAM-friendly for Render free tier.
     """
     from pyrogram import Client as PyroClient
@@ -371,8 +343,8 @@ def create_optimized_user_client(session_name: str, session_string: str):
         session_string=session_string,
         in_memory=True,
         no_updates=True,
-        workers=1,
-        max_concurrent_transmissions=1,
+        workers=4,
+        max_concurrent_transmissions=2,
     )
 
 
@@ -389,9 +361,11 @@ async def send_media_to_saved(
     media_path,
     media_type,
     caption,
-    progress_message=None,
-    start_time=None,
+    progress_message,
+    start_time,
     thumbnail_path=None,
+    # ✅ নতুন optional parameters — autolink.py থেকে metadata পাস করা যাবে
+    # যদি পাস না করা হয়, ffprobe দিয়ে নিজেই detect করবে
     width: int = 0,
     height: int = 0,
     duration: int = 0,
@@ -410,17 +384,8 @@ async def send_media_to_saved(
     """
     file_size = os.path.getsize(media_path)
 
-    if progress_message is None:
-        progress_message = message
-
-    if start_time is None:
-        start_time = time()
-
     if not await fileSizeLimit(file_size, message, "upload"):
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
+        await progress_message.delete()
         return False
 
     saved_messages_chat = "me"
@@ -444,32 +409,85 @@ async def send_media_to_saved(
             )
 
         elif media_type == "video":
+            # ── Duration ──────────────────────────────────────────────────
+            # autolink.py থেকে পাস হলে সেটা ব্যবহার করো
+            # না হলে ffprobe দিয়ে বের করো
             if duration and duration > 0:
                 final_duration = duration
+                LOGGER.info(
+                    f"[send_media_to_saved] Using passed duration: {final_duration}s"
+                )
             else:
                 final_duration, _, _ = await get_media_info(media_path)
                 final_duration = final_duration or 0
+                LOGGER.info(
+                    f"[send_media_to_saved] ffprobe duration: {final_duration}s"
+                )
 
+            # ── Thumbnail ─────────────────────────────────────────────────
             final_thumb = None
             if thumbnail_path and os.path.exists(thumbnail_path):
                 final_thumb = thumbnail_path
+                LOGGER.info(f"Using custom thumbnail: {thumbnail_path}")
             else:
+                LOGGER.info(
+                    "No custom thumbnail, auto-generating from video..."
+                )
                 auto_generated_thumb = await get_video_thumbnail(
                     media_path, final_duration
                 )
                 if auto_generated_thumb and os.path.exists(auto_generated_thumb):
                     final_thumb = auto_generated_thumb
+                    LOGGER.info(f"Auto-generated thumbnail: {final_thumb}")
+                else:
+                    LOGGER.warning(
+                        f"Could not auto-generate thumbnail for {media_path}"
+                    )
+
+            # ── Width / Height ────────────────────────────────────────────
+            # ✅ FIXED — এটাই squished ভিডিওর মূল সমাধান
+            #
+            # ❌ আগের পদ্ধতি (ভুল):
+            #    PIL দিয়ে thumbnail open করে width/height নেওয়া হত
+            #    thumbnail হয়তো 320x240 (4:3) কিন্তু ভিডিও 1920x1080 (16:9)
+            #    এই ভুল dimension Telegram-এ পাঠালে ভিডিও squish হয়
+            #
+            # ✅ নতুন পদ্ধতি (সঠিক):
+            #    1. autolink.py থেকে যদি width/height পাস হয় → সেটা ব্যবহার করো
+            #       (Telegram message object থেকে নেওয়া, সবচেয়ে accurate)
+            #    2. পাস না হলে ffprobe দিয়ে video file থেকে detect করো
+            #       (local file scan, reliable)
+            #    3. দুটোই fail করলে 1280x720 fallback
 
             if width and height and width > 0 and height > 0:
-                final_width = width
+                # autolink.py থেকে পাস হয়েছে — সবচেয়ে accurate
+                final_width  = width
                 final_height = height
+                LOGGER.info(
+                    f"[send_media_to_saved] Using passed resolution: "
+                    f"{final_width}x{final_height}"
+                )
             else:
+                # ffprobe দিয়ে local video file scan করো
                 final_width, final_height = await get_video_resolution(media_path)
+                LOGGER.info(
+                    f"[send_media_to_saved] ffprobe resolution: "
+                    f"{final_width}x{final_height}"
+                )
+
+            LOGGER.info(
+                f"[send_media_to_saved] Sending video: "
+                f"{final_width}x{final_height}, "
+                f"duration={final_duration}s, "
+                f"thumb={final_thumb}"
+            )
 
             await user_client.send_video(
                 chat_id=saved_messages_chat,
                 video=media_path,
                 duration=final_duration,
+                # ✅ এখন actual video resolution পাঠানো হচ্ছে
+                # thumbnail-এর size নয়
                 width=final_width,
                 height=final_height,
                 thumb=final_thumb,
@@ -481,6 +499,7 @@ async def send_media_to_saved(
 
         elif media_type == "audio":
             audio_duration, artist, title = await get_media_info(media_path)
+            # passed duration আছে কিনা চেক করো
             final_audio_duration = (
                 duration if duration and duration > 0
                 else audio_duration or 0
@@ -549,6 +568,9 @@ async def send_media_to_saved(
         if auto_generated_thumb and os.path.exists(auto_generated_thumb):
             try:
                 os.remove(auto_generated_thumb)
+                LOGGER.info(
+                    f"Cleaned up auto-generated thumb: {auto_generated_thumb}"
+                )
             except Exception as e:
                 LOGGER.warning(f"Could not remove temp thumbnail: {e}")
 
@@ -568,49 +590,91 @@ async def processMediaGroup(
     log_user=None,
     log_url=None,
 ):
-    media_group_messages = await chat_message.get_media_group()
-    valid_media = []
+    """
+    Download a media group and upload it via the user client to Saved Messages.
 
-    start_time = time()
-    progress_message = await message.reply("**📥 处理媒体组中...**")
+    ✅ FIXED: প্রতিটি video-র জন্য ffprobe দিয়ে actual width/height নেওয়া হচ্ছে
+    আগে width/height দেওয়াই হত না → Telegram নিজে অনুমান করত → squish হত
+    """
+    media_group_messages = await chat_message.get_media_group()
+    valid_media  = []
+    temp_paths   = []
+    auto_thumbs  = []
+    invalid_paths = []
+
+    start_time       = time()
+    progress_message = await message.reply("**📥 Downloading media group...**")
     LOGGER.info(
-        f"Processing media group with {len(media_group_messages)} items..."
+        f"Downloading media group with {len(media_group_messages)} items..."
     )
 
     for msg in media_group_messages:
         if msg.photo or msg.video or msg.document or msg.audio:
-            caption_text = await get_parsed_msg(
-                msg.caption or "", msg.caption_entities
-            )
-
+            media_path = None
             try:
+                media_path = await msg.download(
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progressArgs(
+                        "📥 Downloading", progress_message, start_time
+                    ),
+                )
+                temp_paths.append(media_path)
+                caption_text = await get_parsed_msg(
+                    msg.caption or "", msg.caption_entities
+                )
+
                 if msg.photo:
                     valid_media.append(
-                        InputMediaPhoto(media=msg.photo.file_id, caption=caption_text)
+                        InputMediaPhoto(media=media_path, caption=caption_text)
                     )
+
                 elif msg.video:
+                    duration, _, _ = await get_media_info(media_path)
+
+                    # ✅ FIXED: ffprobe দিয়ে actual video resolution নাও
+                    # আগে এটা ছিলই না — Telegram নিজে অনুমান করত → squish
+                    vid_width, vid_height = await get_video_resolution(media_path)
+                    LOGGER.info(
+                        f"[MediaGroup] Video resolution: "
+                        f"{vid_width}x{vid_height}, duration={duration}s"
+                    )
+
+                    thumb = await get_video_thumbnail(media_path, duration)
+                    if thumb:
+                        auto_thumbs.append(thumb)
+
                     valid_media.append(InputMediaVideo(
-                        media=msg.video.file_id,
+                        media=media_path,
                         caption=caption_text,
-                        duration=msg.video.duration or 0,
-                        width=msg.video.width or 0,
-                        height=msg.video.height or 0,
+                        duration=duration or 0,
+                        # ✅ actual resolution দেওয়া হচ্ছে — squish হবে না
+                        width=vid_width,
+                        height=vid_height,
+                        thumb=thumb,
                         supports_streaming=True,
                     ))
+
                 elif msg.document:
                     valid_media.append(
-                        InputMediaDocument(media=msg.document.file_id, caption=caption_text)
+                        InputMediaDocument(
+                            media=media_path, caption=caption_text
+                        )
                     )
+
                 elif msg.audio:
+                    duration, artist, title = await get_media_info(media_path)
                     valid_media.append(InputMediaAudio(
-                        media=msg.audio.file_id,
+                        media=media_path,
                         caption=caption_text,
-                        duration=msg.audio.duration or 0,
-                        performer=msg.audio.performer or "",
-                        title=msg.audio.title or "",
+                        duration=duration or 0,
+                        performer=artist,
+                        title=title,
                     ))
+
             except Exception as e:
-                LOGGER.warning(f"[MediaGroup] Skipping item (file_id error): {e}")
+                LOGGER.info(f"Error downloading media: {e}")
+                if media_path and os.path.exists(media_path):
+                    invalid_paths.append(media_path)
                 continue
 
     LOGGER.info(f"Valid media count: {len(valid_media)}")
@@ -629,106 +693,19 @@ async def processMediaGroup(
                 await bot.send_message(
                     chat_id=message.chat.id,
                     text=(
-                        "**✅ 媒体组已成功发送到"
-                        "你的收藏夹！🚀**\n\n"
-                        "📂 打开 **Telegram → 收藏夹** 查找"
-                        "你的文件。"
+                        "**✅ Media group successfully sent to your "
+                        "Saved Messages! 🚀**\n\n"
+                        "📂 Open **Telegram → Saved Messages** to find "
+                        "your files."
                     )
                 )
-            return True
         except Exception as e:
             err_str = str(e).lower()
             if "topics" in err_str or "messages.init" in err_str:
-                LOGGER.info(f"[MediaGroup] Ignoring Pyrofork false error: {e}")
-                try:
-                    await progress_message.delete()
-                except Exception:
-                    pass
-                if user_client:
-                    await bot.send_message(
-                        chat_id=message.chat.id,
-                        text="**✅ 媒体组已成功发送到你的收藏夹！**",
-                    )
-                return True
-
-            forwards_restricted = "forwards_restricted" in err_str or "chat_forwards_restricted" in err_str
-
-            if forwards_restricted:
-                LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload")
-                try:
-                    await progress_message.edit_text(
-                        "**📥 频道禁止转发，正在下载并重新上传...**"
-                    )
-                except Exception:
-                    pass
-
-                upload_client = user_client if user_client else bot
-                upload_target = "me" if user_client else message.chat.id
-                dl_success = 0
-                total = sum(1 for m in media_group_messages if m.photo or m.video or m.document or m.audio)
-
-                for idx, msg in enumerate(media_group_messages, 1):
-                    if not (msg.photo or msg.video or msg.document or msg.audio):
-                        continue
-                    try:
-                        caption_text = await get_parsed_msg(
-                            msg.caption or "", msg.caption_entities
-                        )
-
-                        await progress_message.edit_text(
-                            f"**📥 下载中 ({dl_success + 1}/{total})...**"
-                        )
-
-                        dl_start = time()
-                        dl_path = await msg.download(
-                            progress=Leaves.progress_for_pyrogram,
-                            progress_args=progressArgs("📥 下载中", progress_message, dl_start),
-                        )
-                        if not dl_path or not os.path.exists(dl_path):
-                            continue
-
-                        await progress_message.edit_text(
-                            f"**📤 上传中 ({dl_success + 1}/{total})...**"
-                        )
-
-                        try:
-                            if msg.photo:
-                                await upload_client.send_photo(
-                                    chat_id=upload_target, photo=dl_path, caption=caption_text,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.video:
-                                await upload_client.send_video(
-                                    chat_id=upload_target, video=dl_path, caption=caption_text,
-                                    duration=msg.video.duration or 0,
-                                    width=msg.video.width or 0, height=msg.video.height or 0,
-                                    supports_streaming=True,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.document:
-                                await upload_client.send_document(
-                                    chat_id=upload_target, document=dl_path, caption=caption_text,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.audio:
-                                await upload_client.send_audio(
-                                    chat_id=upload_target, audio=dl_path, caption=caption_text,
-                                    duration=msg.audio.duration or 0,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            dl_success += 1
-                        finally:
-                            try:
-                                os.remove(dl_path)
-                            except Exception:
-                                pass
-                    except Exception as dl_e:
-                        LOGGER.warning(f"[MediaGroup] Download+upload item {idx} failed: {dl_e}")
-
+                # Pyrofork false positive — ignore
+                LOGGER.info(
+                    f"[MediaGroup] Ignoring Pyrofork false error: {e}"
+                )
                 try:
                     await progress_message.delete()
                 except Exception:
@@ -737,89 +714,64 @@ async def processMediaGroup(
                     await bot.send_message(
                         chat_id=message.chat.id,
                         text=(
-                            f"**✅ 媒体组已发送到你的收藏夹！**\n"
-                            f"**✅ 成功：** `{dl_success}`"
-                            + (f"\n**❌ 失败：** `{len([m for m in media_group_messages if m.photo or m.video or m.document or m.audio]) - dl_success}`" if dl_success == 0 else "")
-                        ),
+                            "**✅ Media group successfully sent to your "
+                            "Saved Messages! 🚀**\n\n"
+                            "📂 Open **Telegram → Saved Messages** to "
+                            "find your files."
+                        )
                     )
-                return True
-
-            LOGGER.info(f"[MediaGroup] send_media_group failed, copying individually: {e}")
-            try:
-                await progress_message.edit_text(
-                    "**📤 正在逐个复制媒体组文件...**"
+            else:
+                await message.reply(
+                    "**❌ Could not send the media group as a batch. "
+                    "Sending files individually...**"
                 )
-            except Exception:
-                pass
-
-            sem = asyncio.Semaphore(3)
-            copy_tasks = []
-
-            async def _copy_one(item_idx, media_item):
-                async with sem:
+                for media in valid_media:
                     try:
-                        if isinstance(media_item, InputMediaPhoto):
+                        if isinstance(media, InputMediaPhoto):
                             await upload_client.send_photo(
                                 chat_id=upload_target,
-                                photo=media_item.media,
-                                caption=media_item.caption,
+                                photo=media.media,
+                                caption=media.caption,
                             )
-                        elif isinstance(media_item, InputMediaVideo):
+                        elif isinstance(media, InputMediaVideo):
+                            # ✅ individual send-এও width/height দাও
                             await upload_client.send_video(
                                 chat_id=upload_target,
-                                video=media_item.media,
-                                caption=media_item.caption,
-                                duration=getattr(media_item, "duration", 0),
-                                width=getattr(media_item, "width", 0),
-                                height=getattr(media_item, "height", 0),
+                                video=media.media,
+                                caption=media.caption,
+                                duration=getattr(media, "duration", 0),
+                                width=getattr(media, "width", 0),
+                                height=getattr(media, "height", 0),
+                                thumb=getattr(media, "thumb", None),
                                 supports_streaming=True,
                             )
-                        elif isinstance(media_item, InputMediaDocument):
+                        elif isinstance(media, InputMediaDocument):
                             await upload_client.send_document(
                                 chat_id=upload_target,
-                                document=media_item.media,
-                                caption=media_item.caption,
+                                document=media.media,
+                                caption=media.caption,
                             )
-                        elif isinstance(media_item, InputMediaAudio):
+                        elif isinstance(media, InputMediaAudio):
                             await upload_client.send_audio(
                                 chat_id=upload_target,
-                                audio=media_item.media,
-                                caption=media_item.caption,
-                                duration=getattr(media_item, "duration", 0),
+                                audio=media.media,
+                                caption=media.caption,
+                                duration=getattr(media, "duration", 0),
                             )
-                        return True
-                    except Exception as item_e:
-                        LOGGER.warning(f"[MediaGroup] Individual copy {item_idx} failed: {item_e}")
-                        return False
-
-            for i, media_item in enumerate(valid_media, 1):
-                copy_tasks.append(_copy_one(i, media_item))
-
-            results = await asyncio.gather(*copy_tasks)
-            success_count = sum(1 for r in results if r)
-            fail_count = len(results) - success_count
-
-            try:
-                await progress_message.delete()
-            except Exception:
-                pass
-            if user_client:
-                summary = (
-                    f"**✅ 媒体组已发送到你的收藏夹！**\n"
-                    f"**✅ 成功：** `{success_count}`"
-                )
-                if fail_count:
-                    summary += f"\n**❌ 失败：** `{fail_count}`"
-                await bot.send_message(
-                    chat_id=message.chat.id,
-                    text=summary,
-                )
+                    except Exception as individual_e:
+                        await message.reply(
+                            f"**❌ Failed to upload: {individual_e}**"
+                        )
+                try:
+                    await progress_message.delete()
+                except Exception:
+                    pass
 
         if log_group_id and log_user:
             from .tracker import log_file_to_group
             for media_item in valid_media:
-                media_path_for_log = getattr(media_item, "media", None)
-                caption_for_log = getattr(media_item, "caption", "") or ""
+                media_path_for_log = getattr(media_item, "media",   None)
+                caption_for_log    = getattr(media_item, "caption", "") or ""
 
                 if isinstance(media_item, InputMediaPhoto):
                     media_type_for_log = "photo"
@@ -830,7 +782,11 @@ async def processMediaGroup(
                 else:
                     media_type_for_log = "document"
 
-                if media_path_for_log and isinstance(media_path_for_log, str):
+                if (
+                    media_path_for_log
+                    and isinstance(media_path_for_log, str)
+                    and os.path.exists(media_path_for_log)
+                ):
                     try:
                         await log_file_to_group(
                             bot=bot,
@@ -844,10 +800,17 @@ async def processMediaGroup(
                     except Exception as log_err:
                         LOGGER.warning(f"[MediaGroup] Log error: {log_err}")
 
+        for path in temp_paths + invalid_paths + auto_thumbs:
+            if os.path.exists(path):
+                os.remove(path)
+
         return True
 
     await progress_message.delete()
-    await message.reply("**❌ 媒体组中未找到有效媒体。**")
+    await message.reply("**❌ No valid media found in the media group.**")
+    for path in invalid_paths:
+        if os.path.exists(path):
+            os.remove(path)
     return False
 
 
@@ -873,6 +836,6 @@ async def send_media(
         "send_media() is deprecated. Use send_media_to_saved() with user_client."
     )
     await progress_message.edit_text(
-        "**⚠️ 系统错误：请联系支持。**"
+        "**⚠️ System error: Please contact support.**"
     )
     await progress_message.delete()
