@@ -341,7 +341,7 @@ def create_optimized_user_client(session_name: str, session_string: str):
         in_memory=True,
         no_updates=True,
         workers=4,
-        max_concurrent_transmissions=1,
+        max_concurrent_transmissions=2,
     )
 
 
@@ -394,7 +394,7 @@ async def send_media_to_saved(
 
     saved_messages_chat = "me"
     progress_args_tuple = progressArgs(
-        "📤 上传中", progress_message, start_time
+        "📤 Uploading to Saved Messages", progress_message, start_time
     )
     LOGGER.info(
         f"[USER CLIENT] Uploading to Saved Messages: {media_path} ({media_type})"
@@ -415,25 +415,55 @@ async def send_media_to_saved(
         elif media_type == "video":
             if duration and duration > 0:
                 final_duration = duration
+                LOGGER.info(
+                    f"[send_media_to_saved] Using passed duration: {final_duration}s"
+                )
             else:
                 final_duration, _, _ = await get_media_info(media_path)
                 final_duration = final_duration or 0
+                LOGGER.info(
+                    f"[send_media_to_saved] ffprobe duration: {final_duration}s"
+                )
 
             final_thumb = None
             if thumbnail_path and os.path.exists(thumbnail_path):
                 final_thumb = thumbnail_path
+                LOGGER.info(f"Using custom thumbnail: {thumbnail_path}")
             else:
+                LOGGER.info(
+                    "No custom thumbnail, auto-generating from video..."
+                )
                 auto_generated_thumb = await get_video_thumbnail(
                     media_path, final_duration
                 )
                 if auto_generated_thumb and os.path.exists(auto_generated_thumb):
                     final_thumb = auto_generated_thumb
+                    LOGGER.info(f"Auto-generated thumbnail: {final_thumb}")
+                else:
+                    LOGGER.warning(
+                        f"Could not auto-generate thumbnail for {media_path}"
+                    )
 
             if width and height and width > 0 and height > 0:
                 final_width = width
                 final_height = height
+                LOGGER.info(
+                    f"[send_media_to_saved] Using passed resolution: "
+                    f"{final_width}x{final_height}"
+                )
             else:
                 final_width, final_height = await get_video_resolution(media_path)
+                LOGGER.info(
+                    f"[send_media_to_saved] ffprobe resolution: "
+                    f"{final_width}x{final_height}"
+                )
+
+            LOGGER.info(
+                f"[send_media_to_saved] Sending video: "
+                f"{final_width}x{final_height}, "
+                f"duration={final_duration}s, "
+                f"thumb={final_thumb}"
+            )
 
             await user_client.send_video(
                 chat_id=saved_messages_chat,
@@ -494,9 +524,9 @@ async def send_media_to_saved(
         await bot.send_message(
             chat_id=message.chat.id,
             text=(
-                "**✅ 消息保存成功！🚀**\n\n"
-                "📂 打开 **Telegram → 收藏夹** 查找文件。\n\n"
-                "__(机器人不会存储你的文件 — 你的隐私受到保护)__"
+                "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
+                "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
+                "__(The bot never stores your files — your privacy is protected)__"
             )
         )
 
@@ -505,26 +535,6 @@ async def send_media_to_saved(
             f"for user {message.from_user.id}"
         )
         return True
-
-    except (FloodWait, FloodPremiumWait) as flood_err:
-        wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
-        LOGGER.warning(
-            f"[USER CLIENT] 上传触发限流，等待 {wait_seconds}s..."
-        )
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        await asyncio.sleep(wait_seconds + 2)
-        raise
-
-    except AttributeError as attr_err:
-        LOGGER.warning(f"[USER CLIENT] 上传连接错误: {attr_err}")
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        raise
 
     except Exception as e:
         LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
@@ -538,8 +548,11 @@ async def send_media_to_saved(
         if auto_generated_thumb and os.path.exists(auto_generated_thumb):
             try:
                 os.remove(auto_generated_thumb)
-            except Exception:
-                pass
+                LOGGER.info(
+                    f"Cleaned up auto-generated thumb: {auto_generated_thumb}"
+                )
+            except Exception as e:
+                LOGGER.warning(f"Could not remove temp thumbnail: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

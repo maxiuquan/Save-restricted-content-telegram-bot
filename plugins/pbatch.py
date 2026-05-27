@@ -1203,7 +1203,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     last_edit = now
 
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(0.3)
                     continue
 
                 # ── Single Media ─────────────────────────────────────────
@@ -1319,7 +1319,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     last_edit = now
 
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(0.3)
                     continue
 
                 # ── Text only ────────────────────────────────────────────
@@ -1349,7 +1349,7 @@ def setup_pbatch_handler(app: Client):
                 consecutive_fails += 1
 
             except ChatForwardsRestricted as fwd_err:
-                LOGGER.error(f"[PrivateBatch] CHAT_FORWARDS_RESTRICTED for msg {chat_message.id} — this should NOT happen with download+upload approach! Chat restricts forwarding.")
+                LOGGER.error(f"[PrivateBatch] CHAT_FORWARDS_RESTRICTED — this should NOT happen with download+upload approach!")
                 fail_count += 1
                 consecutive_fails += 1
 
