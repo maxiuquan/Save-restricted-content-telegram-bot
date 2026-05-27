@@ -402,157 +402,180 @@ async def send_media_to_saved(
 
     auto_generated_thumb = None
 
-    try:
-        if media_type == "photo":
-            await user_client.send_photo(
-                chat_id=saved_messages_chat,
-                photo=media_path,
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
+    MAX_RETRIES = 5
+    for attempt in range(MAX_RETRIES):
+        try:
+            progress_args_tuple = progressArgs(
+                "📤 Uploading to Saved Messages", progress_message, start_time
             )
 
-        elif media_type == "video":
-            if duration and duration > 0:
-                final_duration = duration
-                LOGGER.info(
-                    f"[send_media_to_saved] Using passed duration: {final_duration}s"
-                )
-            else:
-                final_duration, _, _ = await get_media_info(media_path)
-                final_duration = final_duration or 0
-                LOGGER.info(
-                    f"[send_media_to_saved] ffprobe duration: {final_duration}s"
+            if media_type == "photo":
+                await user_client.send_photo(
+                    chat_id=saved_messages_chat,
+                    photo=media_path,
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
                 )
 
-            final_thumb = None
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                final_thumb = thumbnail_path
-                LOGGER.info(f"Using custom thumbnail: {thumbnail_path}")
-            else:
-                LOGGER.info(
-                    "No custom thumbnail, auto-generating from video..."
-                )
-                auto_generated_thumb = await get_video_thumbnail(
-                    media_path, final_duration
-                )
-                if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-                    final_thumb = auto_generated_thumb
-                    LOGGER.info(f"Auto-generated thumbnail: {final_thumb}")
+            elif media_type == "video":
+                if duration and duration > 0:
+                    final_duration = duration
                 else:
-                    LOGGER.warning(
-                        f"Could not auto-generate thumbnail for {media_path}"
-                    )
+                    final_duration, _, _ = await get_media_info(media_path)
+                    final_duration = final_duration or 0
 
-            if width and height and width > 0 and height > 0:
-                final_width = width
-                final_height = height
-                LOGGER.info(
-                    f"[send_media_to_saved] Using passed resolution: "
-                    f"{final_width}x{final_height}"
+                final_thumb = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    final_thumb = thumbnail_path
+                else:
+                    if attempt == 0:
+                        auto_generated_thumb = await get_video_thumbnail(
+                            media_path, final_duration
+                        )
+                    if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                        final_thumb = auto_generated_thumb
+
+                if width and height and width > 0 and height > 0:
+                    final_width = width
+                    final_height = height
+                else:
+                    final_width, final_height = await get_video_resolution(media_path)
+
+                await user_client.send_video(
+                    chat_id=saved_messages_chat,
+                    video=media_path,
+                    duration=final_duration,
+                    width=final_width,
+                    height=final_height,
+                    thumb=final_thumb,
+                    caption=caption or "",
+                    supports_streaming=True,
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
                 )
+
+            elif media_type == "audio":
+                audio_duration, artist, title = await get_media_info(media_path)
+                final_audio_duration = (
+                    duration if duration and duration > 0
+                    else audio_duration or 0
+                )
+                await user_client.send_audio(
+                    chat_id=saved_messages_chat,
+                    audio=media_path,
+                    duration=final_audio_duration,
+                    performer=artist,
+                    title=title,
+                    thumb=(
+                        thumbnail_path
+                        if thumbnail_path and os.path.exists(thumbnail_path)
+                        else None
+                    ),
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+
+            elif media_type == "document":
+                await user_client.send_document(
+                    chat_id=saved_messages_chat,
+                    document=media_path,
+                    thumb=(
+                        thumbnail_path
+                        if thumbnail_path and os.path.exists(thumbnail_path)
+                        else None
+                    ),
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+
             else:
-                final_width, final_height = await get_video_resolution(media_path)
-                LOGGER.info(
-                    f"[send_media_to_saved] ffprobe resolution: "
-                    f"{final_width}x{final_height}"
+                LOGGER.error(f"Unknown media_type: {media_type}")
+                await progress_message.delete()
+                return False
+
+            await progress_message.delete()
+
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=(
+                    "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
+                    "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
+                    "__(The bot never stores your files — your privacy is protected)__"
                 )
+            )
 
             LOGGER.info(
-                f"[send_media_to_saved] Sending video: "
-                f"{final_width}x{final_height}, "
-                f"duration={final_duration}s, "
-                f"thumb={final_thumb}"
+                f"[USER CLIENT] Upload successful to Saved Messages "
+                f"for user {message.from_user.id}"
             )
 
-            await user_client.send_video(
-                chat_id=saved_messages_chat,
-                video=media_path,
-                duration=final_duration,
-                width=final_width,
-                height=final_height,
-                thumb=final_thumb,
-                caption=caption or "",
-                supports_streaming=True,
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+            if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                try:
+                    os.remove(auto_generated_thumb)
+                except Exception:
+                    pass
+            return True
 
-        elif media_type == "audio":
-            audio_duration, artist, title = await get_media_info(media_path)
-            final_audio_duration = (
-                duration if duration and duration > 0
-                else audio_duration or 0
-            )
-            await user_client.send_audio(
-                chat_id=saved_messages_chat,
-                audio=media_path,
-                duration=final_audio_duration,
-                performer=artist,
-                title=title,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+        except FloodPremiumWait as f:
+            wait_seconds = f.value if hasattr(f, 'value') else 60
+            if attempt < MAX_RETRIES - 1:
+                LOGGER.warning(
+                    f"[USER CLIENT] FloodPremiumWait {wait_seconds}s — "
+                    f"等待冷却后重试 ({attempt + 2}/{MAX_RETRIES})..."
+                )
+                await asyncio.sleep(wait_seconds + 5)
+            else:
+                LOGGER.error(
+                    f"[USER CLIENT] FloodPremiumWait 重试 {MAX_RETRIES} 次均已耗尽"
+                )
+                await progress_message.delete()
+                if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                    try:
+                        os.remove(auto_generated_thumb)
+                    except Exception:
+                        pass
+                return False
 
-        elif media_type == "document":
-            await user_client.send_document(
-                chat_id=saved_messages_chat,
-                document=media_path,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+        except FloodWait as f:
+            wait_seconds = f.value if hasattr(f, 'value') else 60
+            if attempt < MAX_RETRIES - 1:
+                LOGGER.warning(
+                    f"[USER CLIENT] FloodWait {wait_seconds}s — "
+                    f"等待后重试 ({attempt + 2}/{MAX_RETRIES})..."
+                )
+                await asyncio.sleep(wait_seconds + 5)
+            else:
+                LOGGER.error(
+                    f"[USER CLIENT] FloodWait 重试 {MAX_RETRIES} 次均已耗尽"
+                )
+                await progress_message.delete()
+                if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                    try:
+                        os.remove(auto_generated_thumb)
+                    except Exception:
+                        pass
+                return False
 
-        else:
-            LOGGER.error(f"Unknown media_type: {media_type}")
+        except Exception as e:
+            LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
             await progress_message.delete()
+            if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                try:
+                    os.remove(auto_generated_thumb)
+                except Exception:
+                    pass
             return False
 
-        await progress_message.delete()
-
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=(
-                "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
-                "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
-                "__(The bot never stores your files — your privacy is protected)__"
-            )
-        )
-
-        LOGGER.info(
-            f"[USER CLIENT] Upload successful to Saved Messages "
-            f"for user {message.from_user.id}"
-        )
-        return True
-
-    except Exception as e:
-        LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
+    await progress_message.delete()
+    if auto_generated_thumb and os.path.exists(auto_generated_thumb):
         try:
-            await progress_message.delete()
+            os.remove(auto_generated_thumb)
         except Exception:
             pass
-        raise
-
-    finally:
-        if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-            try:
-                os.remove(auto_generated_thumb)
-                LOGGER.info(
-                    f"Cleaned up auto-generated thumb: {auto_generated_thumb}"
-                )
-            except Exception as e:
-                LOGGER.warning(f"Could not remove temp thumbnail: {e}")
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
