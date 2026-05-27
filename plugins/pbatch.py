@@ -36,8 +36,6 @@ from utils import (
     progressArgs,
     send_media_to_saved,
     log_file_to_group,
-    get_readable_file_size,
-    get_readable_time,
 )
 from utils.helper import create_optimized_user_client, safe_stop_client  # ✅ safe_stop_client added
 from core import (
@@ -254,28 +252,6 @@ async def handle_batch_start(client: Client, message: Message):
 # ═════════════════════════════════════════════════════════════════════════
 # MAIN SETUP
 # ═════════════════════════════════════════════════════════════════════════
-
-async def _per_file_progress(current: int, total: int, action: str, prog_msg, start_time: float, *args):
-    now = time()
-    if now - start_time < 0.5 and current < total:
-        return
-    elapsed = now - start_time
-    speed = current / elapsed if elapsed > 0 else 0
-    eta = int((total - current) / speed) if speed > 0 else 0
-    pct = (current / total * 100) if total > 0 else 0
-    filled = int(20 * pct / 100)
-    bar = "▓" * filled + "░" * (20 - filled)
-    text = (
-        f"{action}\n\n"
-        f"`[{bar}]` {pct:.1f}%\n\n"
-        f"\U0001f4e6 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-        f"\u26a1 `{get_readable_file_size(speed)}/s`\n"
-        f"\u23f3 \u9884\u8ba1 `{get_readable_time(eta)}`"
-    )
-    try:
-        await prog_msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
-    except Exception as e:
-        LOGGER.debug(f"[PerFileProgress] edit_text failed (harmless): {e}")
 
 def setup_pbatch_handler(app: Client):
 
@@ -1167,12 +1143,12 @@ def setup_pbatch_handler(app: Client):
                             )
                             prog_msg = await bot.send_message(
                                 chat_id=chat_id,
-                                text="**⏳ 准备下载当前文件...**",
+                                text=f"**📥 下载中 ({idx}/{count})...**",
                                 parse_mode=ParseMode.MARKDOWN,
                             )
                             dl_path = await grp_msg.download(
-                                progress=_per_file_progress,
-                                progress_args=("📥 下载中", prog_msg, time()),
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("📥 下载中", prog_msg, time()),
                             )
                             if dl_path and os.path.exists(dl_path):
                                 media_type = (
@@ -1188,7 +1164,6 @@ def setup_pbatch_handler(app: Client):
                                     caption=parsed_caption,
                                     progress_message=prog_msg,
                                     start_time=time(),
-                                    progress_callback=_per_file_progress,
                                 )
                                 group_success += 1
                         except Exception as grp_e:
@@ -1260,57 +1235,76 @@ def setup_pbatch_handler(app: Client):
                         "document"
                     )
 
-                    prog_msg = await bot.send_message(
+                    dl_start = time()
+                    progress_msg = await bot.send_message(
                         chat_id=chat_id,
-                        text="**⏳ 准备下载当前文件...**",
+                        text=f"**📥 下载中 ({idx}/{count})...**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
-                    try:
-                        dl_path = await chat_message.download(
-                            progress=_per_file_progress,
-                            progress_args=("📥 下载中", prog_msg, time()),
-                        )
-                    except Exception:
-                        try:
-                            await prog_msg.delete()
-                        except Exception:
-                            pass
-                        raise
 
-                    if dl_path and os.path.exists(dl_path):
+                    media_path = await chat_message.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                    )
+
+                    if not media_path or not os.path.exists(media_path):
+                        fail_count += 1
+                        consecutive_fails += 1
                         try:
-                            await send_media_to_saved(
-                                user_client=user_client, bot=bot,
-                                message=status_message,
-                                media_path=dl_path, media_type=media_type,
-                                caption=parsed_caption,
-                                progress_message=prog_msg,
-                                start_time=time(),
-                                progress_callback=_per_file_progress,
-                            )
-                            success_count += 1
-                            consecutive_fails = 0
-                            processed_ids.add(chat_message.id)
-                            state["processed_ids"] = list(processed_ids)
-                            _save_state()
-                        except Exception:
-                            fail_count += 1
-                            consecutive_fails += 1
-                            try:
-                                await prog_msg.delete()
-                            except Exception:
-                                pass
-                        finally:
-                            try:
-                                os.remove(dl_path)
-                            except Exception:
-                                pass
-                    else:
-                        try:
-                            await prog_msg.delete()
+                            await progress_msg.delete()
                         except Exception:
                             pass
-                        raise Exception("Download returned no file")
+                        continue
+
+                    try:
+                        await send_media_to_saved(
+                            user_client=user_client, bot=bot,
+                            message=status_message,
+                            media_path=media_path, media_type=media_type,
+                            caption=parsed_caption,
+                            progress_message=progress_msg,
+                            start_time=dl_start,
+                        )
+                        success_count += 1
+                        consecutive_fails = 0
+                        processed_ids.add(chat_message.id)
+                        state["processed_ids"] = list(processed_ids)
+                        _save_state()
+                    except AuthKeyUnregistered:
+                        try:
+                            await user_sessions.update_one(
+                                {"user_id": user_id},
+                                {"$pull": {"sessions": {"session_id": session_id}}}
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            await bot.send_message(
+                                chat_id=chat_id,
+                                text=(
+                                    "**❌ 你的登录会话已过期！**\n\n"
+                                    "批量下载已停止。\n"
+                                    "⚡ 请运行 **/login** 然后重试。"
+                                ),
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        except Exception:
+                            pass
+                        _cleanup_bg()
+                        _del_state(chat_id)
+                        await safe_stop_client(user_client)
+                        return
+                    except Exception as upload_err:
+                        LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
+                        fail_count += 1
+                        consecutive_fails += 1
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+                    finally:
+                        if os.path.exists(media_path):
+                            os.remove(media_path)
 
                     now = time()
                     try:
