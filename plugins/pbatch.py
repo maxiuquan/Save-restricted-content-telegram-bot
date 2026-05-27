@@ -265,17 +265,17 @@ async def _per_file_progress(current: int, total: int, action: str, prog_msg, st
     pct = (current / total * 100) if total > 0 else 0
     filled = int(20 * pct / 100)
     bar = "▓" * filled + "░" * (20 - filled)
+    text = (
+        f"{action}\n\n"
+        f"`[{bar}]` {pct:.1f}%\n\n"
+        f"\U0001f4e6 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
+        f"\u26a1 `{get_readable_file_size(speed)}/s`\n"
+        f"\u23f3 \u9884\u8ba1 `{get_readable_time(eta)}`"
+    )
     try:
-        await prog_msg.edit_text(
-            f"{action}\n\n"
-            f"`[{bar}]` {pct:.1f}%\n\n"
-            f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
-            f"⚡ `{get_readable_file_size(speed)}/s`\n"
-            f"⏳ 预计 `{get_readable_time(eta)}`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-    except Exception:
-        pass
+        await prog_msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        LOGGER.debug(f"[PerFileProgress] edit_text failed (harmless): {e}")
 
 def setup_pbatch_handler(app: Client):
 
@@ -1296,6 +1296,10 @@ def setup_pbatch_handler(app: Client):
                         except Exception:
                             fail_count += 1
                             consecutive_fails += 1
+                            try:
+                                await prog_msg.delete()
+                            except Exception:
+                                pass
                         finally:
                             try:
                                 os.remove(dl_path)

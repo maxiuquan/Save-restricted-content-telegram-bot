@@ -526,13 +526,24 @@ async def send_media_to_saved(
                     f"[USER CLIENT] 上传触发限流 {wait_seconds}s，"
                     f"等待后重试 ({upload_attempt + 2}/{MAX_UPLOAD_RETRIES})..."
                 )
+                try:
+                    await progress_message.edit_text(
+                        f"\u23f3 **\u9650\u6d41\u7b49\u5f85\u4e2d...** `{wait_seconds}s`\n\n"
+                        f"\U0001f504 \u91cd\u8bd5 `{upload_attempt + 2}/{MAX_UPLOAD_RETRIES}`",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    pass
                 await asyncio.sleep(wait_seconds + 2)
             else:
                 LOGGER.error(
                     f"[USER CLIENT] 上传触发限流，{MAX_UPLOAD_RETRIES} 次重试均已耗尽"
                 )
                 try:
-                    await progress_message.delete()
+                    await progress_message.edit_text(
+                        "\u274c **\u4e0a\u4f20\u5931\u8d25\uff0c\u9650\u6d41\u91cd\u8bd5\u5df2\u8017\u5c3d**",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
                 except Exception:
                     pass
                 raise
@@ -540,7 +551,10 @@ async def send_media_to_saved(
         except AttributeError as attr_err:
             LOGGER.warning(f"[USER CLIENT] 上传连接错误: {attr_err}")
             try:
-                await progress_message.delete()
+                await progress_message.edit_text(
+                    "\u274c **\u8fde\u63a5\u9519\u8bef\uff0c\u4e0a\u4f20\u5931\u8d25**",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
             except Exception:
                 pass
             raise
@@ -548,7 +562,10 @@ async def send_media_to_saved(
         except Exception as e:
             LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
             try:
-                await progress_message.delete()
+                await progress_message.edit_text(
+                    "\u274c **\u4e0a\u4f20\u5931\u8d25**",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
             except Exception:
                 pass
             raise
