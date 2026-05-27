@@ -1203,7 +1203,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     last_edit = now
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(3)
                     continue
 
                 # ── Single Media ─────────────────────────────────────────
@@ -1319,7 +1319,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     last_edit = now
 
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(3)
                     continue
 
                 # ── Text only ────────────────────────────────────────────
@@ -1390,7 +1390,7 @@ def setup_pbatch_handler(app: Client):
                     await asyncio.sleep(10)
                     consecutive_fails = 0
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(3)
 
         _cleanup_bg()
 

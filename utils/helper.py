@@ -341,7 +341,7 @@ def create_optimized_user_client(session_name: str, session_string: str):
         in_memory=True,
         no_updates=True,
         workers=4,
-        max_concurrent_transmissions=2,
+        max_concurrent_transmissions=1,
     )
 
 
