@@ -331,7 +331,7 @@ def create_optimized_user_client(session_name: str, session_string: str):
         handle_updates() coroutine does not start.
         → OSError: TCPTransport closed — fix
 
-    ✅ workers=4:
+    ✅ workers=1:
         RAM-friendly for Render free tier.
     """
     from pyrogram import Client as PyroClient
@@ -340,8 +340,8 @@ def create_optimized_user_client(session_name: str, session_string: str):
         session_string=session_string,
         in_memory=True,
         no_updates=True,
-        workers=4,
-        max_concurrent_transmissions=2,
+        workers=1,
+        max_concurrent_transmissions=1,
     )
 
 
