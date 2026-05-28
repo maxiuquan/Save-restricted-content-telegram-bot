@@ -12,7 +12,7 @@ import shutil
 import traceback
 from time import time
 from datetime import datetime
-from pyrogram import Client, filters
+from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode, ChatType
 from pyrogram.errors import (
@@ -295,6 +295,19 @@ def setup_pbatch_handler(app: Client):
         except Exception as e:
             LOGGER.error(f"Failed to init user client for {user_id}: {e}")
             return None
+
+    async def ensure_client_healthy(user_id: int, session_id: str, user_client) -> "pyrogram.Client":
+        if user_client is None:
+            return await get_user_client(user_id, session_id)
+        try:
+            await user_client.invoke(
+                raw.functions.Ping(ping_id=0)
+            )
+            return user_client
+        except Exception:
+            LOGGER.warning(f"[PrivateBatch] user_client disconnected, reconnecting...")
+            await safe_stop_client(user_client)
+            return await get_user_client(user_id, session_id)
 
     # ────────────────────────────────────────────────────────────────────
     # /stop
@@ -1235,6 +1248,7 @@ def setup_pbatch_handler(app: Client):
                         "document"
                     )
 
+                    # ── download with retry + health check ──────────────
                     dl_start = time()
                     progress_msg = await bot.send_message(
                         chat_id=chat_id,
@@ -1242,10 +1256,27 @@ def setup_pbatch_handler(app: Client):
                         parse_mode=ParseMode.MARKDOWN,
                     )
 
-                    media_path = await chat_message.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
-                    )
+                    media_path = None
+                    for dl_attempt in range(3):
+                        if cancel_flags.get(chat_id):
+                            break
+                        if dl_attempt > 0:
+                            LOGGER.info(f"[PrivateBatch] Download retry {dl_attempt+1} for msg {chat_message.id}")
+                            await asyncio.sleep(2 * dl_attempt)
+                        try:
+                            user_client = await ensure_client_healthy(user_id, session_id, user_client)
+                            if user_client is None:
+                                break
+                            media_path = await chat_message.download(
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                            )
+                            if media_path and os.path.exists(media_path):
+                                break
+                            media_path = None
+                        except Exception as dl_e:
+                            LOGGER.warning(f"[PrivateBatch] Download attempt {dl_attempt+1} failed for msg {chat_message.id}: {dl_e}")
+                            media_path = None
 
                     if not media_path or not os.path.exists(media_path):
                         fail_count += 1
@@ -1256,55 +1287,80 @@ def setup_pbatch_handler(app: Client):
                             pass
                         continue
 
-                    try:
-                        await send_media_to_saved(
-                            user_client=user_client, bot=bot,
-                            message=status_message,
-                            media_path=media_path, media_type=media_type,
-                            caption=parsed_caption,
-                            progress_message=progress_msg,
-                            start_time=dl_start,
-                        )
+                    # ── upload with retry + health check ────────────────
+                    upload_ok = False
+                    for up_attempt in range(3):
+                        if cancel_flags.get(chat_id):
+                            break
+                        try:
+                            user_client = await ensure_client_healthy(user_id, session_id, user_client)
+                            if user_client is None:
+                                break
+                            await send_media_to_saved(
+                                user_client=user_client, bot=bot,
+                                message=status_message,
+                                media_path=media_path, media_type=media_type,
+                                caption=parsed_caption,
+                                progress_message=progress_msg,
+                                start_time=dl_start,
+                            )
+                            upload_ok = True
+                            break
+                        except AuthKeyUnregistered:
+                            try:
+                                await user_sessions.update_one(
+                                    {"user_id": user_id},
+                                    {"$pull": {"sessions": {"session_id": session_id}}}
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                await bot.send_message(
+                                    chat_id=chat_id,
+                                    text=(
+                                        "**❌ 你的登录会话已过期！**\n\n"
+                                        "批量下载已停止。\n"
+                                        "⚡ 请运行 **/login** 然后重试。"
+                                    ),
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
+                            except Exception:
+                                pass
+                            _cleanup_bg()
+                            _del_state(chat_id)
+                            if os.path.exists(media_path):
+                                os.remove(media_path)
+                            await safe_stop_client(user_client)
+                            return
+                        except Exception as up_e:
+                            LOGGER.warning(f"[PrivateBatch] Upload attempt {up_attempt+1} failed for msg {chat_message.id}: {up_e}")
+                            if up_attempt < 2:
+                                await asyncio.sleep(3 * (up_attempt + 1))
+
+                    if os.path.exists(media_path):
+                        os.remove(media_path)
+
+                    if cancel_flags.get(chat_id):
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+                        break
+
+                    if upload_ok:
                         success_count += 1
                         consecutive_fails = 0
                         processed_ids.add(chat_message.id)
                         state["processed_ids"] = list(processed_ids)
                         _save_state()
-                    except AuthKeyUnregistered:
-                        try:
-                            await user_sessions.update_one(
-                                {"user_id": user_id},
-                                {"$pull": {"sessions": {"session_id": session_id}}}
-                            )
-                        except Exception:
-                            pass
-                        try:
-                            await bot.send_message(
-                                chat_id=chat_id,
-                                text=(
-                                    "**❌ 你的登录会话已过期！**\n\n"
-                                    "批量下载已停止。\n"
-                                    "⚡ 请运行 **/login** 然后重试。"
-                                ),
-                                parse_mode=ParseMode.MARKDOWN,
-                            )
-                        except Exception:
-                            pass
-                        _cleanup_bg()
-                        _del_state(chat_id)
-                        await safe_stop_client(user_client)
-                        return
-                    except Exception as upload_err:
-                        LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
+                    else:
                         fail_count += 1
                         consecutive_fails += 1
-                        try:
-                            await progress_msg.delete()
-                        except Exception:
-                            pass
-                    finally:
-                        if os.path.exists(media_path):
-                            os.remove(media_path)
+
+                    try:
+                        await progress_msg.delete()
+                    except Exception:
+                        pass
 
                     now = time()
                     try:
