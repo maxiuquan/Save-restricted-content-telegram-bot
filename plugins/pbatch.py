@@ -1265,6 +1265,7 @@ def setup_pbatch_handler(app: Client):
 
                         media_path = None
                         dl_attempt = 0
+                        reconnect_fails = 0
                         while not media_path and not cancel_flags.get(chat_id):
                             dl_attempt += 1
                             if dl_attempt > 1:
@@ -1273,8 +1274,15 @@ def setup_pbatch_handler(app: Client):
                             try:
                                 user_client = await ensure_client_healthy(user_id, session_id, user_client)
                                 if user_client is None:
-                                    LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for msg {chat_message.id}")
-                                    break
+                                    reconnect_fails += 1
+                                    LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for msg {chat_message.id} "
+                                                   f"(consecutive reconnect fails: {reconnect_fails})")
+                                    if reconnect_fails >= 10:
+                                        LOGGER.error(f"[PrivateBatch] Failed to reconnect after {reconnect_fails} attempts, giving up msg {chat_message.id}")
+                                        break
+                                    await asyncio.sleep(10)
+                                    continue
+                                reconnect_fails = 0
                                 media_path = await chat_message.download(
                                     progress=Leaves.progress_for_pyrogram,
                                     progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
@@ -1295,19 +1303,17 @@ def setup_pbatch_handler(app: Client):
                             break
 
                         if not media_path or not os.path.exists(media_path):
-                            LOGGER.error(f"[PrivateBatch] Download failed after infinite retries for msg {chat_message.id}")
-                            fail_count += 1
-                            consecutive_fails += 1
+                            LOGGER.error(f"[PrivateBatch] Download failed for msg {chat_message.id}, will retry")
                             try:
                                 await progress_msg.delete()
                             except Exception:
                                 pass
-                            file_success = True
                             continue
 
                         # ── 上传无限重试 ──────────────────────────────
                         upload_ok = False
                         up_attempt = 0
+                        reconnect_fails = 0
                         while not upload_ok and not cancel_flags.get(chat_id):
                             up_attempt += 1
                             if up_attempt > 1:
@@ -1316,8 +1322,15 @@ def setup_pbatch_handler(app: Client):
                             try:
                                 user_client = await ensure_client_healthy(user_id, session_id, user_client)
                                 if user_client is None:
-                                    LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for upload msg {chat_message.id}")
-                                    break
+                                    reconnect_fails += 1
+                                    LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for upload msg {chat_message.id} "
+                                                   f"(consecutive reconnect fails: {reconnect_fails})")
+                                    if reconnect_fails >= 10:
+                                        LOGGER.error(f"[PrivateBatch] Failed to reconnect after {reconnect_fails} attempts, giving up msg {chat_message.id}")
+                                        break
+                                    await asyncio.sleep(10)
+                                    continue
+                                reconnect_fails = 0
                                 await send_media_to_saved(
                                     user_client=user_client, bot=bot,
                                     message=status_message,
@@ -1375,9 +1388,12 @@ def setup_pbatch_handler(app: Client):
                             state["processed_ids"] = list(processed_ids)
                             _save_state()
                         else:
-                            LOGGER.error(f"[PrivateBatch] Upload failed after infinite retries for msg {chat_message.id}")
-                            fail_count += 1
-                            consecutive_fails += 1
+                            LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}, will retry")
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            continue
 
                         try:
                             await progress_msg.delete()
