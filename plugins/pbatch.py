@@ -1259,6 +1259,8 @@ def setup_pbatch_handler(app: Client):
 
                         media_path = None
                         dl_attempt = 0
+                        dead_file = False
+                        consecutive_none = 0
                         while not media_path and not cancel_flags.get(chat_id):
                             dl_attempt += 1
                             if dl_attempt > 1:
@@ -1276,10 +1278,32 @@ def setup_pbatch_handler(app: Client):
                                 )
                                 if not (media_path and os.path.exists(media_path)):
                                     media_path = None
-                                    LOGGER.warning(f"[PrivateBatch] Download attempt {dl_attempt} returned invalid path")
+                                    consecutive_none += 1
+                                    LOGGER.warning(f"[PrivateBatch] Download attempt {dl_attempt} returned invalid path "
+                                                   f"(consecutive: {consecutive_none})")
+                                    if consecutive_none >= 5:
+                                        dead_file = True
+                                        LOGGER.error(f"[PrivateBatch] File likely deleted from source — 5 consecutive empty downloads")
+                                        break
+                                else:
+                                    consecutive_none = 0
+                            except FileReferenceExpired:
+                                dead_file = True
+                                LOGGER.error(f"[PrivateBatch] FileReferenceExpired for msg {chat_message.id} — file deleted from source")
+                                break
                             except Exception as dl_e:
                                 LOGGER.warning(f"[PrivateBatch] Download attempt {dl_attempt} failed for msg {chat_message.id}: {dl_e}")
                                 media_path = None
+
+                        if dead_file:
+                            fail_count += 1
+                            consecutive_fails += 1
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            file_success = True
+                            continue
 
                         if cancel_flags.get(chat_id):
                             try:
