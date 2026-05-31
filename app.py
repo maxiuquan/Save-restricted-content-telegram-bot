@@ -13,7 +13,7 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workers=1000,
+    workers=100,
     # ── স্পিড বাড়ানোর জন্য গুরুত্বপূর্ণ সেটিং ──
     max_concurrent_transmissions=5,  # একসাথে ৫টা ফাইল transfer করতে পারবে
 )

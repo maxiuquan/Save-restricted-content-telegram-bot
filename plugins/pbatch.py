@@ -1164,10 +1164,17 @@ def setup_pbatch_handler(app: Client):
                                     text=f"**📥 下载中 ({idx}/{count})...**",
                                     parse_mode=ParseMode.MARKDOWN,
                                 )
-                                dl_path = await grp_msg.download(
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📥 下载中", prog_msg, time()),
-                                )
+                                try:
+                                    dl_path = await asyncio.wait_for(
+                                        grp_msg.download(
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progressArgs("📥 下载中", prog_msg, time()),
+                                        ),
+                                        timeout=300,
+                                    )
+                                except asyncio.TimeoutError:
+                                    LOGGER.error(f"[PrivateBatch] Media group download timed out for msg {grp_msg.id}")
+                                    dl_path = None
                                 if dl_path and os.path.exists(dl_path):
                                     media_type = (
                                         "photo" if grp_msg.photo else
@@ -1175,15 +1182,21 @@ def setup_pbatch_handler(app: Client):
                                         "audio" if grp_msg.audio else
                                         "document"
                                     )
-                                    await send_media_to_saved(
-                                        user_client=user_client, bot=bot,
-                                        message=status_message,
-                                        media_path=dl_path, media_type=media_type,
-                                        caption=parsed_caption,
-                                        progress_message=prog_msg,
-                                        start_time=time(),
-                                    )
-                                    group_success += 1
+                                    try:
+                                        await asyncio.wait_for(
+                                            send_media_to_saved(
+                                                user_client=user_client, bot=bot,
+                                                message=status_message,
+                                                media_path=dl_path, media_type=media_type,
+                                                caption=parsed_caption,
+                                                progress_message=prog_msg,
+                                                start_time=time(),
+                                            ),
+                                            timeout=600,
+                                        )
+                                        group_success += 1
+                                    except asyncio.TimeoutError:
+                                        LOGGER.error(f"[PrivateBatch] Media group upload timed out for msg {grp_msg.id}")
                             except Exception as grp_e:
                                 LOGGER.warning(f"[PrivateBatch] Group item {grp_msg.id} failed: {grp_e}")
                             finally:
@@ -1272,10 +1285,17 @@ def setup_pbatch_handler(app: Client):
                                     LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for download, retry in 15s")
                                     await asyncio.sleep(15)
                                     continue
-                                media_path = await chat_message.download(
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
-                                )
+                                try:
+                                    media_path = await asyncio.wait_for(
+                                        chat_message.download(
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                                        ),
+                                        timeout=300,
+                                    )
+                                except asyncio.TimeoutError:
+                                    LOGGER.error(f"[PrivateBatch] Download timed out for msg {chat_message.id}")
+                                    media_path = None
                                 if not (media_path and os.path.exists(media_path)):
                                     media_path = None
                                     consecutive_none += 1
@@ -1346,15 +1366,22 @@ def setup_pbatch_handler(app: Client):
                                     LOGGER.warning(f"[PrivateBatch] Cannot reconnect client for upload, retry in 15s")
                                     await asyncio.sleep(15)
                                     continue
-                                await send_media_to_saved(
-                                    user_client=user_client, bot=bot,
-                                    message=status_message,
-                                    media_path=media_path, media_type=media_type,
-                                    caption=parsed_caption,
-                                    progress_message=progress_msg,
-                                    start_time=dl_start,
-                                )
-                                upload_ok = True
+                                try:
+                                    await asyncio.wait_for(
+                                        send_media_to_saved(
+                                            user_client=user_client, bot=bot,
+                                            message=status_message,
+                                            media_path=media_path, media_type=media_type,
+                                            caption=parsed_caption,
+                                            progress_message=progress_msg,
+                                            start_time=dl_start,
+                                        ),
+                                        timeout=600,
+                                    )
+                                    upload_ok = True
+                                except asyncio.TimeoutError:
+                                    LOGGER.error(f"[PrivateBatch] Upload timed out for msg {chat_message.id}")
+                                    upload_ok = False
                             except AuthKeyUnregistered:
                                 try:
                                     await user_sessions.update_one(
