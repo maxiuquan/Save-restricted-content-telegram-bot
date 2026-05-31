@@ -1037,7 +1037,12 @@ def setup_pbatch_handler(app: Client):
         _current_status = ""
         _file_progress = [0, 0]  # [current, total] for per-file download progress
 
+        class CancelDownload(Exception):
+            pass
+
         def _file_progress_cb(current, total, *args):
+            if cancel_flags.get(chat_id):
+                raise CancelDownload()
             _file_progress[0] = current
             _file_progress[1] = total
             Leaves.progress_for_pyrogram(current, total, *args)
@@ -1054,6 +1059,8 @@ def setup_pbatch_handler(app: Client):
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
         fail_count     = 0
+        _processed_groups = set()
+        _processed_ids = set()
 
         try:
             log_user = await bot.get_users(user_id)
@@ -1189,15 +1196,96 @@ def setup_pbatch_handler(app: Client):
                 )
 
                 if chat_message.media_group_id:
-                    _current_status = f"🖼 媒体组 {idx}/{count}"
-                    result = await processMediaGroup(
-                        chat_message, bot, status_message, user_client=user_client
-                    )
-                    if result:
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                    await asyncio.sleep(0.3)
+                    if chat_message.media_group_id in _processed_groups:
+                        continue
+                    _processed_groups.add(chat_message.media_group_id)
+                    media_group_msgs = await chat_message.get_media_group()
+                    for grp_msg in media_group_msgs:
+                        if cancel_flags.get(chat_id):
+                            break
+                        if chat_message.id in _processed_ids:
+                            continue
+                        _processed_ids.add(grp_msg.id)
+                        _current_status = f"📥 下载 {idx}/{count}"
+                        dl_start = time()
+                        progress_msg = await bot.send_message(
+                            chat_id=chat_id,
+                            text=f"**📥 下载中 ({idx}/{count})...**",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                        try:
+                            media_path = await grp_msg.download(
+                                progress=_file_progress_cb,
+                                progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                            )
+                        except CancelDownload:
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            break
+                        if not media_path or not os.path.exists(media_path):
+                            fail_count += 1
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            continue
+                        media_type = (
+                            "photo" if grp_msg.photo else
+                            "video" if grp_msg.video else
+                            "audio" if grp_msg.audio else
+                            "document"
+                        )
+                        parsed_caption = await get_parsed_msg(
+                            grp_msg.caption or "", grp_msg.caption_entities
+                        )
+                        _current_status = f"📤 上传 {idx}/{count}"
+                        try:
+                            await send_media_to_saved(
+                                user_client=user_client, bot=bot,
+                                message=status_message,
+                                media_path=media_path, media_type=media_type,
+                                caption=parsed_caption,
+                                progress_message=progress_msg,
+                                start_time=dl_start,
+                                thumbnail_path=thumbnail_path,
+                            )
+                            success_count += 1
+                        except AuthKeyUnregistered:
+                            try:
+                                await user_sessions.update_one(
+                                    {"user_id": user_id},
+                                    {"$pull": {"sessions": {"session_id": session_id}}}
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                await bot.send_message(
+                                    chat_id=chat_id,
+                                    text=(
+                                        "**❌ 你的登录会话已过期！**\n\n"
+                                        "批量下载已停止。\n"
+                                        "⚡ 请运行 **/login** 然后重试。"
+                                    ),
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
+                            except Exception:
+                                pass
+                            _cleanup_bg()
+                            _del_state(chat_id)
+                            await safe_stop_client(user_client)
+                            return
+                        except Exception as up_e:
+                            LOGGER.error(f"[PrivateBatch] Group item upload failed: {up_e}")
+                            fail_count += 1
+                        finally:
+                            if os.path.exists(media_path):
+                                os.remove(media_path)
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
                     continue
 
                 if chat_message.media:
@@ -1209,10 +1297,17 @@ def setup_pbatch_handler(app: Client):
                         parse_mode=ParseMode.MARKDOWN,
                     )
 
-                    media_path = await chat_message.download(
-                        progress=_file_progress_cb,
-                        progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
-                    )
+                    try:
+                        media_path = await chat_message.download(
+                            progress=_file_progress_cb,
+                            progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                        )
+                    except CancelDownload:
+                         try:
+                             await progress_msg.delete()
+                         except Exception:
+                             pass
+                         break
 
                     if not media_path or not os.path.exists(media_path):
                         fail_count += 1
@@ -1340,6 +1435,19 @@ def setup_pbatch_handler(app: Client):
             await asyncio.sleep(0.3)
 
         _cleanup_bg()
+
+        if cancel_flags.get(chat_id):
+            try:
+                await status_message.edit_text(
+                    f"**⛔ 用户已取消批量下载。**\n\n"
+                    f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+            _del_state(chat_id)
+            await safe_stop_client(user_client)
+            return
 
         elapsed = int(time() - start_ts)
         completion_msg = await bot.send_message(
