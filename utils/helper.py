@@ -223,6 +223,7 @@ async def get_video_thumbnail(video_file, duration):
     os.makedirs("Assets", exist_ok=True)
     base_name = os.path.splitext(os.path.basename(video_file))[0]
     output = os.path.join("Assets", f"thumb_{base_name}_{int(time())}.jpg")
+    LOGGER.info(f"[Thumbnail] Generating thumbnail for {video_file} duration={duration}")
 
     if duration is None or duration == 0:
         duration = (await get_media_info(video_file))[0]
@@ -472,12 +473,16 @@ async def send_media_to_saved(
             final_thumb = None
             if thumbnail_path and os.path.exists(thumbnail_path):
                 final_thumb = thumbnail_path
+                LOGGER.info(f"[USER CLIENT] Using custom thumbnail: {thumbnail_path}")
             else:
                 auto_generated_thumb = await get_video_thumbnail(
                     media_path, final_duration
                 )
                 if auto_generated_thumb and os.path.exists(auto_generated_thumb):
                     final_thumb = auto_generated_thumb
+                    LOGGER.info(f"[USER CLIENT] Auto-generated thumbnail: {auto_generated_thumb}")
+                else:
+                    LOGGER.warning(f"[USER CLIENT] Could not generate thumbnail for video: {media_path}")
 
             if width and height and width > 0 and height > 0:
                 final_width = width
@@ -521,14 +526,24 @@ async def send_media_to_saved(
             )
 
         elif media_type == "document":
+            doc_thumb = None
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                doc_thumb = thumbnail_path
+            else:
+                ext = os.path.splitext(media_path)[1].lower()
+                if ext in (".mp4", ".mkv", ".webm", ".avi", ".mov"):
+                    try:
+                        doc_duration, _, _ = await get_media_info(media_path)
+                        doc_duration = doc_duration or 0
+                        auto_generated_thumb = await get_video_thumbnail(media_path, doc_duration)
+                        if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                            doc_thumb = auto_generated_thumb
+                    except Exception as th_e:
+                        LOGGER.warning(f"[USER CLIENT] Could not auto-generate document thumbnail: {th_e}")
             await user_client.send_document(
                 chat_id=saved_messages_chat,
                 document=media_path,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
+                thumb=doc_thumb,
                 caption=caption or "",
                 progress=Leaves.progress_for_pyrogram,
                 progress_args=progress_args_tuple,
