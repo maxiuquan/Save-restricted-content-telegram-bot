@@ -8,8 +8,6 @@ import os
 import re
 import json
 import asyncio
-import shutil
-import traceback
 from time import time
 from datetime import datetime
 from pyrogram import Client, filters, raw
@@ -22,7 +20,6 @@ from pyrogram.errors import (
     FileReferenceExpired,
     AuthKeyUnregistered,
     FloodWait,
-    ChatForwardsRestricted,
 )
 from pyleaves import Leaves
 from config import COMMAND_PREFIX, LOG_GROUP_ID
@@ -95,80 +92,6 @@ def _del_state(chat_id: int):
     cancel_flags.pop(chat_id, None)
     _save_state()
 
-
-def _get_free_disk_gb(path: str = ".") -> float:
-    try:
-        usage = shutil.disk_usage(path)
-        return usage.free / (1024 ** 3)
-    except Exception as e:
-        LOGGER.warning(f"[DiskCheck] Failed to check disk space: {e}")
-        return -1
-
-
-def _cleanup_stale_downloads(base_dir: str = ".") -> float:
-    freed_bytes = 0
-    media_exts = {
-        ".mp4", ".mkv", ".webm", ".mov", ".avi",
-        ".jpg", ".jpeg", ".png", ".gif", ".webp",
-        ".mp3", ".ogg", ".wav", ".flac",
-        ".pdf", ".zip", ".rar", ".7z",
-    }
-    dirs_to_scan = [base_dir, os.path.join(base_dir, "downloads")]
-    cleaned = 0
-
-    for scan_dir in dirs_to_scan:
-        if not os.path.isdir(scan_dir):
-            continue
-        try:
-            for entry in os.scandir(scan_dir):
-                if not entry.is_file(follow_symlinks=False):
-                    continue
-                ext = os.path.splitext(entry.name)[1].lower()
-                if ext not in media_exts:
-                    continue
-                try:
-                    file_size = entry.stat().st_size
-                    os.remove(entry.path)
-                    freed_bytes += file_size
-                    cleaned += 1
-                except OSError:
-                    pass
-        except OSError:
-            pass
-
-    if cleaned > 0:
-        freed_gb = freed_bytes / (1024 ** 3)
-        LOGGER.info(f"[DiskCheck] Cleaned {cleaned} stale downloads, freed {freed_gb:.2f}GB")
-    return freed_bytes / (1024 ** 3)
-
-
-async def _ensure_disk_space(status_message, chat_id, success_count, fail_count, idx, count) -> bool:
-    free_gb = _get_free_disk_gb()
-    if free_gb < 0:
-        return True
-
-    if free_gb < 1.0:
-        LOGGER.warning(f"[DiskCheck] Low disk: {free_gb:.2f}GB, running cleanup...")
-        freed = _cleanup_stale_downloads()
-        free_gb = _get_free_disk_gb()
-        LOGGER.warning(f"[DiskCheck] After cleanup: {free_gb:.2f}GB (freed {freed:.2f}GB)")
-
-    if 0 < free_gb < 0.5:
-        await status_message.edit_text(
-            f"**⚠️ 磁盘空间不足！剩余 `{free_gb:.1f}GB`。**\n\n"
-            f"**✅ 成功：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-            f"**📊 已处理：** `{idx - 1}/{count}`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        LOGGER.error(f"[DiskCheck] Still low after cleanup: {free_gb:.2f}GB, stopping")
-        return False
-
-    return True
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# HELPERS
-# ═════════════════════════════════════════════════════════════════════════
 
 def is_private_link(url: str) -> bool:
     return bool(re.search(r"(?:t\.me|telegram\.me)/c/", url))
@@ -392,6 +315,12 @@ def setup_pbatch_handler(app: Client):
             await _handle_url_input(client, message, user_id, chat_id, message.text.strip())
 
         elif stage == "await_count":
+            if not state.get("session_id") and state.get("is_private"):
+                await message.reply_text(
+                    "**⚠️ 请先选择一个账号！**",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
             try:
                 count = int(message.text.strip())
             except ValueError:
@@ -416,7 +345,6 @@ def setup_pbatch_handler(app: Client):
                 return
 
             state["count"] = count
-            state["processed_ids"] = []
             state["stage"] = "confirmed"
             _set_state(chat_id, state)
 
@@ -593,7 +521,7 @@ def setup_pbatch_handler(app: Client):
                 base_state["stage"] = "await_count"
                 _set_state(chat_id, base_state)
             else:
-                base_state["stage"] = "await_count"
+                base_state["stage"] = "await_session"
                 _set_state(chat_id, base_state)
                 buttons = []
                 for i in range(0, len(sessions), 2):
@@ -674,12 +602,6 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
-        await daily_limit.update_one(
-            {"user_id": user_id},
-            {"$inc": {"total_downloads": count}},
-            upsert=True,
-        )
-
         try:
             pvt_chat_id, start_message_id = getChatMsgID(url)
         except ValueError as e:
@@ -707,7 +629,7 @@ def setup_pbatch_handler(app: Client):
         message_ids  = list(range(start_message_id, start_message_id + count))
         success_count = 0
         fail_count    = 0
-        consecutive_fails = 0
+        missing_count = 0
         processed_media_groups = set()
 
         CHUNK = 200
@@ -721,8 +643,31 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PublicBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
 
+        missing_count = count - len(all_messages)
+        effective_total = len(all_messages)
+
+        if missing_count > 0:
+            LOGGER.info(f"[PublicBatch] {missing_count}/{count} messages not found in channel (deleted)")
+
+        await daily_limit.update_one(
+            {"user_id": user_id},
+            {"$inc": {"total_downloads": success_count}},
+            upsert=True,
+        )
+
+        if not all_messages:
+            try:
+                await status_message.edit_text(
+                    "**❌ 无法获取任何消息。**",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+            _del_state(chat_id)
+            return
+
         await status_message.edit_text(
-            _progress_text(0, count, 0, fail_count, start_ts, False),
+            _progress_text(0, effective_total, 0, fail_count, start_ts, False),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -730,7 +675,6 @@ def setup_pbatch_handler(app: Client):
         )
 
         last_edit = time()
-
         idx = 0
         _progress_running = True
 
@@ -741,7 +685,7 @@ def setup_pbatch_handler(app: Client):
                     break
                 try:
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, False),
+                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -749,200 +693,211 @@ def setup_pbatch_handler(app: Client):
                     )
                 except Exception:
                     pass
+
+        def _cleanup_bg():
+            nonlocal _progress_running
+            _progress_running = False
+            try:
+                _bg_task.cancel()
+            except Exception:
+                pass
 
         _bg_task = asyncio.create_task(_bg_update())
 
-        for idx, source_message in enumerate(all_messages, 1):
-            if cancel_flags.get(chat_id):
-                try:
-                    await status_message.edit_text(
-                        f"**⛔ 用户已取消批量下载。**\n\n"
-                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                        f"**📊 已处理：** `{idx - 1}/{count}`",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                except Exception:
-                    pass
-                _progress_running = False
-                try:
-                    _bg_task.cancel()
-                except Exception:
-                    pass
-                _del_state(chat_id)
-                return
-
-            if not source_message or not source_message.id:
-                fail_count += 1
-                continue
-
-            try:
-                if source_message.media_group_id:
-                    group_id = source_message.media_group_id
-                    if group_id in processed_media_groups:
-                        continue
-
-                    group_size = sum(
-                        1
-                        for msg in all_messages
-                        if msg and msg.media_group_id == group_id
-                    )
-
-                    now = time()
-                    if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
-                        try:
-                            await status_message.edit_text(
-                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup([[
-                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                ]]),
-                            )
-                            last_edit = now
-                        except Exception:
-                            pass
-
-                    result = await processMediaGroup(
-                        source_message,
-                        client,
-                        status_message,
-                        log_group_id=LOG_GROUP_ID,
-                        log_user=log_user,
-                        log_url=url,
-                    )
-                    processed_media_groups.add(group_id)
-
-                    if result:
-                        success_count += group_size
-                        consecutive_fails = 0
-                    else:
-                        fail_count += group_size
-                        consecutive_fails += 1
-
-                    now = time()
-                    if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
-                        try:
-                            await status_message.edit_text(
-                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup([[
-                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                ]]),
-                            )
-                            last_edit = now
-                        except Exception:
-                            pass
-
-                    await asyncio.sleep(0.5)
-                    continue
-
-                source_file_id = None
-                source_media_type = "document"
-                if source_message.video:
-                    source_file_id = source_message.video.file_id
-                    source_media_type = "video"
-                elif source_message.photo:
-                    source_file_id = source_message.photo.file_id
-                    source_media_type = "photo"
-                elif source_message.audio:
-                    source_file_id = source_message.audio.file_id
-                    source_media_type = "audio"
-                elif source_message.document:
-                    source_file_id = source_message.document.file_id
-                    source_media_type = "document"
-
-                if source_message.video:
-                    video    = source_message.video
-                    duration = video.duration or 0
-                    width    = video.width or 1280
-                    height   = video.height or 720
+        try:
+            for idx, source_message in enumerate(all_messages, 1):
+                if cancel_flags.get(chat_id):
                     try:
-                        await client.send_video(
-                            chat_id=chat_id,
-                            video=video.file_id,
-                            caption=source_message.caption or "",
-                            duration=duration,
-                            width=width,
-                            height=height,
-                            thumb=thumbnail_file_id,
-                            supports_streaming=True,
-                            parse_mode=ParseMode.MARKDOWN if source_message.caption else None,
+                        await status_message.edit_text(
+                            f"**⛔ 用户已取消批量下载。**\n\n"
+                            f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+                            f"**📊 已处理：** `{idx - 1}/{effective_total}`",
+                            parse_mode=ParseMode.MARKDOWN,
                         )
                     except Exception:
-                        await client.send_video(
-                            chat_id=chat_id,
-                            video=video.file_id,
-                            caption=source_message.caption or "",
-                            duration=duration,
-                            width=width,
-                            height=height,
-                            supports_streaming=True,
-                        )
-                    success_count += 1
+                        pass
+                    _cleanup_bg()
+                    _del_state(chat_id)
+                    return
 
-                else:
-                    await client.copy_message(
-                        chat_id=chat_id,
-                        from_chat_id=channel_username,
-                        message_id=source_message.id,
-                    )
-                    success_count += 1
+                if not source_message or not source_message.id:
+                    fail_count += 1
+                    continue
 
-                if LOG_GROUP_ID and log_user and source_file_id:
-                    try:
-                        await log_file_to_group(
-                            bot=client,
-                            log_group_id=LOG_GROUP_ID,
-                            user=log_user,
-                            url=url,
-                            file_id=source_file_id,
-                            media_type=source_media_type,
-                            caption_original=source_message.caption or "",
-                            channel_name=None,
-                        )
-                    except Exception as log_err:
-                        LOGGER.warning(f"[PublicBatch] Log error for msg {source_message.id}: {log_err}")
-
-            except FileReferenceExpired:
-                fail_count += 1
-                LOGGER.warning(f"[PublicBatch] File ref expired: msg {source_message.id}")
-            except FloodWait as flood_err:
-                wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
-                LOGGER.warning(f"[PublicBatch] 限流 {wait_seconds}s，等待中...")
-                await asyncio.sleep(wait_seconds + 2)
-                fail_count += 1
-            except Exception as e:
-                fail_count += 1
-                LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
-
-            now = time()
-            if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
                 try:
-                    await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
-                    )
-                    last_edit = now
-                except Exception:
-                    pass
+                    if source_message.media_group_id:
+                        group_id = source_message.media_group_id
+                        if group_id in processed_media_groups:
+                            continue
 
-            await asyncio.sleep(0.5)
+                        group_size = sum(
+                            1
+                            for msg in all_messages
+                            if msg and msg.media_group_id == group_id
+                        )
 
-        _progress_running = False
-        try:
-            _bg_task.cancel()
-        except Exception:
-            pass
+                        now = time()
+                        if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
+                            try:
+                                await status_message.edit_text(
+                                    _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
+                                    parse_mode=ParseMode.MARKDOWN,
+                                    reply_markup=InlineKeyboardMarkup([[
+                                        InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                    ]]),
+                                )
+                                last_edit = now
+                            except Exception:
+                                pass
+
+                        result = await processMediaGroup(
+                            source_message,
+                            client,
+                            status_message,
+                            log_group_id=LOG_GROUP_ID,
+                            log_user=log_user,
+                            log_url=url,
+                        )
+                        processed_media_groups.add(group_id)
+
+                        if result:
+                            success_count += group_size
+                        else:
+                            fail_count += group_size
+
+                        now = time()
+                        if idx % 2 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
+                            try:
+                                await status_message.edit_text(
+                                    _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
+                                    parse_mode=ParseMode.MARKDOWN,
+                                    reply_markup=InlineKeyboardMarkup([[
+                                        InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                                    ]]),
+                                )
+                                last_edit = now
+                            except Exception:
+                                pass
+
+                        await asyncio.sleep(0.5)
+                        continue
+
+                    source_file_id = None
+                    source_media_type = "document"
+                    if source_message.video:
+                        source_file_id = source_message.video.file_id
+                        source_media_type = "video"
+                    elif source_message.photo:
+                        source_file_id = source_message.photo.file_id
+                        source_media_type = "photo"
+                    elif source_message.audio:
+                        source_file_id = source_message.audio.file_id
+                        source_media_type = "audio"
+                    elif source_message.document:
+                        source_file_id = source_message.document.file_id
+                        source_media_type = "document"
+
+                    if source_message.video:
+                        video    = source_message.video
+                        duration = video.duration or 0
+                        width    = video.width or 1280
+                        height   = video.height or 720
+                        try:
+                            await client.send_video(
+                                chat_id=chat_id,
+                                video=video.file_id,
+                                caption=source_message.caption or "",
+                                duration=duration,
+                                width=width,
+                                height=height,
+                                thumb=thumbnail_file_id,
+                                supports_streaming=True,
+                                parse_mode=ParseMode.MARKDOWN if source_message.caption else None,
+                            )
+                        except Exception:
+                            await client.send_video(
+                                chat_id=chat_id,
+                                video=video.file_id,
+                                caption=source_message.caption or "",
+                                duration=duration,
+                                width=width,
+                                height=height,
+                                supports_streaming=True,
+                            )
+                        success_count += 1
+
+                    else:
+                        await client.copy_message(
+                            chat_id=chat_id,
+                            from_chat_id=channel_username,
+                            message_id=source_message.id,
+                        )
+                        success_count += 1
+
+                    if LOG_GROUP_ID and log_user and source_file_id:
+                        try:
+                            await log_file_to_group(
+                                bot=client,
+                                log_group_id=LOG_GROUP_ID,
+                                user=log_user,
+                                url=url,
+                                file_id=source_file_id,
+                                media_type=source_media_type,
+                                caption_original=source_message.caption or "",
+                                channel_name=None,
+                            )
+                        except Exception as log_err:
+                            LOGGER.warning(f"[PublicBatch] Log error for msg {source_message.id}: {log_err}")
+
+                except FileReferenceExpired:
+                    fail_count += 1
+                    LOGGER.warning(f"[PublicBatch] File ref expired: msg {source_message.id}")
+                except FloodWait as flood_err:
+                    wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
+                    LOGGER.warning(f"[PublicBatch] 限流 {wait_seconds}s，等待中...")
+                    await asyncio.sleep(wait_seconds + 2)
+                    fail_count += 1
+                except Exception as e:
+                    fail_count += 1
+                    LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
+
+                now = time()
+                if idx % 3 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
+                    try:
+                        await status_message.edit_text(
+                            _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                            ]]),
+                        )
+                        last_edit = now
+                    except Exception:
+                        pass
+
+                await asyncio.sleep(0.5)
+
+        except Exception as e:
+            LOGGER.error(f"[PublicBatch] Unexpected error: {e}")
+        finally:
+            _cleanup_bg()
+
+        await daily_limit.update_one(
+            {"user_id": user_id},
+            {"$inc": {"total_downloads": success_count}},
+            upsert=True,
+        )
 
         elapsed = int(time() - start_ts)
+        _missing_line = f"\n**⚠️ 频道已删除：** `{missing_count}` 条" if missing_count > 0 else ""
         completion_msg = await client.send_message(
             chat_id=chat_id,
             text=(
                 f"**✅ 公开批量下载完成！**\n\n"
+                f"**📥 请求下载：** `{count}` 条\n"
                 f"**✅ 成功：** `{success_count}`\n"
-                f"**❌ 失败：** `{fail_count}`\n"
+                f"**❌ 失败：** `{fail_count}`"
+                f"{_missing_line}\n"
                 f"**⏱ 耗时：** `{elapsed}s`"
             ),
             parse_mode=ParseMode.MARKDOWN,
@@ -972,7 +927,6 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
-        # Tell user we're starting before any slow operation
         try:
             await status_message.edit_text(
                 "**⏳ 正在登录用户客户端...**",
@@ -993,74 +947,15 @@ def setup_pbatch_handler(app: Client):
             _del_state(chat_id)
             return
 
-        await status_message.edit_text(
-            _progress_text(0, count, 0, 0, start_ts, True),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-            ]]),
-        )
-        last_edit = time()
-
-        idx = 0
-        _progress_running = True
-
-        async def _bg_update():
-            while _progress_running:
-                await asyncio.sleep(2)
-                if not _progress_running:
-                    break
-                try:
-                    _sl = _current_status
-                    if _file_progress[1] > 0:
-                        _cur = _file_progress[0]
-                        _tot = _file_progress[1]
-                        _pct = _cur / _tot * 100
-                        _bar_len = 8
-                        _filled = int(_bar_len * _cur / _tot)
-                        _bar = "▓" * _filled + "░" * (_bar_len - _filled)
-                        _human_cur = _cur / 1048576
-                        _human_tot = _tot / 1048576
-                        _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
-                    await status_message.edit_text(
-                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True, status_line=_sl),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
-                    )
-                except Exception:
-                    pass
-
-        _bg_task = asyncio.create_task(_bg_update())
-
-        _current_status = ""
-        _file_progress = [0, 0]  # [current, total] for per-file download progress
-
-        class CancelDownload(Exception):
-            pass
-
-        def _file_progress_cb(current, total, *args):
-            if cancel_flags.get(chat_id):
-                raise CancelDownload()
-            _file_progress[0] = current
-            _file_progress[1] = total
-            Leaves.progress_for_pyrogram(current, total, *args)
-
-        def _cleanup_bg():
-            nonlocal _progress_running
-            _progress_running = False
-            try:
-                _bg_task.cancel()
-            except Exception:
-                pass
-
         user_data      = await user_activity_collection.find_one({"user_id": user_id})
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
         fail_count     = 0
         missing_count  = 0
+        effective_total = count
         _processed_groups = set()
+        _current_status = ""
+        _file_progress = [0, 0]
 
         try:
             log_user = await bot.get_users(user_id)
@@ -1072,14 +967,12 @@ def setup_pbatch_handler(app: Client):
             pvt_chat_id, start_message_id = getChatMsgID(url)
         except ValueError as e:
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
-            _cleanup_bg()
             _del_state(chat_id)
             await safe_stop_client(user_client)
             return
 
         message_ids = list(range(start_message_id, start_message_id + count))
 
-        # Update status before fetch loop
         try:
             total_chunks = (len(message_ids) + 199) // 200
             await status_message.edit_text(
@@ -1092,7 +985,6 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
 
-        # Pre-resolve channel peer via raw API to bypass resolve_peer issues
         try:
             _raw_channel_id = int(str(pvt_chat_id)[4:])
             _r = await user_client.invoke(
@@ -1128,12 +1020,11 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
 
-        # Calculate how many messages don't exist in the channel
         missing_count = count - len(all_messages)
+        effective_total = len(all_messages)
+
         if missing_count > 0:
             LOGGER.info(f"[PrivateBatch] {missing_count}/{count} messages not found in channel (deleted)")
-
-        effective_total = len(all_messages)
 
         if not all_messages:
             try:
@@ -1144,238 +1035,351 @@ def setup_pbatch_handler(app: Client):
                 )
             except Exception:
                 pass
-            _cleanup_bg()
             _del_state(chat_id)
-            # ✅ use safe_stop_client
             await safe_stop_client(user_client)
             return
 
-        # Notify user how many messages were fetched before starting downloads
-        try:
-            await status_message.edit_text(
-                f"**⏳ 已获取 `{len(all_messages)}` 条消息，即将开始下载...**",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                ]]),
-            )
-        except Exception:
-            pass
-
+        await status_message.edit_text(
+            _progress_text(0, effective_total, 0, 0, start_ts, True),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+            ]]),
+        )
         last_edit = time()
 
-        for idx, chat_message in enumerate(all_messages, 1):
+        idx = 0
+        _progress_running = True
+
+        class CancelDownload(Exception):
+            pass
+
+        def _file_progress_cb(current, total, *args):
             if cancel_flags.get(chat_id):
+                raise CancelDownload()
+            _file_progress[0] = current
+            _file_progress[1] = total
+            Leaves.progress_for_pyrogram(current, total, *args)
+
+        async def _bg_update():
+            while _progress_running:
+                await asyncio.sleep(2)
+                if not _progress_running:
+                    break
                 try:
+                    _sl = _current_status
+                    if _file_progress[1] > 0:
+                        _cur = _file_progress[0]
+                        _tot = _file_progress[1]
+                        _pct = _cur / _tot * 100
+                        _bar_len = 8
+                        _filled = int(_bar_len * _cur / _tot)
+                        _bar = "▓" * _filled + "░" * (_bar_len - _filled)
+                        _human_cur = _cur / 1048576
+                        _human_tot = _tot / 1048576
+                        _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
                     await status_message.edit_text(
-                        f"**⛔ 用户已取消批量下载。**\n\n"
-                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                        f"**📊 已处理：** `{idx - 1}/{count}`",
+                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True, status_line=_sl),
                         parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                        ]]),
                     )
                 except Exception:
                     pass
-                _cleanup_bg()
-                _del_state(chat_id)
-                await safe_stop_client(user_client)
-                return
 
-            if not chat_message or not chat_message.id:
-                fail_count += 1
-                continue
-
+        def _cleanup_bg():
+            nonlocal _progress_running
+            _progress_running = False
             try:
-                if chat_message.document or chat_message.video or chat_message.audio:
-                    file_size = (
-                        chat_message.document.file_size if chat_message.document else
-                        chat_message.video.file_size   if chat_message.video   else
-                        chat_message.audio.file_size
-                    )
-                    if not await fileSizeLimit(file_size, status_message, "download", True):
-                        fail_count += 1
-                        continue
+                _bg_task.cancel()
+            except Exception:
+                pass
 
-                parsed_caption = await get_parsed_msg(
-                    chat_message.caption or "", chat_message.caption_entities
-                )
-                parsed_text = await get_parsed_msg(
-                    chat_message.text or "", chat_message.entities
-                )
+        _bg_task = asyncio.create_task(_bg_update())
 
-                if chat_message.media_group_id:
-                    if chat_message.media_group_id in _processed_groups:
-                        continue
-                    _processed_groups.add(chat_message.media_group_id)
-                    media_group_msgs = await chat_message.get_media_group()
-                    group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
-                    _current_status = f"🖼 媒体组 {idx}/{count}"
-                    result = await processMediaGroup(
-                        chat_message, bot, status_message,
-                        user_client=user_client,
-                        thumbnail_path=thumbnail_path,
-                    )
-                    if result:
-                        success_count += group_size
-                    else:
-                        fail_count += group_size
-                    await asyncio.sleep(3)
+        try:
+            for idx, chat_message in enumerate(all_messages, 1):
+                if cancel_flags.get(chat_id):
+                    try:
+                        await status_message.edit_text(
+                            f"**⛔ 用户已取消批量下载。**\n\n"
+                            f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+                            f"**📊 已处理：** `{idx - 1}/{effective_total}`",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                    except Exception:
+                        pass
+                    _cleanup_bg()
+                    _del_state(chat_id)
+                    await safe_stop_client(user_client)
+                    return
+
+                if not chat_message or not chat_message.id:
+                    fail_count += 1
                     continue
 
-                if chat_message.media:
-                    _current_status = f"📥 下载 {idx}/{count}"
-                    dl_start = time()
-                    progress_msg = await bot.send_message(
-                        chat_id=chat_id,
-                        text=f"**📥 下载中 ({idx}/{count})...**",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-
-                    try:
-                        media_path = await chat_message.download(
-                            progress=_file_progress_cb,
-                            progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                try:
+                    if chat_message.document or chat_message.video or chat_message.audio:
+                        file_size = (
+                            chat_message.document.file_size if chat_message.document else
+                            chat_message.video.file_size   if chat_message.video   else
+                            chat_message.audio.file_size
                         )
-                    except CancelDownload:
-                        try:
-                            await progress_msg.delete()
-                        except Exception:
-                            pass
-                        break
+                        if not await fileSizeLimit(file_size, status_message, "download", True):
+                            fail_count += 1
+                            continue
 
-                    if not media_path or not os.path.exists(media_path):
-                        fail_count += 1
-                        try:
-                            await progress_msg.delete()
-                        except Exception:
-                            pass
-                        continue
-
-                    media_type = (
-                        "photo"    if chat_message.photo    else
-                        "video"    if chat_message.video    else
-                        "audio"    if chat_message.audio    else
-                        "document"
+                    parsed_caption = await get_parsed_msg(
+                        chat_message.caption or "", chat_message.caption_entities
+                    )
+                    parsed_text = await get_parsed_msg(
+                        chat_message.text or "", chat_message.entities
                     )
 
-                    _current_status = f"📤 上传 {idx}/{count}"
-                    try:
-                        await send_media_to_saved(
-                            user_client=user_client, bot=bot,
-                            message=status_message,
-                            media_path=media_path, media_type=media_type,
-                            caption=parsed_caption,
-                            progress_message=progress_msg,
-                            start_time=dl_start,
+                    if chat_message.media_group_id:
+                        if chat_message.media_group_id in _processed_groups:
+                            continue
+                        _processed_groups.add(chat_message.media_group_id)
+                        media_group_msgs = await chat_message.get_media_group()
+                        group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
+                        _current_status = f"🖼 媒体组 {idx}/{effective_total}"
+                        result = await processMediaGroup(
+                            chat_message, bot, status_message,
+                            user_client=user_client,
                             thumbnail_path=thumbnail_path,
                         )
-                        success_count += 1
-                        if LOG_GROUP_ID and log_user and os.path.exists(media_path):
+                        if result:
+                            success_count += group_size
+                        else:
+                            fail_count += group_size
+                        await asyncio.sleep(3)
+                        continue
+
+                    if chat_message.media:
+                        _current_status = f"📥 下载 {idx}/{effective_total}"
+                        dl_start = time()
+                        progress_msg = await bot.send_message(
+                            chat_id=chat_id,
+                            text=f"**📥 下载中 ({idx}/{effective_total})...**",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+
+                        try:
+                            media_path = await chat_message.download(
+                                progress=_file_progress_cb,
+                                progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                            )
+                        except CancelDownload:
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            break
+
+                        if not media_path or not os.path.exists(media_path):
+                            fail_count += 1
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+                            continue
+
+                        media_type = (
+                            "photo"    if chat_message.photo    else
+                            "video"    if chat_message.video    else
+                            "audio"    if chat_message.audio    else
+                            "document"
+                        )
+
+                        _orig_thumb = None
+                        try:
+                            _thumbs = None
+                            if chat_message.video and chat_message.video.thumbs:
+                                _thumbs = chat_message.video.thumbs
+                            elif chat_message.document and chat_message.document.thumbs:
+                                _thumbs = chat_message.document.thumbs
+                            if _thumbs:
+                                _thumb_obj = _thumbs[-1]
+                                _thumb_fname = f"Assets/orig_thumb_{chat_message.id}_{int(time())}.jpg"
+                                try:
+                                    _orig_thumb = await user_client.download_media(
+                                        _thumb_obj.file_id, file_name=_thumb_fname
+                                    )
+                                except Exception:
+                                    _orig_thumb = None
+                        except Exception:
+                            _orig_thumb = None
+
+                        _upload_thumb = (
+                            thumbnail_path
+                            if (thumbnail_path and os.path.exists(thumbnail_path))
+                            else _orig_thumb
+                        )
+
+                        _video_w = chat_message.video.width if chat_message.video else 0
+                        _video_h = chat_message.video.height if chat_message.video else 0
+                        _video_dur = chat_message.video.duration if chat_message.video else 0
+
+                        _current_status = f"📤 上传 {idx}/{effective_total}"
+                        _upload_done = False
+                        for _up_retry in range(3):
+                            try:
+                                await send_media_to_saved(
+                                    user_client=user_client, bot=bot,
+                                    message=status_message,
+                                    media_path=media_path, media_type=media_type,
+                                    caption=parsed_caption,
+                                    progress_message=progress_msg,
+                                    start_time=dl_start,
+                                    thumbnail_path=_upload_thumb,
+                                    width=_video_w,
+                                    height=_video_h,
+                                    duration=_video_dur,
+                                )
+                                success_count += 1
+                                if LOG_GROUP_ID and log_user and os.path.exists(media_path):
+                                    try:
+                                        await log_file_to_group(
+                                            bot=bot,
+                                            log_group_id=LOG_GROUP_ID,
+                                            user=log_user,
+                                            url=url,
+                                            file_path=media_path,
+                                            media_type=media_type,
+                                            caption_original=parsed_caption,
+                                            channel_name=None,
+                                            thumbnail_path=thumbnail_path,
+                                        )
+                                    except Exception as log_err:
+                                        LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
+                                _upload_done = True
+                                break
+
+                            except FloodWait as fw:
+                                _wait = fw.value if hasattr(fw, 'value') else 30
+                                LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s on upload (retry {_up_retry+1}/3), waiting...")
+                                await asyncio.sleep(_wait + 2)
+
+                            except AuthKeyUnregistered:
+                                if os.path.exists(media_path):
+                                    os.remove(media_path)
+                                if _orig_thumb and os.path.exists(_orig_thumb):
+                                    try:
+                                        os.remove(_orig_thumb)
+                                    except Exception:
+                                        pass
+                                try:
+                                    await progress_msg.delete()
+                                except Exception:
+                                    pass
+                                try:
+                                    await user_sessions.update_one(
+                                        {"user_id": user_id},
+                                        {"$pull": {"sessions": {"session_id": session_id}}}
+                                    )
+                                except Exception:
+                                    pass
+                                try:
+                                    await bot.send_message(
+                                        chat_id=chat_id,
+                                        text=(
+                                            "**❌ 你的登录会话已过期！**\n\n"
+                                            "批量下载已停止。\n"
+                                            "⚡ 请运行 **/login** 然后重试。"
+                                        ),
+                                        parse_mode=ParseMode.MARKDOWN,
+                                    )
+                                except Exception:
+                                    pass
+                                _cleanup_bg()
+                                _del_state(chat_id)
+                                await safe_stop_client(user_client)
+                                return
+
+                            except Exception as upload_err:
+                                LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
+                                break
+
+                        if not _upload_done:
+                            fail_count += 1
+                            try:
+                                await progress_msg.delete()
+                            except Exception:
+                                pass
+
+                        if os.path.exists(media_path):
+                            os.remove(media_path)
+                        if _orig_thumb and os.path.exists(_orig_thumb):
+                            try:
+                                os.remove(_orig_thumb)
+                            except Exception:
+                                pass
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+
+                        await asyncio.sleep(3)
+
+                    elif chat_message.text or chat_message.caption:
+                        _current_status = f"📝 文字 {idx}/{effective_total}"
+                        try:
+                            await bot.send_message(
+                                chat_id=chat_id,
+                                text=parsed_text or parsed_caption,
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                            success_count += 1
+                        except Exception as text_e:
+                            LOGGER.warning(f"[PrivateBatch] Text send failed: {text_e}")
+                            fail_count += 1
+                        if LOG_GROUP_ID and log_user:
                             try:
                                 await log_file_to_group(
                                     bot=bot,
                                     log_group_id=LOG_GROUP_ID,
                                     user=log_user,
                                     url=url,
-                                    file_path=media_path,
-                                    media_type=media_type,
-                                    caption_original=parsed_caption,
+                                    caption_original=parsed_text or parsed_caption,
                                     channel_name=None,
-                                    thumbnail_path=thumbnail_path,
                                 )
                             except Exception as log_err:
                                 LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
 
-                    except AuthKeyUnregistered:
-                        try:
-                            await user_sessions.update_one(
-                                {"user_id": user_id},
-                                {"$pull": {"sessions": {"session_id": session_id}}}
-                            )
-                        except Exception:
-                            pass
-                        try:
-                            await bot.send_message(
-                                chat_id=chat_id,
-                                text=(
-                                    "**❌ 你的登录会话已过期！**\n\n"
-                                    "批量下载已停止。\n"
-                                    "⚡ 请运行 **/login** 然后重试。"
-                                ),
-                                parse_mode=ParseMode.MARKDOWN,
-                            )
-                        except Exception:
-                            pass
-                        _cleanup_bg()
-                        _del_state(chat_id)
-                        await safe_stop_client(user_client)
-                        return
+                except FloodWait as fw:
+                    _wait = fw.value if hasattr(fw, 'value') else 60
+                    LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s, waiting...")
+                    await asyncio.sleep(_wait + 2)
+                    fail_count += 1
+                except Exception as e:
+                    LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}")
+                    fail_count += 1
 
-                    except Exception as upload_err:
-                        LOGGER.error(f"[PrivateBatch] Upload failed for msg {chat_message.id}: {upload_err}")
-                        fail_count += 1
-                        try:
-                            await progress_msg.delete()
-                        except Exception:
-                            pass
-                    finally:
-                        if os.path.exists(media_path):
-                            os.remove(media_path)
-                        try:
-                            await progress_msg.delete()
-                        except Exception:
-                            pass
-
-                    await asyncio.sleep(3)
-
-                elif chat_message.text or chat_message.caption:
-                    _current_status = f"📝 文字 {idx}/{count}"
+                now = time()
+                if idx % 5 == 0 or idx == effective_total or (now - last_edit) >= 5:
                     try:
-                        await bot.send_message(
-                            chat_id=chat_id,
-                            text=parsed_text or parsed_caption,
+                        await status_message.edit_text(
+                            _progress_text(idx, effective_total, success_count, fail_count, start_ts, True),
                             parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                            ]]),
                         )
-                        success_count += 1
-                    except Exception as text_e:
-                        LOGGER.warning(f"[PrivateBatch] Text send failed: {text_e}")
-                        fail_count += 1
-                    if LOG_GROUP_ID and log_user:
-                        try:
-                            await log_file_to_group(
-                                bot=bot,
-                                log_group_id=LOG_GROUP_ID,
-                                user=log_user,
-                                url=url,
-                                caption_original=parsed_text or parsed_caption,
-                                channel_name=None,
-                            )
-                        except Exception as log_err:
-                            LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
+                        last_edit = now
+                    except Exception:
+                        pass
 
-            except FloodWait as fw:
-                _wait = fw.value if hasattr(fw, 'value') else 60
-                LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s, waiting...")
-                await asyncio.sleep(_wait + 2)
-                fail_count += 1
-            except Exception as e:
-                LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}")
-                fail_count += 1
+        except Exception as e:
+            LOGGER.error(f"[PrivateBatch] Unexpected error: {e}")
+        finally:
+            _cleanup_bg()
 
-            now = time()
-            if idx % 5 == 0 or idx == effective_total or (now - last_edit) >= 5:
-                try:
-                    await status_message.edit_text(
-                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
-                    )
-                    last_edit = now
-                except Exception:
-                    pass
-
-        _cleanup_bg()
+        await daily_limit.update_one(
+            {"user_id": user_id},
+            {"$inc": {"total_downloads": success_count}},
+            upsert=True,
+        )
 
         if cancel_flags.get(chat_id):
             try:
@@ -1416,6 +1420,4 @@ def setup_pbatch_handler(app: Client):
             pass
 
         _del_state(chat_id)
-
-        # ✅ use safe_stop_client — removes session file from disk
         await safe_stop_client(user_client)
