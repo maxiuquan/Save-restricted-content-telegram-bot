@@ -562,11 +562,14 @@ def setup_login_handler(app: Client):
                 )
             except asyncio.TimeoutError:
                 LOGGER.error(f"[Session] Database timeout saving session for user {user_id}")
-                await client.send_message(
-                    chat_id=chat_id,
-                    text="**⏳ 保存会话时数据库超时。请重新使用 /login。**",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                try:
+                    await client.send_message(
+                        chat_id=chat_id,
+                        text="**⏳ 保存会话时数据库超时。请重新使用 /login。**",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except:
+                    pass
                 _clear_state(chat_id)
                 return
 
@@ -587,24 +590,30 @@ def setup_login_handler(app: Client):
                      "升级到高级版可享受无限制访问：/plans"
             )
 
-            await client.send_message(
-                chat_id=chat_id,
-                text=(
-                    f"**✅ 已成功以 '{account_name}' 身份登录！**\n\n"
-                    f"{plan_note}\n\n"
-                    "__随时使用 /logout 移除你的会话。__"
-                ),
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            try:
+                await client.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"**✅ 已成功以 '{account_name}' 身份登录！**\n\n"
+                        f"{plan_note}\n\n"
+                        "__随时使用 /logout 移除你的会话。__"
+                    ),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception as e:
+                LOGGER.warning(f"[Session] Success notification failed (FloodWait?): {e}")
             LOGGER.info(f"Session saved for user {user_id} as {account_name}")
 
         except Exception as e:
             LOGGER.error(f"Session generation error for user {user_id}: {e}")
-            await client.send_message(
-                chat_id=chat_id,
-                text=f"**❌ 保存会话失败。**\n\n错误：`{str(e)[:100]}`",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            try:
+                await client.send_message(
+                    chat_id=chat_id,
+                    text=f"**❌ 保存会话失败。**\n\n错误：`{str(e)[:100]}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except:
+                pass
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
