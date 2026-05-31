@@ -36,7 +36,7 @@ from utils import (
     send_media_to_saved,
     log_file_to_group,
 )
-from utils.helper import create_optimized_user_client, safe_stop_client  # ✅ safe_stop_client added
+from utils.helper import create_optimized_user_client, create_persistent_user_client, safe_stop_client, cleanup_persistent_client
 from core import (
     daily_limit,
     prem_plan1,
@@ -269,7 +269,7 @@ def setup_pbatch_handler(app: Client):
             return True, 2000
         return False, 0
 
-    async def get_user_client(user_id: int, session_id: str):
+    async def get_user_client(user_id: int, session_id: str, persistent: bool = False):
         user_session = await user_sessions.find_one({"user_id": user_id})
         if not user_session or not user_session.get("sessions"):
             return None
@@ -279,10 +279,16 @@ def setup_pbatch_handler(app: Client):
         if not session:
             return None
         try:
-            client_obj = create_optimized_user_client(
-                session_name=f"user_session_{user_id}_{session_id}",
-                session_string=session["session_string"],
-            )
+            if persistent:
+                client_obj = create_persistent_user_client(
+                    session_name=f"user_session_{user_id}_{session_id}",
+                    session_string=session["session_string"],
+                )
+            else:
+                client_obj = create_optimized_user_client(
+                    session_name=f"user_session_{user_id}_{session_id}",
+                    session_string=session["session_string"],
+                )
             await asyncio.wait_for(client_obj.start(), timeout=30)
             return client_obj
         except asyncio.TimeoutError:
@@ -294,7 +300,7 @@ def setup_pbatch_handler(app: Client):
 
     async def ensure_client_healthy(user_id: int, session_id: str, user_client) -> "pyrogram.Client":
         if user_client is None:
-            return await get_user_client(user_id, session_id)
+            return await get_user_client(user_id, session_id, persistent=True)
         try:
             await user_client.invoke(
                 raw.functions.Ping(ping_id=0)
@@ -302,8 +308,8 @@ def setup_pbatch_handler(app: Client):
             return user_client
         except Exception:
             LOGGER.warning(f"[PrivateBatch] user_client disconnected, reconnecting...")
-            await safe_stop_client(user_client)
-            return await get_user_client(user_id, session_id)
+            await cleanup_persistent_client(user_client)
+            return await get_user_client(user_id, session_id, persistent=True)
 
     # ────────────────────────────────────────────────────────────────────
     # /stop
@@ -982,7 +988,7 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
-        user_client = await get_user_client(user_id, session_id)
+        user_client = await get_user_client(user_id, session_id, persistent=True)
         if user_client is None:
             await status_message.edit_text(
                 "**❌ 初始化用户客户端失败！请重新 /login。**",
@@ -1049,8 +1055,8 @@ def setup_pbatch_handler(app: Client):
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
             _cleanup_bg()
             _del_state(chat_id)
-            # ✅ use safe_stop_client
-            await safe_stop_client(user_client)
+            # ✅ use cleanup_persistent_client
+            await cleanup_persistent_client(user_client)
             return
 
         message_ids = list(range(start_message_id, start_message_id + count))
@@ -1079,8 +1085,8 @@ def setup_pbatch_handler(app: Client):
                 pass
             _cleanup_bg()
             _del_state(chat_id)
-            # ✅ use safe_stop_client
-            await safe_stop_client(user_client)
+            # ✅ use cleanup_persistent_client
+            await cleanup_persistent_client(user_client)
             return
 
         last_edit = time()
@@ -1098,7 +1104,7 @@ def setup_pbatch_handler(app: Client):
                     pass
                 _cleanup_bg()
                 _del_state(chat_id)
-                await safe_stop_client(user_client)
+                await cleanup_persistent_client(user_client)
                 return
 
             if not chat_message or not chat_message.id:
@@ -1411,7 +1417,7 @@ def setup_pbatch_handler(app: Client):
                                 _del_state(chat_id)
                                 if os.path.exists(media_path):
                                     os.remove(media_path)
-                                await safe_stop_client(user_client)
+                                await cleanup_persistent_client(user_client)
                                 return
                             except Exception as up_e:
                                 LOGGER.warning(f"[PrivateBatch] Upload attempt {up_attempt} failed for msg {chat_message.id}: {up_e}")
@@ -1517,7 +1523,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     _cleanup_bg()
                     _del_state(chat_id)
-                    await safe_stop_client(user_client)
+                    await cleanup_persistent_client(user_client)
                     return
                 except Exception as e:
                     LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}\n{traceback.format_exc()}")
@@ -1557,5 +1563,5 @@ def setup_pbatch_handler(app: Client):
 
         _del_state(chat_id)
 
-        # ✅ use safe_stop_client — ignores harmless OSError
-        await safe_stop_client(user_client)
+        # ✅ use cleanup_persistent_client — removes session file from disk
+        await cleanup_persistent_client(user_client)

@@ -345,6 +345,56 @@ def create_optimized_user_client(session_name: str, session_string: str):
     )
 
 
+def create_persistent_user_client(session_name: str, session_string: str):
+    """
+    Creates a user client with persistent session file on disk.
+    This allows Pyrogram/Pyrofork to cache channel peers, which is
+    required for accessing private channels via t.me/c/XXXXX links
+    when using fresh client sessions.
+
+    The session file will be created at ./{session_name}.session
+    and MUST be cleaned up via cleanup_persistent_client() after use.
+
+    ✅ no_updates=True:
+        handle_updates() coroutine does not start.
+        → OSError: TCPTransport closed — fix
+    """
+    from pyrogram import Client as PyroClient
+    return PyroClient(
+        name=session_name,
+        session_string=session_string,
+        in_memory=False,
+        no_updates=True,
+        workers=1,
+        max_concurrent_transmissions=1,
+    )
+
+
+async def cleanup_persistent_client(user_client) -> str:
+    """
+    Stops a persistent user client and removes its session file from disk.
+
+    Returns the session file name (for logging) or None on error.
+    """
+    if user_client is None:
+        return None
+    session_name = user_client.name
+    await safe_stop_client(user_client)
+    session_file = f"{session_name}.session"
+    journal_file = f"{session_name}.session-journal"
+    try:
+        if os.path.exists(session_file):
+            os.remove(session_file)
+    except Exception as e:
+        LOGGER.warning(f"[Cleanup] Failed to remove {session_file}: {e}")
+    try:
+        if os.path.exists(journal_file):
+            os.remove(journal_file)
+    except Exception as e:
+        LOGGER.warning(f"[Cleanup] Failed to remove {journal_file}: {e}")
+    return session_name
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # ✅ FIXED: send_media_to_saved
 # পরিবর্তন: width/height এখন ffprobe দিয়ে video থেকে নেওয়া হয়
