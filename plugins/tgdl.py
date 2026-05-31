@@ -20,6 +20,7 @@ from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
+from pyrogram.errors import FloodWait
 from pyrogram.handlers import MessageHandler
 from pyleaves import Leaves
 
@@ -125,6 +126,32 @@ async def _upload_file(
     ext        = os.path.splitext(file_path)[1].lower()
 
     try:
+        # Function to send media with FloodWait retry logic
+        async def send_with_retry(send_func):
+            max_retries = 3
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    return await send_func()
+                except FloodWait as e:
+                    wait_time = e.value
+                    retry_count += 1
+                    LOGGER.warning(
+                        f"[TgDL] FloodWait: waiting {wait_time} seconds "
+                        f"(retry {retry_count}/{max_retries})"
+                    )
+                    try:
+                        await status_msg.edit_text(
+                            f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
+                            f"__(Retry {retry_count}/{max_retries})__",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(wait_time)
+            # Final attempt without retry
+            return await send_func()
+
         if media_type == "video" or ext in video_exts:
             thumb = thumbnail_path
             if not thumb:
@@ -132,46 +159,54 @@ async def _upload_file(
                     thumb = await get_video_thumbnail(file_path, None)
                 except Exception:
                     thumb = None
-            await client.send_video(
-                chat_id=chat_id,
-                video=file_path,
-                caption=caption,
-                thumb=thumb,
-                supports_streaming=True,
-                parse_mode=ParseMode.MARKDOWN,
-                progress=_progress,
-            )
+            async def send_video():
+                return await client.send_video(
+                    chat_id=chat_id,
+                    video=file_path,
+                    caption=caption,
+                    thumb=thumb,
+                    supports_streaming=True,
+                    parse_mode=ParseMode.MARKDOWN,
+                    progress=_progress,
+                )
+            await send_with_retry(send_video)
             if thumb and thumb != thumbnail_path and os.path.exists(thumb):
                 os.remove(thumb)
 
         elif media_type == "audio" or ext in audio_exts:
-            await client.send_audio(
-                chat_id=chat_id,
-                audio=file_path,
-                caption=caption,
-                thumb=thumbnail_path,
-                parse_mode=ParseMode.MARKDOWN,
-                progress=_progress,
-            )
+            async def send_audio():
+                return await client.send_audio(
+                    chat_id=chat_id,
+                    audio=file_path,
+                    caption=caption,
+                    thumb=thumbnail_path,
+                    parse_mode=ParseMode.MARKDOWN,
+                    progress=_progress,
+                )
+            await send_with_retry(send_audio)
 
         elif media_type == "photo":
-            await client.send_photo(
-                chat_id=chat_id,
-                photo=file_path,
-                caption=caption,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            async def send_photo():
+                return await client.send_photo(
+                    chat_id=chat_id,
+                    photo=file_path,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            await send_with_retry(send_photo)
 
         else:
             # Default: send as document
-            await client.send_document(
-                chat_id=chat_id,
-                document=file_path,
-                caption=caption,
-                thumb=thumbnail_path,
-                parse_mode=ParseMode.MARKDOWN,
-                progress=_progress,
-            )
+            async def send_document():
+                return await client.send_document(
+                    chat_id=chat_id,
+                    document=file_path,
+                    caption=caption,
+                    thumb=thumbnail_path,
+                    parse_mode=ParseMode.MARKDOWN,
+                    progress=_progress,
+                )
+            await send_with_retry(send_document)
 
         elapsed = get_readable_time(int(time() - start_ts))
         await status_msg.edit_text(

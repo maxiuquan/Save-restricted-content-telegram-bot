@@ -12,6 +12,8 @@ from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
+from pyrogram.errors import FloodWait
+from pyrogram.enums import ParseMode
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -240,7 +242,7 @@ async def get_video_thumbnail(video_file, duration):
         # ✅ FIXED: scale=320:-2 → aspect ratio preserve করে
         # আগের scale=320:180 সবসময় 16:9 force করত → portrait ভিডিওতে squish
         "-vf", "scale=320:-2",
-        "-q:v", "2", "-frames:v", "1",
+        "-q:v", "8", "-frames:v", "1",
         "-threads", "2", output,
     ]
     try:
@@ -254,7 +256,7 @@ async def get_video_thumbnail(video_file, duration):
                 "-ss", "1", "-i", video_file,
                 # ✅ fallback-এও scale=320:-2
                 "-vf", "scale=320:-2",
-                "-q:v", "2", "-frames:v", "1",
+                "-q:v", "8", "-frames:v", "1",
                 "-threads", "1", output,
             ]
             _, err2, code2 = await wait_for(cmd_exec(fallback_cmd), timeout=30)
@@ -421,7 +423,9 @@ async def send_media_to_saved(
 
     ✅ FIXED — Squished video সমস্যার সমাধান:
     width/height এখন ffprobe দিয়ে video-র actual resolution থেকে নেওয়া হয়।
-    আগে PIL দিয়ে thumbnail-এর size নেওয়া হত, যা ভিডিওর real dimension নয়।
+    আগে PIL দিয়ে thumbnail-র size নেওয়া হত, যা ভিডিওর real dimension নয়।
+    
+    ✅ FIXED — FloodWait error handling with automatic retry logic.
 
     Args:
         width:    source video-র width (0 হলে ffprobe দিয়ে detect করবে)
@@ -454,14 +458,42 @@ async def send_media_to_saved(
     auto_generated_thumb = None
 
     try:
+        # Function to send media with FloodWait retry logic
+        async def send_with_retry(send_func):
+            max_retries = 3
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    return await send_func()
+                except FloodWait as e:
+                    wait_time = e.value
+                    retry_count += 1
+                    LOGGER.warning(
+                        f"[USER CLIENT] FloodWait: waiting {wait_time} seconds "
+                        f"(retry {retry_count}/{max_retries})"
+                    )
+                    try:
+                        await progress_message.edit_text(
+                            f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
+                            f"__(Retry {retry_count}/{max_retries})__",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    except Exception:
+                        pass
+                    await asyncio.sleep(wait_time)
+            # Final attempt without retry
+            return await send_func()
+
         if media_type == "photo":
-            await user_client.send_photo(
-                chat_id=saved_messages_chat,
-                photo=media_path,
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+            async def send_photo():
+                return await user_client.send_photo(
+                    chat_id=saved_messages_chat,
+                    photo=media_path,
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+            await send_with_retry(send_photo)
 
         elif media_type == "video":
             if duration and duration > 0:
@@ -490,18 +522,20 @@ async def send_media_to_saved(
             else:
                 final_width, final_height = await get_video_resolution(media_path)
 
-            await user_client.send_video(
-                chat_id=saved_messages_chat,
-                video=media_path,
-                duration=final_duration,
-                width=final_width,
-                height=final_height,
-                thumb=final_thumb,
-                caption=caption or "",
-                supports_streaming=True,
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+            async def send_video():
+                return await user_client.send_video(
+                    chat_id=saved_messages_chat,
+                    video=media_path,
+                    duration=final_duration,
+                    width=final_width,
+                    height=final_height,
+                    thumb=final_thumb,
+                    caption=caption or "",
+                    supports_streaming=True,
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+            await send_with_retry(send_video)
 
         elif media_type == "audio":
             audio_duration, artist, title = await get_media_info(media_path)
@@ -509,21 +543,23 @@ async def send_media_to_saved(
                 duration if duration and duration > 0
                 else audio_duration or 0
             )
-            await user_client.send_audio(
-                chat_id=saved_messages_chat,
-                audio=media_path,
-                duration=final_audio_duration,
-                performer=artist,
-                title=title,
-                thumb=(
-                    thumbnail_path
-                    if thumbnail_path and os.path.exists(thumbnail_path)
-                    else None
-                ),
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+            async def send_audio():
+                return await user_client.send_audio(
+                    chat_id=saved_messages_chat,
+                    audio=media_path,
+                    duration=final_audio_duration,
+                    performer=artist,
+                    title=title,
+                    thumb=(
+                        thumbnail_path
+                        if thumbnail_path and os.path.exists(thumbnail_path)
+                        else None
+                    ),
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+            await send_with_retry(send_audio)
 
         elif media_type == "document":
             doc_thumb = None
@@ -540,14 +576,16 @@ async def send_media_to_saved(
                             doc_thumb = auto_generated_thumb
                     except Exception as th_e:
                         LOGGER.warning(f"[USER CLIENT] Could not auto-generate document thumbnail: {th_e}")
-            await user_client.send_document(
-                chat_id=saved_messages_chat,
-                document=media_path,
-                thumb=doc_thumb,
-                caption=caption or "",
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progress_args_tuple,
-            )
+            async def send_document():
+                return await user_client.send_document(
+                    chat_id=saved_messages_chat,
+                    document=media_path,
+                    thumb=doc_thumb,
+                    caption=caption or "",
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progress_args_tuple,
+                )
+            await send_with_retry(send_document)
 
         else:
             LOGGER.error(f"Unknown media_type: {media_type}")
@@ -571,6 +609,19 @@ async def send_media_to_saved(
         )
         return True
 
+    except FloodWait as e:
+        # Final FloodWait after all retries
+        LOGGER.error(f"[USER CLIENT] Final FloodWait error after retries: {e}")
+        try:
+            await progress_message.edit_text(
+                f"**⏳ FloodWait error!**\n\n"
+                f"Telegram requires waiting {e.value} more seconds. "
+                f"Please try again later.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
+        raise
     except Exception as e:
         LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
         try:
