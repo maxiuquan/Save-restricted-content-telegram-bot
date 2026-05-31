@@ -981,7 +981,7 @@ def setup_pbatch_handler(app: Client):
         result = await user_client.invoke(
             raw.functions.channels.GetMessages(
                 channel=raw.types.InputChannel(channel_id=raw_channel_id, access_hash=0),
-                ids=[raw.types.InputMessageID(id=mid) for mid in chunk_ids]
+                id=[raw.types.InputMessageID(id=mid) for mid in chunk_ids]
             )
         )
         if not result or not result.messages:
