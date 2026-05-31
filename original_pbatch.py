@@ -1,3 +1,5 @@
+# Copyright @juktijol
+# Channel t.me/juktijol
 # Fixed: JSON persistence, proper cancel, improved progress tracking
 # Fixed: All DB calls now use Motor async (await)
 # ✅ FIXED: in_memory=True + no_updates=True → sqlite3 + TCPTransport error fix
@@ -8,11 +10,9 @@ import os
 import re
 import json
 import asyncio
-import shutil
-import traceback
 from time import time
 from datetime import datetime
-from pyrogram import Client, filters, raw
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode, ChatType
 from pyrogram.errors import (
@@ -20,9 +20,7 @@ from pyrogram.errors import (
     ChannelPrivate,
     PeerIdInvalid,
     FileReferenceExpired,
-    AuthKeyUnregistered,
-    FloodWait,
-    ChatForwardsRestricted,
+    AuthKeyUnregistered,  # ✅ new import
 )
 from pyleaves import Leaves
 from config import COMMAND_PREFIX, LOG_GROUP_ID
@@ -36,7 +34,7 @@ from utils import (
     send_media_to_saved,
     log_file_to_group,
 )
-from utils.helper import create_optimized_user_client, safe_stop_client
+from utils.helper import create_optimized_user_client, safe_stop_client  # ✅ safe_stop_client added
 from core import (
     daily_limit,
     prem_plan1,
@@ -96,76 +94,6 @@ def _del_state(chat_id: int):
     _save_state()
 
 
-def _get_free_disk_gb(path: str = ".") -> float:
-    try:
-        usage = shutil.disk_usage(path)
-        return usage.free / (1024 ** 3)
-    except Exception as e:
-        LOGGER.warning(f"[DiskCheck] Failed to check disk space: {e}")
-        return -1
-
-
-def _cleanup_stale_downloads(base_dir: str = ".") -> float:
-    freed_bytes = 0
-    media_exts = {
-        ".mp4", ".mkv", ".webm", ".mov", ".avi",
-        ".jpg", ".jpeg", ".png", ".gif", ".webp",
-        ".mp3", ".ogg", ".wav", ".flac",
-        ".pdf", ".zip", ".rar", ".7z",
-    }
-    dirs_to_scan = [base_dir, os.path.join(base_dir, "downloads")]
-    cleaned = 0
-
-    for scan_dir in dirs_to_scan:
-        if not os.path.isdir(scan_dir):
-            continue
-        try:
-            for entry in os.scandir(scan_dir):
-                if not entry.is_file(follow_symlinks=False):
-                    continue
-                ext = os.path.splitext(entry.name)[1].lower()
-                if ext not in media_exts:
-                    continue
-                try:
-                    file_size = entry.stat().st_size
-                    os.remove(entry.path)
-                    freed_bytes += file_size
-                    cleaned += 1
-                except OSError:
-                    pass
-        except OSError:
-            pass
-
-    if cleaned > 0:
-        freed_gb = freed_bytes / (1024 ** 3)
-        LOGGER.info(f"[DiskCheck] Cleaned {cleaned} stale downloads, freed {freed_gb:.2f}GB")
-    return freed_bytes / (1024 ** 3)
-
-
-async def _ensure_disk_space(status_message, chat_id, success_count, fail_count, idx, count) -> bool:
-    free_gb = _get_free_disk_gb()
-    if free_gb < 0:
-        return True
-
-    if free_gb < 1.0:
-        LOGGER.warning(f"[DiskCheck] Low disk: {free_gb:.2f}GB, running cleanup...")
-        freed = _cleanup_stale_downloads()
-        free_gb = _get_free_disk_gb()
-        LOGGER.warning(f"[DiskCheck] After cleanup: {free_gb:.2f}GB (freed {freed:.2f}GB)")
-
-    if 0 < free_gb < 0.5:
-        await status_message.edit_text(
-            f"**⚠️ 磁盘空间不足！剩余 `{free_gb:.1f}GB`。**\n\n"
-            f"**✅ 成功：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-            f"**📊 已处理：** `{idx - 1}/{count}`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        LOGGER.error(f"[DiskCheck] Still low after cleanup: {free_gb:.2f}GB, stopping")
-        return False
-
-    return True
-
-
 # ═════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ═════════════════════════════════════════════════════════════════════════
@@ -174,7 +102,7 @@ def is_private_link(url: str) -> bool:
     return bool(re.search(r"(?:t\.me|telegram\.me)/c/", url))
 
 
-def _progress_text(done: int, total: int, success: int, fail: int, start_ts: float, is_private: bool, status_line: str = "") -> str:
+def _progress_text(done: int, total: int, success: int, fail: int, start_ts: float, is_private: bool) -> str:
     elapsed = time() - start_ts
     rate = done / elapsed if elapsed > 0 else 0
     eta = int((total - done) / rate) if rate > 0 else 0
@@ -187,17 +115,14 @@ def _progress_text(done: int, total: int, success: int, fail: int, start_ts: flo
     label = "🔒 Private" if is_private else "✅ Public"
     eta_str = f"{eta // 60}m {eta % 60}s" if eta >= 60 else f"{eta}s"
 
-    result = (
-        f"**{label} 批量下载**\n\n"
+    return (
+        f"**{label} Batch Download**\n\n"
         f"`[{bar}]` {pct:.1f}%\n\n"
-        f"**📥 进度：** `{done}/{total}`\n"
-        f"**✅ 成功：** `{success}`  **❌ 失败：** `{fail}`\n"
-        f"**⏱ 耗时：** `{int(elapsed)}s`  **⏳ 预计：** `{eta_str}`"
+        f"**📥 Progress:** `{done}/{total}`\n"
+        f"**✅ Success:** `{success}`  **❌ Failed:** `{fail}`\n"
+        f"**⏱ Elapsed:** `{int(elapsed)}s`  **⏳ ETA:** `{eta_str}`\n\n"
+        f"__Send /stop to cancel__"
     )
-    if status_line:
-        result += f"\n{status_line}"
-    result += "\n\n__发送 /stop 取消__"
-    return result
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -223,29 +148,28 @@ async def handle_batch_start(client: Client, message: Message):
 
     if not await is_premium_user(user_id):
         await message.reply_text(
-            "**❌ 批量下载仅限高级用户使用！**\n\n"
-            "免费用户一次只能下载一个文件（5分钟冷却时间）。\n"
-            "升级到高级版即可使用批量下载：/plans 💥",
+            "**❌ Batch download is available for premium users only!**\n\n"
+            "Free users can download one file at a time (5-minute cooldown).\n"
+            "Upgrade to premium for batch downloads: /plans 💥",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     if chat_id in batch_data and batch_data[chat_id].get("stage") in ("await_url", "await_count"):
         await message.reply_text(
-            "**⚠️ 你已有一个活跃的批量会话。**\n"
-            "先发送 /stop 取消它，或继续当前会话。",
+            "**⚠️ You already have an active batch session.**\n"
+            "Send /stop to cancel it first, or continue where you left off.",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    _del_state(chat_id)
     _set_state(chat_id, {"user_id": user_id, "stage": "await_url"})
     await message.reply_text(
-        "**📥 发送 Telegram 链接开始批量下载：**\n\n"
-        "✅ 公开：`https://t.me/channel/123`\n"
-        "🔒 私密：`https://t.me/c/1234567890/123`",
+        "**📥 Send a Telegram link to start batch download:**\n\n"
+        "✅ Public: `https://t.me/channel/123`\n"
+        "🔒 Private: `https://t.me/c/1234567890/123`",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("❌ 取消", callback_data=f"batch_cancel_{chat_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"batch_cancel_{chat_id}"),
         ]]),
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -273,6 +197,12 @@ def setup_pbatch_handler(app: Client):
         return False, 0
 
     async def get_user_client(user_id: int, session_id: str):
+        """
+        ✅ FIXED: Uses create_optimized_user_client
+        with in_memory=True + no_updates=True.
+        - sqlite3 ProgrammingError: Cannot operate on a closed database — fix
+        - OSError: TCPTransport closed — fix
+        """
         user_session = await user_sessions.find_one({"user_id": user_id})
         if not user_session or not user_session.get("sessions"):
             return None
@@ -286,11 +216,8 @@ def setup_pbatch_handler(app: Client):
                 session_name=f"user_session_{user_id}_{session_id}",
                 session_string=session["session_string"],
             )
-            await asyncio.wait_for(client_obj.start(), timeout=30)
+            await client_obj.start()
             return client_obj
-        except asyncio.TimeoutError:
-            LOGGER.error(f"User client start timed out for {user_id} — session may be invalid")
-            return None
         except Exception as e:
             LOGGER.error(f"Failed to init user client for {user_id}: {e}")
             return None
@@ -310,21 +237,21 @@ def setup_pbatch_handler(app: Client):
 
         if not state:
             await message.reply_text(
-                "**❌ 没有活跃的批量下载可取消。**",
+                "**❌ No active batch download to cancel.**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         if state.get("user_id") != user_id:
             await message.reply_text(
-                "**❌ 只有发起批量下载的用户才能取消。**",
+                "**❌ Only the user who started the batch can stop it.**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         cancel_flags[chat_id] = True
         await message.reply_text(
-            "**⛔ 已发送取消信号。当前文件完成后将停止批量下载...**",
+            "**⛔ Cancel signal sent. The batch will stop after the current file finishes...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -344,16 +271,16 @@ def setup_pbatch_handler(app: Client):
         if len(message.command) >= 2:
             if not await is_premium_user(user_id):
                 await message.reply_text(
-                    "**❌ 批量下载仅限高级用户使用！**\n\n"
-                    "免费用户一次只能下载一个文件（5分钟冷却时间）。\n"
-                    "升级到高级版即可使用批量下载：/plans 💥",
+                    "**❌ Batch download is available for premium users only!**\n\n"
+                    "Free users can download one file at a time (5-minute cooldown).\n"
+                    "Upgrade to premium for batch downloads: /plans 💥",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
             if chat_id in batch_data and batch_data[chat_id].get("stage") in ("await_url", "await_count"):
                 await message.reply_text(
-                    "**⚠️ 你已有一个活跃的批量会话。**\n"
-                    "先发送 /stop 取消它，或继续当前会话。",
+                    "**⚠️ You already have an active batch session.**\n"
+                    "Send /stop to cancel it first, or continue where you left off.",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -396,7 +323,7 @@ def setup_pbatch_handler(app: Client):
                 count = int(message.text.strip())
             except ValueError:
                 await message.reply_text(
-                    "**❌ 请输入有效数字！示例：`50`**",
+                    "**❌ Please enter a valid number! Example: `50`**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
@@ -404,31 +331,30 @@ def setup_pbatch_handler(app: Client):
             is_premium, max_allowed = await get_batch_limits(user_id)
             if count < 1:
                 await message.reply_text(
-                    "**❌ 至少输入 1！**",
+                    "**❌ Please enter at least 1!**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
             if count > max_allowed:
                 await message.reply_text(
-                    f"**❌ 你的套餐每个批次最多允许 {max_allowed} 条消息！**",
+                    f"**❌ Your plan allows a maximum of {max_allowed} messages per batch!**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 return
 
             state["count"] = count
-            state["processed_ids"] = []
             state["stage"] = "confirmed"
             _set_state(chat_id, state)
 
             link_label = "🔒 Private" if state.get("is_private") else "✅ Public"
             await message.reply_text(
-                f"**{link_label} 批量下载确认**\n\n"
-                f"**🔗 来源：** `{state.get('url')}`\n"
-                f"**📊 消息数：** `{count}`\n\n"
-                "确认开始下载：",
+                f"**{link_label} Batch Download Confirmation**\n\n"
+                f"**🔗 Source:** `{state.get('url')}`\n"
+                f"**📊 Messages:** `{count}`\n\n"
+                "Confirm to start downloading:",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ 确认", callback_data=f"batch_confirm_{chat_id}"),
-                    InlineKeyboardButton("❌ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                    InlineKeyboardButton("✅ Confirm", callback_data=f"batch_confirm_{chat_id}"),
+                    InlineKeyboardButton("❌ Cancel",  callback_data=f"batch_cancel_{chat_id}"),
                 ]]),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -437,46 +363,45 @@ def setup_pbatch_handler(app: Client):
     # Callback handler
     # ────────────────────────────────────────────────────────────────────
 
-    @app.on_callback_query(filters.regex(r"^batch_(confirm|cancel|session_select)_(-?\d+)$"))
+    @app.on_callback_query(filters.regex(r"^batch_(confirm|cancel|session_select)_(\d+)$"))
     async def batch_callback_handler(client: Client, callback_query):
         data      = callback_query.data
         chat_id   = callback_query.message.chat.id
         user_id   = callback_query.from_user.id
         state     = batch_data.get(chat_id)
 
-        if re.match(r"^batch_cancel_-?\d+$", data):
+        if re.match(r"^batch_cancel_\d+$", data):
             if state and state.get("stage") == "running":
                 cancel_flags[chat_id] = True
-                _del_state(chat_id)
                 await callback_query.message.edit_text(
-                    "**⛔ 已发送取消信号。当前文件完成后将停止...**",
+                    "**⛔ Cancel signal sent. Stopping after current file...**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
                 _del_state(chat_id)
                 await callback_query.message.edit_text(
-                    "**❌ 批量下载已取消。**",
+                    "**❌ Batch download cancelled.**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
-            await callback_query.answer("已取消")
+            await callback_query.answer("Cancelled")
             return
 
-        if re.match(r"^batch_session_select_-?\d+$", data):
+        if re.match(r"^batch_session_select_\d+$", data):
             if not state or state.get("user_id") != user_id:
-                await callback_query.answer("❌ 无效的会话！", show_alert=True)
+                await callback_query.answer("❌ Invalid session!", show_alert=True)
                 return
             session_id = state.get("pending_sessions", {}).get(data)
             if not session_id:
-                await callback_query.answer("❌ 会话数据丢失，请重新开始。", show_alert=True)
+                await callback_query.answer("❌ Session data lost, please restart.", show_alert=True)
                 _del_state(chat_id)
                 return
             state["session_id"] = session_id
             state["stage"] = "await_count"
             _set_state(chat_id, state)
             await callback_query.message.edit_text(
-                "**📥 你要下载多少条消息？**\n__输入一个数字__",
+                "**📥 How many messages do you want to download?**\n__Type a number__",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("❌ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                    InlineKeyboardButton("❌ Cancel", callback_data=f"batch_cancel_{chat_id}"),
                 ]]),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -484,11 +409,11 @@ def setup_pbatch_handler(app: Client):
 
         if re.match(r"^batch_confirm_\d+$", data):
             if not state or state.get("user_id") != user_id:
-                await callback_query.answer("❌ 无效的状态！", show_alert=True)
+                await callback_query.answer("❌ Invalid state!", show_alert=True)
                 return
             if state.get("stage") != "confirmed":
                 await callback_query.message.edit_text(
-                    "**❌ 请先输入消息数量！**",
+                    "**❌ Please enter the number of messages first!**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 await callback_query.answer()
@@ -498,10 +423,10 @@ def setup_pbatch_handler(app: Client):
             _set_state(chat_id, state)
 
             await callback_query.message.edit_text(
-                "**⏳ 开始批量下载...**",
+                "**⏳ Starting batch download...**",
                 parse_mode=ParseMode.MARKDOWN,
             )
-            await callback_query.answer("开始...")
+            await callback_query.answer("Starting...")
 
             if state.get("is_private"):
                 asyncio.create_task(
@@ -523,7 +448,7 @@ def setup_pbatch_handler(app: Client):
 
         parts = data.split("_", 3)
         if len(parts) < 4:
-            await callback_query.answer("❌ 数据格式错误", show_alert=True)
+            await callback_query.answer("❌ Malformed data", show_alert=True)
             return
 
         target_chat_id = int(parts[2])
@@ -531,7 +456,7 @@ def setup_pbatch_handler(app: Client):
         state          = batch_data.get(target_chat_id)
 
         if not state or state.get("user_id") != user_id:
-            await callback_query.answer("❌ 会话已过期或不属于你。", show_alert=True)
+            await callback_query.answer("❌ Session expired or not yours.", show_alert=True)
             return
 
         state["session_id"] = session_id
@@ -540,11 +465,11 @@ def setup_pbatch_handler(app: Client):
 
         _, max_allowed = await get_batch_limits(user_id)
         await callback_query.message.edit_text(
-            f"**📥 你要下载多少条消息？**\n"
-            f"__你的套餐上限：{max_allowed} 条__\n\n"
-            "__输入一个数字__",
+            f"**📥 How many messages do you want to download?**\n"
+            f"__max: {max_allowed} for your plan__\n\n"
+            "__Type a number__",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ 取消", callback_data=f"batch_cancel_{target_chat_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"batch_cancel_{target_chat_id}"),
             ]]),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -560,9 +485,9 @@ def setup_pbatch_handler(app: Client):
         match = TELEGRAM_LINK_PATTERN.search(url_raw)
         if not match:
             await message.reply_text(
-                "**❌ 无效的 Telegram 链接！正确格式：\n"
-                "公开：`https://t.me/channel/123`\n"
-                "私密：`https://t.me/c/1234567890/123`**",
+                "**❌ Invalid Telegram link! Correct formats:\n"
+                "Public: `https://t.me/channel/123`\n"
+                "Private: `https://t.me/c/1234567890/123`**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             _del_state(chat_id)
@@ -578,8 +503,8 @@ def setup_pbatch_handler(app: Client):
             user_session = await user_sessions.find_one({"user_id": user_id})
             if not user_session or not user_session.get("sessions"):
                 await message.reply_text(
-                    "**🔒 检测到私密链接！\n\n"
-                    "❌ 请先 /login，然后重试。**",
+                    "**🔒 Private link detected!\n\n"
+                    "❌ Please /login first and try again.**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 _del_state(chat_id)
@@ -605,12 +530,12 @@ def setup_pbatch_handler(app: Client):
                         ))
                     buttons.append(row)
                 buttons.append([InlineKeyboardButton(
-                    "❌ 取消", callback_data=f"batch_cancel_{chat_id}"
+                    "❌ Cancel", callback_data=f"batch_cancel_{chat_id}"
                 )])
                 await message.reply_text(
-                    "**🔒 检测到私密链接！\n\n"
-                    "你想用哪个账号下载？\n"
-                    "__（文件将发送到该账号的保存的消息）__**",
+                    "**🔒 Private link detected!\n\n"
+                    "Which account do you want to download with?\n"
+                    "__(Files will be sent to that account's Saved Messages)__**",
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -624,21 +549,21 @@ def setup_pbatch_handler(app: Client):
                     chat_obj = await client.get_chat(f"@{channel_part}")
                     if chat_obj.type not in [ChatType.CHANNEL, ChatType.SUPERGROUP]:
                         await message.reply_text(
-                            "**❌ 仅支持频道/超级群组！**",
+                            "**❌ Only channels/supergroups are supported!**",
                             parse_mode=ParseMode.MARKDOWN,
                         )
                         _del_state(chat_id)
                         return
             except ChannelPrivate:
                 await message.reply_text(
-                    "**🔒 该频道是私密的！请使用私密链接（t.me/c/...）。**",
+                    "**🔒 This channel is private! Use a private link (t.me/c/...).**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 _del_state(chat_id)
                 return
             except (ChannelInvalid, PeerIdInvalid):
                 await message.reply_text(
-                    "**❌ 无效的频道。请检查链接。**",
+                    "**❌ Invalid channel. Please check the URL.**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 _del_state(chat_id)
@@ -649,14 +574,14 @@ def setup_pbatch_handler(app: Client):
             _set_state(chat_id, {"user_id": user_id, "url": url, "is_private": False, "stage": "await_count"})
 
         _, max_allowed = await get_batch_limits(user_id)
-        label = "🔒 私密" if private else "✅ 公开"
+        label = "🔒 Private" if private else "✅ Public"
         await message.reply_text(
-            f"**{label} 链接已检测到！**\n\n"
+            f"**{label} link detected!**\n\n"
             f"🔗 `{url}`\n\n"
-            f"**📥 你要下载多少条消息？**\n"
-            f"__你的套餐上限：{max_allowed} 条__",
+            f"**📥 How many messages do you want to download?**\n"
+            f"__max: {max_allowed} for your plan__",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"batch_cancel_{chat_id}"),
             ]]),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -707,7 +632,6 @@ def setup_pbatch_handler(app: Client):
         message_ids  = list(range(start_message_id, start_message_id + count))
         success_count = 0
         fail_count    = 0
-        consecutive_fails = 0
         processed_media_groups = set()
 
         CHUNK = 200
@@ -725,49 +649,20 @@ def setup_pbatch_handler(app: Client):
             _progress_text(0, count, 0, fail_count, start_ts, False),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                InlineKeyboardButton("⛔ Cancel", callback_data=f"batch_cancel_{chat_id}"),
             ]]),
         )
 
         last_edit = time()
 
-        idx = 0
-        _progress_running = True
-
-        async def _bg_update():
-            while _progress_running:
-                await asyncio.sleep(3)
-                if not _progress_running:
-                    break
-                try:
-                    await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
-                    )
-                except Exception:
-                    pass
-
-        _bg_task = asyncio.create_task(_bg_update())
-
         for idx, source_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
-                try:
-                    await status_message.edit_text(
-                        f"**⛔ 用户已取消批量下载。**\n\n"
-                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                        f"**📊 已处理：** `{idx - 1}/{count}`",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                except Exception:
-                    pass
-                _progress_running = False
-                try:
-                    _bg_task.cancel()
-                except Exception:
-                    pass
+                await status_message.edit_text(
+                    f"**⛔ Batch cancelled by user.**\n\n"
+                    f"**✅ Done:** `{success_count}`  **❌ Failed:** `{fail_count}`\n"
+                    f"**📊 Processed:** `{idx - 1}/{count}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
                 _del_state(chat_id)
                 return
 
@@ -787,20 +682,6 @@ def setup_pbatch_handler(app: Client):
                         if msg and msg.media_group_id == group_id
                     )
 
-                    now = time()
-                    if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
-                        try:
-                            await status_message.edit_text(
-                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup([[
-                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                ]]),
-                            )
-                            last_edit = now
-                        except Exception:
-                            pass
-
                     result = await processMediaGroup(
                         source_message,
                         client,
@@ -813,26 +694,9 @@ def setup_pbatch_handler(app: Client):
 
                     if result:
                         success_count += group_size
-                        consecutive_fails = 0
                     else:
                         fail_count += group_size
-                        consecutive_fails += 1
-
-                    now = time()
-                    if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
-                        try:
-                            await status_message.edit_text(
-                                _progress_text(idx, count, success_count, fail_count, start_ts, False),
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup([[
-                                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                ]]),
-                            )
-                            last_edit = now
-                        except Exception:
-                            pass
-
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.3)
                     continue
 
                 source_file_id = None
@@ -905,23 +769,18 @@ def setup_pbatch_handler(app: Client):
             except FileReferenceExpired:
                 fail_count += 1
                 LOGGER.warning(f"[PublicBatch] File ref expired: msg {source_message.id}")
-            except FloodWait as flood_err:
-                wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
-                LOGGER.warning(f"[PublicBatch] 限流 {wait_seconds}s，等待中...")
-                await asyncio.sleep(wait_seconds + 2)
-                fail_count += 1
             except Exception as e:
                 fail_count += 1
                 LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
 
             now = time()
-            if idx % 3 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+            if idx % 5 == 0 or idx == count or (now - last_edit) >= 3:
                 try:
                     await status_message.edit_text(
                         _progress_text(idx, count, success_count, fail_count, start_ts, False),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                            InlineKeyboardButton("⛔ Cancel", callback_data=f"batch_cancel_{chat_id}"),
                         ]]),
                     )
                     last_edit = now
@@ -930,20 +789,14 @@ def setup_pbatch_handler(app: Client):
 
             await asyncio.sleep(0.5)
 
-        _progress_running = False
-        try:
-            _bg_task.cancel()
-        except Exception:
-            pass
-
         elapsed = int(time() - start_ts)
         completion_msg = await client.send_message(
             chat_id=chat_id,
             text=(
-                f"**✅ 公开批量下载完成！**\n\n"
-                f"**✅ 成功：** `{success_count}`\n"
-                f"**❌ 失败：** `{fail_count}`\n"
-                f"**⏱ 耗时：** `{elapsed}s`"
+                f"**✅ Public Batch Download Complete!**\n\n"
+                f"**✅ Successful:** `{success_count}`\n"
+                f"**❌ Failed:** `{fail_count}`\n"
+                f"**⏱ Time taken:** `{elapsed}s`"
             ),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -972,22 +825,10 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
-        # Tell user we're starting before any slow operation
-        try:
-            await status_message.edit_text(
-                "**⏳ 正在登录用户客户端...**",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                ]]),
-            )
-        except Exception:
-            pass
-
         user_client = await get_user_client(user_id, session_id)
         if user_client is None:
             await status_message.edit_text(
-                "**❌ 初始化用户客户端失败！请重新 /login。**",
+                "**❌ Failed to initialize user client! Please /login again.**",
                 parse_mode=ParseMode.MARKDOWN,
             )
             _del_state(chat_id)
@@ -997,39 +838,9 @@ def setup_pbatch_handler(app: Client):
             _progress_text(0, count, 0, 0, start_ts, True),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                InlineKeyboardButton("⛔ Cancel", callback_data=f"batch_cancel_{chat_id}"),
             ]]),
         )
-        last_edit = time()
-
-        idx = 0
-        _progress_running = True
-
-        async def _bg_update():
-            while _progress_running:
-                await asyncio.sleep(3)
-                if not _progress_running:
-                    break
-                try:
-                    await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
-                    )
-                except Exception:
-                    pass
-
-        _bg_task = asyncio.create_task(_bg_update())
-
-        def _cleanup_bg():
-            nonlocal _progress_running
-            _progress_running = False
-            try:
-                _bg_task.cancel()
-            except Exception:
-                pass
 
         user_data      = await user_activity_collection.find_one({"user_id": user_id})
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
@@ -1046,25 +857,12 @@ def setup_pbatch_handler(app: Client):
             pvt_chat_id, start_message_id = getChatMsgID(url)
         except ValueError as e:
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
-            _cleanup_bg()
             _del_state(chat_id)
+            # ✅ use safe_stop_client
             await safe_stop_client(user_client)
             return
 
         message_ids = list(range(start_message_id, start_message_id + count))
-
-        # Update status before fetch loop
-        try:
-            total_chunks = (len(message_ids) + 199) // 200
-            await status_message.edit_text(
-                f"**⏳ 正在获取消息...**\n共 `{len(message_ids)}` 条，分 `{total_chunks}` 批获取",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                ]]),
-            )
-        except Exception:
-            pass
 
         CHUNK = 200
         all_messages = []
@@ -1080,47 +878,28 @@ def setup_pbatch_handler(app: Client):
                 fail_count += len(chunk_ids)
 
         if not all_messages:
-            try:
-                await status_message.edit_text(
-                    "**❌ 无法获取任何消息。\n"
-                    "请确保登录的账号是该频道/群组的成员。**",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            except Exception:
-                pass
-            _cleanup_bg()
+            await status_message.edit_text(
+                "**❌ Could not fetch any messages.\n"
+                "Make sure the logged-in account is a member of that channel/group.**",
+                parse_mode=ParseMode.MARKDOWN,
+            )
             _del_state(chat_id)
             # ✅ use safe_stop_client
             await safe_stop_client(user_client)
             return
 
-        # Notify user how many messages were fetched before starting downloads
-        try:
-            await status_message.edit_text(
-                f"**⏳ 已获取 `{len(all_messages)}` 条消息，即将开始下载...**",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                ]]),
-            )
-        except Exception:
-            pass
-
         last_edit = time()
 
         for idx, chat_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
-                try:
-                    await status_message.edit_text(
-                        f"**⛔ 用户已取消批量下载。**\n\n"
-                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                        f"**📊 已处理：** `{idx - 1}/{count}`",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                except Exception:
-                    pass
-                _cleanup_bg()
+                await status_message.edit_text(
+                    f"**⛔ Batch cancelled by user.**\n\n"
+                    f"**✅ Done:** `{success_count}`  **❌ Failed:** `{fail_count}`\n"
+                    f"**📊 Processed:** `{idx - 1}/{count}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
                 _del_state(chat_id)
+                # ✅ use safe_stop_client
                 await safe_stop_client(user_client)
                 return
 
@@ -1161,13 +940,13 @@ def setup_pbatch_handler(app: Client):
                     dl_start = time()
                     progress_msg = await bot.send_message(
                         chat_id=chat_id,
-                        text=f"**📥 下载中 ({idx}/{count})...**",
+                        text=f"**📥 Downloading ({idx}/{count})...**",
                         parse_mode=ParseMode.MARKDOWN,
                     )
 
                     media_path = await chat_message.download(
                         progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                        progress_args=progressArgs("📥 Downloading", progress_msg, dl_start),
                     )
 
                     if not media_path or not os.path.exists(media_path):
@@ -1215,6 +994,7 @@ def setup_pbatch_handler(app: Client):
                                 LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
 
                     except AuthKeyUnregistered:
+                        # ✅ Session expired — remove from MongoDB, notify user, stop batch
                         try:
                             await user_sessions.update_one(
                                 {"user_id": user_id},
@@ -1229,16 +1009,16 @@ def setup_pbatch_handler(app: Client):
                             await bot.send_message(
                                 chat_id=chat_id,
                                 text=(
-                                    "**❌ 你的登录会话已过期！**\n\n"
-                                    "批量下载已停止。\n"
-                                    "⚡ 请运行 **/login** 然后重试。"
+                                    "**❌ Your login session has expired!**\n\n"
+                                    "Batch download has stopped.\n"
+                                    "⚡ Please run **/login** and try again."
                                 ),
                                 parse_mode=ParseMode.MARKDOWN,
                             )
                         except Exception:
                             pass
-                        _cleanup_bg()
                         _del_state(chat_id)
+                        # ✅ use safe_stop_client
                         await safe_stop_client(user_client)
                         return
 
@@ -1284,7 +1064,7 @@ def setup_pbatch_handler(app: Client):
                         _progress_text(idx, count, success_count, fail_count, start_ts, True),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                            InlineKeyboardButton("⛔ Cancel", callback_data=f"batch_cancel_{chat_id}"),
                         ]]),
                     )
                     last_edit = now
@@ -1293,17 +1073,15 @@ def setup_pbatch_handler(app: Client):
 
             await asyncio.sleep(0.3)
 
-        _cleanup_bg()
-
         elapsed = int(time() - start_ts)
         completion_msg = await bot.send_message(
             chat_id=chat_id,
             text=(
-                f"**✅ 私密批量下载完成！**\n\n"
-                f"**✅ 成功：** `{success_count}`\n"
-                f"**❌ 失败：** `{fail_count}`\n"
-                f"**⏱ 耗时：** `{elapsed}s`\n\n"
-                "📂 打开 **Telegram → 保存的消息** 查找你的文件。"
+                f"**✅ Private Batch Download Complete!**\n\n"
+                f"**✅ Successful:** `{success_count}`\n"
+                f"**❌ Failed:** `{fail_count}`\n"
+                f"**⏱ Time taken:** `{elapsed}s`\n\n"
+                "📂 Open **Telegram → Saved Messages** to find your files."
             ),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -1318,5 +1096,5 @@ def setup_pbatch_handler(app: Client):
 
         _del_state(chat_id)
 
-        # ✅ use safe_stop_client — removes session file from disk
+        # ✅ use safe_stop_client — ignores harmless OSError
         await safe_stop_client(user_client)
