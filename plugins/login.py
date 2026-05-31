@@ -539,9 +539,9 @@ def setup_login_handler(app: Client):
         user_client = state["client_obj"]
 
         try:
-            me           = await user_client.get_me()
+            me = await asyncio.wait_for(user_client.get_me(), timeout=15.0)
             account_name = f"{me.first_name} {me.last_name or ''}".strip()
-            session_str  = await user_client.export_session_string()
+            session_str = await asyncio.wait_for(user_client.export_session_string(), timeout=15.0)
 
             try:
                 await asyncio.wait_for(
