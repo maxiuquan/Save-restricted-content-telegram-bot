@@ -972,6 +972,29 @@ def setup_pbatch_handler(app: Client):
     # Private batch download
     # ────────────────────────────────────────────────────────────────────
 
+    async def _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids):
+        """Fetch messages from private channel via raw API, bypassing peer resolution."""
+        raw_channel_id = int(str(pvt_chat_id)[4:])
+        result = await user_client.invoke(
+            raw.functions.channels.GetMessages(
+                channel=raw.types.InputChannel(channel_id=raw_channel_id, access_hash=0),
+                ids=[raw.types.InputMessageID(id=mid) for mid in chunk_ids]
+            )
+        )
+        if not result or not result.messages:
+            return []
+        parsed = []
+        for raw_msg in result.messages:
+            if isinstance(raw_msg, raw.types.MessageEmpty):
+                continue
+            try:
+                parsed.append(Message._parse(
+                    user_client, raw_msg, result.users or [], result.chats or []
+                ))
+            except Exception:
+                continue
+        return parsed
+
     async def _run_private_batch(bot: Client, status_message: Message, state: dict):
         user_id    = state["user_id"]
         chat_id    = status_message.chat.id
@@ -1052,35 +1075,41 @@ def setup_pbatch_handler(app: Client):
             await safe_stop_client(user_client)
             return
 
-        try:
-            _raw_channel_id = int(str(pvt_chat_id)[4:])
-            _r = await user_client.invoke(raw.functions.channels.GetChannels(
-                id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
-            ))
-            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
-                _peer = raw.types.InputPeerChannel(
-                    channel_id=_raw_channel_id,
-                    access_hash=_r.chats[0].access_hash
-                )
-                if hasattr(user_client, 'peers_by_id'):
-                    user_client.peers_by_id[pvt_chat_id] = _peer
-                    LOGGER.info(f"[PrivateBatch] Channel peer resolved via raw API")
-        except Exception as e:
-            LOGGER.warning(f"[PrivateBatch] Pre-resolve failed, will try fallback: {e}")
-
         message_ids = list(range(start_message_id, start_message_id + count))
 
         CHUNK = 200
         all_messages = []
         for i in range(0, len(message_ids), CHUNK):
             chunk_ids = message_ids[i:i + CHUNK]
+            chunk_msgs = None
+
+            # Try regular get_messages first (goes through resolve_peer)
             try:
-                chunk_msgs = await user_client.get_messages(
-                    chat_id=pvt_chat_id, message_ids=chunk_ids
+                chunk_msgs = await asyncio.wait_for(
+                    user_client.get_messages(chat_id=pvt_chat_id, message_ids=chunk_ids),
+                    timeout=20
                 )
-                all_messages.extend(chunk_msgs)
+            except PeerIdInvalid:
+                LOGGER.info(f"[PrivateBatch] PeerIdInvalid, falling back to raw API")
+            except asyncio.TimeoutError:
+                LOGGER.warning(f"[PrivateBatch] get_messages timed out, trying raw API")
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
+
+            # Fallback: raw API channels.GetMessages bypasses resolve_peer
+            if not chunk_msgs:
+                try:
+                    chunk_msgs = await asyncio.wait_for(
+                        _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids),
+                        timeout=30
+                    )
+                except Exception as e:
+                    LOGGER.error(f"[PrivateBatch] Raw fetch failed: {e}")
+                    chunk_msgs = None
+
+            if chunk_msgs is not None:
+                all_messages.extend(chunk_msgs)
+            else:
                 fail_count += len(chunk_ids)
 
         if not all_messages:
