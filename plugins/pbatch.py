@@ -1055,9 +1055,31 @@ def setup_pbatch_handler(app: Client):
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
             _cleanup_bg()
             _del_state(chat_id)
-            # ✅ use cleanup_persistent_client
             await cleanup_persistent_client(user_client)
             return
+
+        # Resolve private channel peer via bot client (has channel cached)
+        # then inject into user client's peer cache so get_messages works
+        try:
+            bot_peer = await bot.resolve_peer(pvt_chat_id)
+            if hasattr(user_client, 'peers_by_id'):
+                user_client.peers_by_id[pvt_chat_id] = bot_peer
+                LOGGER.info(f"[PrivateBatch] Injected channel peer into user client cache")
+        except Exception as e:
+            LOGGER.warning(f"[PrivateBatch] Bot peer resolution failed: {e}")
+            # Fallback: try raw API with user client directly
+            try:
+                from pyrogram.raw.functions.channels import GetFullChannel
+                from pyrogram.raw.types import InputChannel, InputPeerChannel
+                channel_id_abs = abs(pvt_chat_id)
+                r = await user_client.invoke(GetFullChannel(InputChannel(channel_id=channel_id_abs, access_hash=0)))
+                if r.chats and hasattr(r.chats[0], 'access_hash'):
+                    peer = InputPeerChannel(channel_id=channel_id_abs, access_hash=r.chats[0].access_hash)
+                    if hasattr(user_client, 'peers_by_id'):
+                        user_client.peers_by_id[pvt_chat_id] = peer
+                    LOGGER.info(f"[PrivateBatch] Resolved channel via raw API")
+            except Exception as e2:
+                LOGGER.error(f"[PrivateBatch] Cannot resolve channel via raw API either: {e2}")
 
         message_ids = list(range(start_message_id, start_message_id + count))
 
