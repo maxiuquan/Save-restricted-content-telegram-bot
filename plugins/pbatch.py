@@ -991,7 +991,7 @@ def setup_pbatch_handler(app: Client):
             if isinstance(raw_msg, raw.types.MessageEmpty):
                 continue
             try:
-                parsed.append(Message._parse(
+                parsed.append(await Message._parse(
                     user_client, raw_msg, result.users or [], result.chats or []
                 ))
             except Exception:
@@ -1107,6 +1107,14 @@ def setup_pbatch_handler(app: Client):
             if _r.chats and hasattr(_r.chats[0], 'access_hash'):
                 _channel_access_hash = _r.chats[0].access_hash
                 LOGGER.info(f"[PrivateBatch] Resolved channel access_hash via GetChannels")
+                # Inject peer into user client cache so get_messages works directly
+                _peer = raw.types.InputPeerChannel(
+                    channel_id=_raw_channel_id,
+                    access_hash=_channel_access_hash
+                )
+                if hasattr(user_client, 'peers_by_id'):
+                    user_client.peers_by_id[pvt_chat_id] = _peer
+                    LOGGER.info(f"[PrivateBatch] Injected channel peer into user client cache")
         except Exception as e:
             LOGGER.warning(f"[PrivateBatch] GetChannels pre-resolve failed, will use access_hash=0: {e}")
 
@@ -1125,30 +1133,51 @@ def setup_pbatch_handler(app: Client):
 
         CHUNK = 200
         all_messages = []
+
+        # Determine fetch strategy:
+        # - access_hash obtained via GetChannels → skip get_messages (which times out),
+        #   go directly to raw API
+        # - access_hash=0 → try get_messages first, fallback to raw API
+        _use_raw_direct = (_channel_access_hash != 0)
+
+        if _use_raw_direct:
+            LOGGER.info(f"[PrivateBatch] Using direct raw API (access_hash available)")
+
         for i in range(0, len(message_ids), CHUNK):
             chunk_ids = message_ids[i:i + CHUNK]
             chunk_msgs = None
 
-            # Try regular get_messages first (goes through resolve_peer)
-            try:
-                chunk_msgs = await asyncio.wait_for(
-                    user_client.get_messages(chat_id=pvt_chat_id, message_ids=chunk_ids),
-                    timeout=20
-                )
-            except PeerIdInvalid:
-                LOGGER.info(f"[PrivateBatch] PeerIdInvalid, falling back to raw API")
-            except asyncio.TimeoutError:
-                LOGGER.warning(f"[PrivateBatch] get_messages timed out, trying raw API")
-            except Exception as e:
-                LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
+            if not _use_raw_direct:
+                try:
+                    chunk_msgs = await asyncio.wait_for(
+                        user_client.get_messages(chat_id=pvt_chat_id, message_ids=chunk_ids),
+                        timeout=20
+                    )
+                except PeerIdInvalid:
+                    LOGGER.info(f"[PrivateBatch] PeerIdInvalid, falling back to raw API")
+                except asyncio.TimeoutError:
+                    LOGGER.warning(f"[PrivateBatch] get_messages timed out, trying raw API")
+                except Exception as e:
+                    LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
 
-            # Fallback: raw API channels.GetMessages bypasses resolve_peer
             if not chunk_msgs:
                 try:
                     chunk_msgs = await asyncio.wait_for(
                             _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids, _channel_access_hash),
                         timeout=30
                     )
+                except FloodWait as fw:
+                    wait = fw.value if hasattr(fw, 'value') else 30
+                    LOGGER.warning(f"[PrivateBatch] FloodWait {wait}s on raw fetch, waiting then retrying...")
+                    await asyncio.sleep(wait + 2)
+                    try:
+                        chunk_msgs = await asyncio.wait_for(
+                            _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids, _channel_access_hash),
+                            timeout=30
+                        )
+                    except Exception as e2:
+                        LOGGER.error(f"[PrivateBatch] Raw fetch retry after FloodWait failed: {e2}")
+                        chunk_msgs = None
                 except Exception as e:
                     LOGGER.error(f"[PrivateBatch] Raw fetch failed: {e}")
                     chunk_msgs = None
@@ -1211,9 +1240,12 @@ def setup_pbatch_handler(app: Client):
             if chat_message.id in processed_ids:
                 continue
 
-            # ── 无限重试直到成功或用户取消 ──────────────────────
+            # ── 重试直到成功、用户取消或达到最大重试次数 ─────────
             file_success = False
-            while not file_success and not cancel_flags.get(chat_id):
+            msg_retries = 0
+            max_msg_retries = 20
+            while not file_success and not cancel_flags.get(chat_id) and msg_retries < max_msg_retries:
+                msg_retries += 1
                 try:
                     if chat_message.document or chat_message.video or chat_message.audio:
                         file_size = (
@@ -1639,6 +1671,11 @@ def setup_pbatch_handler(app: Client):
                         consecutive_fails = 0
                     user_client = None  # 强制重连
                     await asyncio.sleep(10)
+
+            if not file_success and not cancel_flags.get(chat_id):
+                LOGGER.error(f"[PrivateBatch] Giving up on msg {chat_message.id} after {max_msg_retries} retries")
+                fail_count += 1
+                consecutive_fails += 1
 
         _cleanup_bg()
 
