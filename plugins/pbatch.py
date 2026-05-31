@@ -1012,7 +1012,7 @@ def setup_pbatch_handler(app: Client):
                     break
                 try:
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_current_status),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -1022,6 +1022,8 @@ def setup_pbatch_handler(app: Client):
                     pass
 
         _bg_task = asyncio.create_task(_bg_update())
+
+        _current_status = ""
 
         def _cleanup_bg():
             nonlocal _progress_running
@@ -1170,6 +1172,7 @@ def setup_pbatch_handler(app: Client):
                 )
 
                 if chat_message.media_group_id:
+                    _current_status = f"🖼 媒体组 {idx}/{count}"
                     result = await processMediaGroup(
                         chat_message, bot, status_message, user_client=user_client
                     )
@@ -1181,6 +1184,7 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 if chat_message.media:
+                    _current_status = f"📥 下载 {idx}/{count}"
                     dl_start = time()
                     progress_msg = await bot.send_message(
                         chat_id=chat_id,
@@ -1208,6 +1212,7 @@ def setup_pbatch_handler(app: Client):
                         "document"
                     )
 
+                    _current_status = f"📤 上传 {idx}/{count}"
                     try:
                         await send_media_to_saved(
                             user_client=user_client,
@@ -1277,6 +1282,7 @@ def setup_pbatch_handler(app: Client):
                             os.remove(media_path)
 
                 elif chat_message.text or chat_message.caption:
+                    _current_status = f"📝 文字 {idx}/{count}"
                     await bot.send_message(
                         chat_id=chat_id,
                         text=parsed_text or parsed_caption,
