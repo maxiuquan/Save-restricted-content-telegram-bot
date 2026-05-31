@@ -1013,8 +1013,15 @@ def setup_pbatch_handler(app: Client):
                 try:
                     _sl = _current_status
                     if _file_progress[1] > 0:
-                        _pct = _file_progress[0] / _file_progress[1] * 100
-                        _sl += f" {_pct:.0f}%"
+                        _cur = _file_progress[0]
+                        _tot = _file_progress[1]
+                        _pct = _cur / _tot * 100
+                        _bar_len = 8
+                        _filled = int(_bar_len * _cur / _tot)
+                        _bar = "▓" * _filled + "░" * (_bar_len - _filled)
+                        _human_cur = _cur / 1048576
+                        _human_tot = _tot / 1048576
+                        _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
                     await status_message.edit_text(
                         _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_sl),
                         parse_mode=ParseMode.MARKDOWN,
