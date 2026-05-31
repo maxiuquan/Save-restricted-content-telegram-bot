@@ -12,7 +12,7 @@ from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
-from pyrogram.errors import FloodWait, FloodPremiumWait
+from pyrogram.errors import FloodWait
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -40,16 +40,16 @@ def apply_flood_premium_wait_patch():
         while True:
             try:
                 return await _original_invoke(self, query, retries, timeout, sleep_threshold)
-            except FloodPremiumWait as e:
+            except FloodWait as e:
                 wait_seconds = e.value
                 LOGGER.warning(
-                    f"[FloodPremiumWait Patch] Waiting {wait_seconds}s "
+                    f"[FloodWait Patch] Waiting {wait_seconds}s "
                     f"before retrying upload chunk (sleep_threshold was {sleep_threshold}s)..."
                 )
                 await asyncio.sleep(wait_seconds)
 
     Session.invoke = _patched_invoke
-    LOGGER.info("[FloodPremiumWait Patch] Applied to pyrogram.session.Session.invoke")
+    LOGGER.info("[FloodWait Patch] Applied to pyrogram.session.Session.invoke")
 
 
 apply_flood_premium_wait_patch()

@@ -22,7 +22,6 @@ from pyrogram.errors import (
     FileReferenceExpired,
     AuthKeyUnregistered,
     FloodWait,
-    FloodPremiumWait,
     ChatForwardsRestricted,
 )
 from pyleaves import Leaves
@@ -913,7 +912,7 @@ def setup_pbatch_handler(app: Client):
             except FileReferenceExpired:
                 fail_count += 1
                 LOGGER.warning(f"[PublicBatch] File ref expired: msg {source_message.id}")
-            except (FloodWait, FloodPremiumWait) as flood_err:
+            except FloodWait as flood_err:
                 wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
                 LOGGER.warning(f"[PublicBatch] 限流 {wait_seconds}s，等待中...")
                 await asyncio.sleep(wait_seconds + 2)
@@ -1474,7 +1473,7 @@ def setup_pbatch_handler(app: Client):
                     # 没有匹配任何类型
                     file_success = True
 
-                except (FloodWait, FloodPremiumWait) as flood_err:
+                except FloodWait as flood_err:
                     wait_seconds = flood_err.value if hasattr(flood_err, 'value') else 60
                     LOGGER.warning(f"[PrivateBatch] 限流 {wait_seconds}s，等待中...")
                     await asyncio.sleep(wait_seconds + 2)
