@@ -174,7 +174,7 @@ def is_private_link(url: str) -> bool:
     return bool(re.search(r"(?:t\.me|telegram\.me)/c/", url))
 
 
-def _progress_text(done: int, total: int, success: int, fail: int, start_ts: float, is_private: bool) -> str:
+def _progress_text(done: int, total: int, success: int, fail: int, start_ts: float, is_private: bool, status_line: str = "") -> str:
     elapsed = time() - start_ts
     rate = done / elapsed if elapsed > 0 else 0
     eta = int((total - done) / rate) if rate > 0 else 0
@@ -187,14 +187,17 @@ def _progress_text(done: int, total: int, success: int, fail: int, start_ts: flo
     label = "🔒 Private" if is_private else "✅ Public"
     eta_str = f"{eta // 60}m {eta % 60}s" if eta >= 60 else f"{eta}s"
 
-    return (
+    result = (
         f"**{label} 批量下载**\n\n"
         f"`[{bar}]` {pct:.1f}%\n\n"
         f"**📥 进度：** `{done}/{total}`\n"
         f"**✅ 成功：** `{success}`  **❌ 失败：** `{fail}`\n"
-        f"**⏱ 耗时：** `{int(elapsed)}s`  **⏳ 预计：** `{eta_str}`\n\n"
-        f"__发送 /stop 取消__"
+        f"**⏱ 耗时：** `{int(elapsed)}s`  **⏳ 预计：** `{eta_str}`"
     )
+    if status_line:
+        result += f"\n{status_line}"
+    result += "\n\n__发送 /stop 取消__"
+    return result
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -1045,7 +1048,7 @@ def setup_pbatch_handler(app: Client):
                     break
                 try:
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_current_phase),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -1055,6 +1058,8 @@ def setup_pbatch_handler(app: Client):
                     pass
 
         _bg_task = asyncio.create_task(_bg_update())
+
+        _current_phase = ""
 
         def _cleanup_bg():
             nonlocal _progress_running
@@ -1356,6 +1361,8 @@ def setup_pbatch_handler(app: Client):
                             parse_mode=ParseMode.MARKDOWN,
                         )
 
+                        _current_phase = f"📥 下载 {idx}/{count}"
+
                         media_path = None
                         dl_attempt = 0
                         dead_file = False
@@ -1438,6 +1445,9 @@ def setup_pbatch_handler(app: Client):
                                 pass
                             await asyncio.sleep(60)
                             continue
+
+                        # ── signal upload phase to bg updater ─────────────
+                        _current_phase = f"📤 上传 {idx}/{count}"
 
                         upload_ok = False
                         up_attempt = 0
@@ -1547,6 +1557,7 @@ def setup_pbatch_handler(app: Client):
 
                     # ── Text only ──────────────────────────────────────
                     if chat_message.text or chat_message.caption:
+                        _current_phase = f"📝 文字 {idx}/{count}"
                         await user_client.send_message(
                             chat_id="me",
                             text=chat_message.text or chat_message.caption or "",
