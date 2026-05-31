@@ -36,7 +36,7 @@ from utils import (
     send_media_to_saved,
     log_file_to_group,
 )
-from utils.helper import create_optimized_user_client, create_persistent_user_client, safe_stop_client, cleanup_persistent_client
+from utils.helper import create_optimized_user_client, safe_stop_client
 from core import (
     daily_limit,
     prem_plan1,
@@ -269,7 +269,7 @@ def setup_pbatch_handler(app: Client):
             return True, 2000
         return False, 0
 
-    async def get_user_client(user_id: int, session_id: str, persistent: bool = False):
+    async def get_user_client(user_id: int, session_id: str):
         user_session = await user_sessions.find_one({"user_id": user_id})
         if not user_session or not user_session.get("sessions"):
             return None
@@ -279,16 +279,10 @@ def setup_pbatch_handler(app: Client):
         if not session:
             return None
         try:
-            if persistent:
-                client_obj = create_persistent_user_client(
-                    session_name=f"user_session_{user_id}_{session_id}",
-                    session_string=session["session_string"],
-                )
-            else:
-                client_obj = create_optimized_user_client(
-                    session_name=f"user_session_{user_id}_{session_id}",
-                    session_string=session["session_string"],
-                )
+            client_obj = create_optimized_user_client(
+                session_name=f"user_session_{user_id}_{session_id}",
+                session_string=session["session_string"],
+            )
             await asyncio.wait_for(client_obj.start(), timeout=30)
             return client_obj
         except asyncio.TimeoutError:
@@ -300,7 +294,7 @@ def setup_pbatch_handler(app: Client):
 
     async def ensure_client_healthy(user_id: int, session_id: str, user_client) -> "pyrogram.Client":
         if user_client is None:
-            return await get_user_client(user_id, session_id, persistent=True)
+            return await get_user_client(user_id, session_id)
         try:
             await user_client.invoke(
                 raw.functions.Ping(ping_id=0)
@@ -308,8 +302,8 @@ def setup_pbatch_handler(app: Client):
             return user_client
         except Exception:
             LOGGER.warning(f"[PrivateBatch] user_client disconnected, reconnecting...")
-            await cleanup_persistent_client(user_client)
-            return await get_user_client(user_id, session_id, persistent=True)
+            await safe_stop_client(user_client)
+            return await get_user_client(user_id, session_id)
 
     # ────────────────────────────────────────────────────────────────────
     # /stop
@@ -988,7 +982,7 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
-        user_client = await get_user_client(user_id, session_id, persistent=True)
+        user_client = await get_user_client(user_id, session_id)
         if user_client is None:
             await status_message.edit_text(
                 "**❌ 初始化用户客户端失败！请重新 /login。**",
@@ -1055,31 +1049,24 @@ def setup_pbatch_handler(app: Client):
             await status_message.edit_text(f"**❌ {e}**", parse_mode=ParseMode.MARKDOWN)
             _cleanup_bg()
             _del_state(chat_id)
-            await cleanup_persistent_client(user_client)
+            await safe_stop_client(user_client)
             return
 
-        # Resolve private channel peer via bot client (has channel cached)
-        # then inject into user client's peer cache so get_messages works
         try:
-            bot_peer = await bot.resolve_peer(pvt_chat_id)
-            if hasattr(user_client, 'peers_by_id'):
-                user_client.peers_by_id[pvt_chat_id] = bot_peer
-                LOGGER.info(f"[PrivateBatch] Injected channel peer into user client cache")
+            _raw_channel_id = int(str(pvt_chat_id)[4:])
+            _r = await user_client.invoke(raw.functions.channels.GetChannels(
+                id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+            ))
+            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
+                _peer = raw.types.InputPeerChannel(
+                    channel_id=_raw_channel_id,
+                    access_hash=_r.chats[0].access_hash
+                )
+                if hasattr(user_client, 'peers_by_id'):
+                    user_client.peers_by_id[pvt_chat_id] = _peer
+                    LOGGER.info(f"[PrivateBatch] Channel peer resolved via raw API")
         except Exception as e:
-            LOGGER.warning(f"[PrivateBatch] Bot peer resolution failed: {e}")
-            # Fallback: try raw API with user client directly
-            try:
-                from pyrogram.raw.functions.channels import GetFullChannel
-                from pyrogram.raw.types import InputChannel, InputPeerChannel
-                channel_id_abs = abs(pvt_chat_id)
-                r = await user_client.invoke(GetFullChannel(InputChannel(channel_id=channel_id_abs, access_hash=0)))
-                if r.chats and hasattr(r.chats[0], 'access_hash'):
-                    peer = InputPeerChannel(channel_id=channel_id_abs, access_hash=r.chats[0].access_hash)
-                    if hasattr(user_client, 'peers_by_id'):
-                        user_client.peers_by_id[pvt_chat_id] = peer
-                    LOGGER.info(f"[PrivateBatch] Resolved channel via raw API")
-            except Exception as e2:
-                LOGGER.error(f"[PrivateBatch] Cannot resolve channel via raw API either: {e2}")
+            LOGGER.warning(f"[PrivateBatch] Pre-resolve failed, will try fallback: {e}")
 
         message_ids = list(range(start_message_id, start_message_id + count))
 
