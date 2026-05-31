@@ -1066,6 +1066,25 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
 
+        # Pre-resolve channel peer via raw API to bypass resolve_peer issues
+        try:
+            _raw_channel_id = int(str(pvt_chat_id)[4:])
+            _r = await user_client.invoke(
+                raw.functions.channels.GetChannels(
+                    id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+                )
+            )
+            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
+                _peer = raw.types.InputPeerChannel(
+                    channel_id=_raw_channel_id,
+                    access_hash=_r.chats[0].access_hash
+                )
+                if hasattr(user_client, 'peers_by_id'):
+                    user_client.peers_by_id[pvt_chat_id] = _peer
+                LOGGER.info(f"[PrivateBatch] Channel peer resolved and cached")
+        except Exception as e:
+            LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
+
         CHUNK = 200
         all_messages = []
         for i in range(0, len(message_ids), CHUNK):
@@ -1074,7 +1093,11 @@ def setup_pbatch_handler(app: Client):
                 chunk_msgs = await user_client.get_messages(
                     chat_id=pvt_chat_id, message_ids=chunk_ids
                 )
-                all_messages.extend(chunk_msgs)
+                if chunk_msgs:
+                    all_messages.extend(chunk_msgs)
+            except PeerIdInvalid:
+                LOGGER.warning(f"[PrivateBatch] PeerIdInvalid for chunk, skipping {len(chunk_ids)} msgs")
+                fail_count += len(chunk_ids)
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
