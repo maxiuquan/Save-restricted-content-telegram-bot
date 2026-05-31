@@ -1005,6 +1005,18 @@ def setup_pbatch_handler(app: Client):
 
         cancel_flags.pop(chat_id, None)
 
+        # Tell user we're starting before any slow operation
+        try:
+            await status_message.edit_text(
+                "**⏳ 正在登录用户客户端...**",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                ]]),
+            )
+        except Exception:
+            pass
+
         user_client = await get_user_client(user_id, session_id)
         if user_client is None:
             await status_message.edit_text(
@@ -1077,6 +1089,19 @@ def setup_pbatch_handler(app: Client):
 
         message_ids = list(range(start_message_id, start_message_id + count))
 
+        # Update status before fetch loop (could take a while with fallback)
+        try:
+            total_chunks = (len(message_ids) + 199) // 200
+            await status_message.edit_text(
+                f"**⏳ 正在获取消息...**\n共 `{len(message_ids)}` 条，分 `{total_chunks}` 批获取",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                ]]),
+            )
+        except Exception:
+            pass
+
         CHUNK = 200
         all_messages = []
         for i in range(0, len(message_ids), CHUNK):
@@ -1126,6 +1151,18 @@ def setup_pbatch_handler(app: Client):
             # ✅ use safe_stop_client
             await safe_stop_client(user_client)
             return
+
+        # Notify user how many messages were fetched before starting downloads
+        try:
+            await status_message.edit_text(
+                f"**⏳ 已获取 `{len(all_messages)}` 条消息，即将开始下载...**",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
+                ]]),
+            )
+        except Exception:
+            pass
 
         last_edit = time()
 
