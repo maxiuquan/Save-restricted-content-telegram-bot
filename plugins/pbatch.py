@@ -1023,7 +1023,7 @@ def setup_pbatch_handler(app: Client):
                         _human_tot = _tot / 1048576
                         _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_sl),
+                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True, status_line=_sl),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -1132,6 +1132,8 @@ def setup_pbatch_handler(app: Client):
         missing_count = count - len(all_messages)
         if missing_count > 0:
             LOGGER.info(f"[PrivateBatch] {missing_count}/{count} messages not found in channel (deleted)")
+
+        effective_total = len(all_messages)
 
         if not all_messages:
             try:
@@ -1360,10 +1362,10 @@ def setup_pbatch_handler(app: Client):
                 fail_count += 1
 
             now = time()
-            if idx % 5 == 0 or idx == count or (now - last_edit) >= 5:
+            if idx % 5 == 0 or idx == effective_total or (now - last_edit) >= 5:
                 try:
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True),
+                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
