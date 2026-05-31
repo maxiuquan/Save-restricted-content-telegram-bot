@@ -802,6 +802,22 @@ def setup_pbatch_handler(app: Client):
                         duration = video.duration or 0
                         width    = video.width or 1280
                         height   = video.height or 720
+
+                        _pub_thumb = thumbnail_file_id
+                        if not _pub_thumb and video.thumbs:
+                            try:
+                                _thumb_obj = video.thumbs[-1]
+                                _thumb_fname = f"Assets/pub_thumb_{source_message.id}_{int(time())}.jpg"
+                                _pub_thumb_path = await client.download_media(
+                                    _thumb_obj.file_id, file_name=_thumb_fname
+                                )
+                                if _pub_thumb_path and os.path.exists(_pub_thumb_path):
+                                    _pub_thumb = _pub_thumb_path
+                                else:
+                                    _pub_thumb = None
+                            except Exception:
+                                _pub_thumb = None
+
                         try:
                             await client.send_video(
                                 chat_id=chat_id,
@@ -810,7 +826,7 @@ def setup_pbatch_handler(app: Client):
                                 duration=duration,
                                 width=width,
                                 height=height,
-                                thumb=thumbnail_file_id,
+                                thumb=_pub_thumb,
                                 supports_streaming=True,
                                 parse_mode=ParseMode.MARKDOWN if source_message.caption else None,
                             )
@@ -824,6 +840,13 @@ def setup_pbatch_handler(app: Client):
                                 height=height,
                                 supports_streaming=True,
                             )
+
+                        if _pub_thumb and isinstance(_pub_thumb, str) and os.path.exists(_pub_thumb):
+                            try:
+                                os.remove(_pub_thumb)
+                            except Exception:
+                                pass
+
                         success_count += 1
 
                     else:
@@ -1201,14 +1224,19 @@ def setup_pbatch_handler(app: Client):
                                 _thumbs = chat_message.document.thumbs
                             if _thumbs:
                                 _thumb_obj = _thumbs[-1]
+                                os.makedirs("Assets", exist_ok=True)
                                 _thumb_fname = f"Assets/orig_thumb_{chat_message.id}_{int(time())}.jpg"
                                 try:
                                     _orig_thumb = await user_client.download_media(
                                         _thumb_obj.file_id, file_name=_thumb_fname
                                     )
-                                except Exception:
+                                    if _orig_thumb and not os.path.exists(_orig_thumb):
+                                        _orig_thumb = None
+                                except Exception as thumb_dl_err:
+                                    LOGGER.warning(f"[PrivateBatch] Thumbnail download failed for msg {chat_message.id}: {thumb_dl_err}")
                                     _orig_thumb = None
-                        except Exception:
+                        except Exception as thumb_err:
+                            LOGGER.warning(f"[PrivateBatch] Thumbnail extraction failed for msg {chat_message.id}: {thumb_err}")
                             _orig_thumb = None
 
                         _upload_thumb = (
