@@ -1059,6 +1059,7 @@ def setup_pbatch_handler(app: Client):
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
         fail_count     = 0
+        missing_count  = 0
         _processed_groups = set()
 
         try:
@@ -1126,6 +1127,11 @@ def setup_pbatch_handler(app: Client):
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
+
+        # Calculate how many messages don't exist in the channel
+        missing_count = count - len(all_messages)
+        if missing_count > 0:
+            LOGGER.info(f"[PrivateBatch] {missing_count}/{count} messages not found in channel (deleted)")
 
         if not all_messages:
             try:
@@ -1392,12 +1398,16 @@ def setup_pbatch_handler(app: Client):
             return
 
         elapsed = int(time() - start_ts)
+
+        _missing_line = f"\n**⚠️ 频道已删除：** `{missing_count}` 条" if missing_count > 0 else ""
         completion_msg = await bot.send_message(
             chat_id=chat_id,
             text=(
                 f"**✅ 私密批量下载完成！**\n\n"
-                f"**✅ 成功：** `{success_count}`\n"
-                f"**❌ 失败：** `{fail_count}`\n"
+                f"**📥 请求下载：** `{count}` 条\n"
+                f"**✅ 下载成功：** `{success_count}`\n"
+                f"**❌ 下载失败：** `{fail_count}`"
+                f"{_missing_line}\n"
                 f"**⏱ 耗时：** `{elapsed}s`\n\n"
                 "📂 打开 **Telegram → 保存的消息** 查找你的文件。"
             ),
