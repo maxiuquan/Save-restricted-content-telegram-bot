@@ -5,6 +5,8 @@ import asyncio
 try:
     import uvloop
     uvloop.install()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     print("✅ uvloop installed — event loop boosted!")
 except ImportError:
     print("⚠️ uvloop not available (Windows?), using default asyncio loop")
