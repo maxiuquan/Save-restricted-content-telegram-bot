@@ -1053,6 +1053,28 @@ def setup_pbatch_handler(app: Client):
             await safe_stop_client(user_client)
             return
 
+        # 显式解析 peer，确保用户客户端能访问该频道
+        try:
+            await user_client.get_chat(pvt_chat_id)
+        except Exception as e:
+            LOGGER.error(
+                f"[PrivateBatch] Cannot access chat {pvt_chat_id} "
+                f"for user {user_id}: {e}"
+            )
+            try:
+                await status_message.edit_text(
+                    "**❌ 无法访问该频道。\n"
+                    "请确保登录的账号是该频道/群组的成员。**\n\n"
+                    f"错误：`{str(e)[:60]}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+            _cleanup_bg()
+            _del_state(chat_id)
+            await safe_stop_client(user_client)
+            return
+
         message_ids = list(range(start_message_id, start_message_id + count))
 
         CHUNK = 200
