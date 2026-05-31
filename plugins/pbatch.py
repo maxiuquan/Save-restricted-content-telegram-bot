@@ -1037,22 +1037,10 @@ def setup_pbatch_handler(app: Client):
         _current_status = ""
         _file_progress = [0, 0]  # [current, total] for per-file download progress
 
-        def _on_file_progress(current, total, *args):
+        def _file_progress_cb(current, total, *args):
             _file_progress[0] = current
             _file_progress[1] = total
-            action, progress_msg, start_time, bar_style, filled, empty = args[:6]
-            elapsed = time() - start_time
-            speed = current / elapsed if elapsed > 0 else 0
-            pct = current / total * 100 if total else 0
-            est = int((total - current) / speed) if speed > 0 else 0
-            try:
-                _update = progress_msg.edit_text(
-                    bar_style.format(percentage=pct, current=current, total=total, speed=speed, est_time=est),
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-                asyncio.run_coroutine_threadsafe(_update, asyncio.get_event_loop())
-            except Exception:
-                pass
+            Leaves.progress_for_pyrogram(current, total, *args)
 
         def _cleanup_bg():
             nonlocal _progress_running
@@ -1222,7 +1210,7 @@ def setup_pbatch_handler(app: Client):
                     )
 
                     media_path = await chat_message.download(
-                        progress=_on_file_progress,
+                        progress=_file_progress_cb,
                         progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
                     )
 
