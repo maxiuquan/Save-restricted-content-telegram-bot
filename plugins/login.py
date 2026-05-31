@@ -676,7 +676,7 @@ def setup_login_handler(app: Client):
         return buttons
 
     async def _safe_edit(message, text: str, reply_markup=None):
-        """Edit a message safely, ignoring MessageNotModified errors."""
+        """Edit a message safely. Falls back to new message on FloodWait."""
         try:
             await message.edit_text(
                 text,
@@ -685,5 +685,18 @@ def setup_login_handler(app: Client):
             )
         except MessageNotModified:
             pass
+        except FloodWait as e:
+            LOGGER.warning(
+                f"[SafeEdit] FloodWait {e.value}s on edit, "
+                "sending new message instead"
+            )
+            try:
+                await message.reply_text(
+                    text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup,
+                )
+            except:
+                pass
         except Exception as e:
             LOGGER.error(f"Message edit error: {e}")
