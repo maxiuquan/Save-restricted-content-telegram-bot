@@ -1007,12 +1007,16 @@ def setup_pbatch_handler(app: Client):
 
         async def _bg_update():
             while _progress_running:
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
                 if not _progress_running:
                     break
                 try:
+                    _sl = _current_status
+                    if _file_progress[1] > 0:
+                        _pct = _file_progress[0] / _file_progress[1] * 100
+                        _sl += f" {_pct:.0f}%"
                     await status_message.edit_text(
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_current_status),
+                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_sl),
                         parse_mode=ParseMode.MARKDOWN,
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -1024,6 +1028,24 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         _current_status = ""
+        _file_progress = [0, 0]  # [current, total] for per-file download progress
+
+        def _on_file_progress(current, total, *args):
+            _file_progress[0] = current
+            _file_progress[1] = total
+            action, progress_msg, start_time, bar_style, filled, empty = args[:6]
+            elapsed = time() - start_time
+            speed = current / elapsed if elapsed > 0 else 0
+            pct = current / total * 100 if total else 0
+            est = int((total - current) / speed) if speed > 0 else 0
+            try:
+                _update = progress_msg.edit_text(
+                    bar_style.format(percentage=pct, current=current, total=total, speed=speed, est_time=est),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                asyncio.run_coroutine_threadsafe(_update, asyncio.get_event_loop())
+            except Exception:
+                pass
 
         def _cleanup_bg():
             nonlocal _progress_running
@@ -1193,7 +1215,7 @@ def setup_pbatch_handler(app: Client):
                     )
 
                     media_path = await chat_message.download(
-                        progress=Leaves.progress_for_pyrogram,
+                        progress=_on_file_progress,
                         progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
                     )
 
