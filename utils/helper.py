@@ -674,7 +674,7 @@ async def processMediaGroup(
             forwards_restricted = "forwards_restricted" in err_str or "chat_forwards_restricted" in err_str
 
             if forwards_restricted:
-                LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload")
+                LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload as group")
                 try:
                     await progress_message.edit_text(
                         "**📥 频道禁止转发，正在下载并重新上传...**"
@@ -684,74 +684,122 @@ async def processMediaGroup(
 
                 upload_client = user_client if user_client else bot
                 upload_target = "me" if user_client else message.chat.id
-                dl_success = 0
-                total = sum(1 for m in media_group_messages if m.photo or m.video or m.document or m.audio)
 
+                # Download all first
+                total = sum(1 for m in media_group_messages if m.photo or m.video or m.document or m.audio)
+                downloaded = []
                 for idx, msg in enumerate(media_group_messages, 1):
                     if not (msg.photo or msg.video or msg.document or msg.audio):
                         continue
                     try:
-                        caption_text = await get_parsed_msg(
-                            msg.caption or "", msg.caption_entities
-                        )
-
                         await progress_message.edit_text(
-                            f"**📥 下载中 ({dl_success + 1}/{total})...**"
+                            f"**📥 下载媒体组 ({len(downloaded) + 1}/{total})...**"
                         )
-
                         dl_start = time()
                         dl_path = await msg.download(
                             progress=Leaves.progress_for_pyrogram,
                             progress_args=progressArgs("📥 下载中", progress_message, dl_start),
                         )
-                        if not dl_path or not os.path.exists(dl_path):
-                            continue
-
-                        await progress_message.edit_text(
-                            f"**📤 上传中 ({dl_success + 1}/{total})...**"
-                        )
-
-                        try:
-                            if msg.photo:
-                                await upload_client.send_photo(
-                                    chat_id=upload_target, photo=dl_path, caption=caption_text,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.video:
-                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                                await upload_client.send_video(
-                                    chat_id=upload_target, video=dl_path, caption=caption_text,
-                                    duration=msg.video.duration or 0,
-                                    width=msg.video.width or 0, height=msg.video.height or 0,
-                                    supports_streaming=True, thumb=_thumb,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.document:
-                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                                await upload_client.send_document(
-                                    chat_id=upload_target, document=dl_path, caption=caption_text,
-                                    thumb=_thumb,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            elif msg.audio:
-                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                                await upload_client.send_audio(
-                                    chat_id=upload_target, audio=dl_path, caption=caption_text,
-                                    duration=msg.audio.duration or 0, thumb=_thumb,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("📤 上传中", progress_message, time()),
-                                )
-                            dl_success += 1
-                        finally:
-                            try:
-                                os.remove(dl_path)
-                            except Exception:
-                                pass
+                        if dl_path and os.path.exists(dl_path):
+                            caption_text = await get_parsed_msg(
+                                msg.caption or "", msg.caption_entities
+                            )
+                            downloaded.append((msg, dl_path, caption_text))
                     except Exception as dl_e:
-                        LOGGER.warning(f"[MediaGroup] Download+upload item {idx} failed: {dl_e}")
+                        LOGGER.warning(f"[MediaGroup] Download item {idx} failed, skipping: {dl_e}")
+
+                if not downloaded:
+                    try:
+                        await progress_message.delete()
+                    except Exception:
+                        pass
+                    if user_client:
+                        await bot.send_message(
+                            chat_id=message.chat.id,
+                            text="**❌ 媒体组下载失败，可能已被删除。**",
+                        )
+                    return False
+
+                try:
+                    await progress_message.edit_text(
+                        f"**📤 上传媒体组 ({len(downloaded)} 文件)...**"
+                    )
+                except Exception:
+                    pass
+
+                # Build local media group
+                local_media = []
+                for orig_msg, dl_path, caption_text in downloaded:
+                    try:
+                        if orig_msg.photo:
+                            local_media.append(InputMediaPhoto(media=dl_path, caption=caption_text))
+                        elif orig_msg.video:
+                            _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
+                            local_media.append(InputMediaVideo(
+                                media=dl_path, caption=caption_text,
+                                duration=orig_msg.video.duration or 0,
+                                width=orig_msg.video.width or 0,
+                                height=orig_msg.video.height or 0,
+                                supports_streaming=True, thumb=_thumb,
+                            ))
+                        elif orig_msg.document:
+                            _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
+                            local_media.append(InputMediaDocument(
+                                media=dl_path, caption=caption_text, thumb=_thumb,
+                            ))
+                        elif orig_msg.audio:
+                            _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
+                            local_media.append(InputMediaAudio(
+                                media=dl_path, caption=caption_text,
+                                duration=orig_msg.audio.duration or 0, thumb=_thumb,
+                            ))
+                    except Exception as build_e:
+                        LOGGER.warning(f"[MediaGroup] Build media item failed: {build_e}")
+
+                upload_ok = False
+                if local_media:
+                    try:
+                        await upload_client.send_media_group(
+                            chat_id=upload_target, media=local_media
+                        )
+                        upload_ok = True
+                    except Exception as group_e:
+                        LOGGER.warning(f"[MediaGroup] send_media_group with local files failed: {group_e}, uploading individually...")
+                        for local_item in local_media:
+                            try:
+                                _caption = local_item.caption
+                                if isinstance(local_item, InputMediaPhoto):
+                                    await upload_client.send_photo(
+                                        chat_id=upload_target, photo=local_item.media, caption=_caption,
+                                    )
+                                elif isinstance(local_item, InputMediaVideo):
+                                    await upload_client.send_video(
+                                        chat_id=upload_target, video=local_item.media, caption=_caption,
+                                        duration=getattr(local_item, "duration", 0),
+                                        width=getattr(local_item, "width", 0),
+                                        height=getattr(local_item, "height", 0),
+                                        supports_streaming=True, thumb=getattr(local_item, "thumb", None),
+                                    )
+                                elif isinstance(local_item, InputMediaDocument):
+                                    await upload_client.send_document(
+                                        chat_id=upload_target, document=local_item.media, caption=_caption,
+                                        thumb=getattr(local_item, "thumb", None),
+                                    )
+                                elif isinstance(local_item, InputMediaAudio):
+                                    await upload_client.send_audio(
+                                        chat_id=upload_target, audio=local_item.media, caption=_caption,
+                                        duration=getattr(local_item, "duration", 0),
+                                        thumb=getattr(local_item, "thumb", None),
+                                    )
+                            except Exception as item_e:
+                                LOGGER.warning(f"[MediaGroup] Individual upload failed: {item_e}")
+                        upload_ok = True  # partial success is still OK
+
+                for _, dl_path, _ in downloaded:
+                    try:
+                        os.remove(dl_path)
+                    except Exception:
+                        pass
 
                 try:
                     await progress_message.delete()
@@ -762,11 +810,11 @@ async def processMediaGroup(
                         chat_id=message.chat.id,
                         text=(
                             f"**✅ 媒体组已发送到你的收藏夹！**\n"
-                            f"**✅ 成功：** `{dl_success}`"
-                            + (f"\n**❌ 失败：** `{len([m for m in media_group_messages if m.photo or m.video or m.document or m.audio]) - dl_success}`" if dl_success == 0 else "")
+                            f"**✅ 成功：** `{len(downloaded)}`"
+                            + (f"\n**❌ 失败：** `{total - len(downloaded)}`" if len(downloaded) < total else "")
                         ),
                     )
-                return True
+                return upload_ok
 
             LOGGER.info(f"[MediaGroup] send_media_group failed, copying individually: {e}")
             try:
