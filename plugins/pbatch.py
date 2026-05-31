@@ -1094,8 +1094,8 @@ def setup_pbatch_handler(app: Client):
                 pass
             _cleanup_bg()
             _del_state(chat_id)
-            # ✅ use cleanup_persistent_client
-            await cleanup_persistent_client(user_client)
+            # ✅ use safe_stop_client
+            await safe_stop_client(user_client)
             return
 
         last_edit = time()
@@ -1113,7 +1113,7 @@ def setup_pbatch_handler(app: Client):
                     pass
                 _cleanup_bg()
                 _del_state(chat_id)
-                await cleanup_persistent_client(user_client)
+                await safe_stop_client(user_client)
                 return
 
             if not chat_message or not chat_message.id:
@@ -1426,7 +1426,7 @@ def setup_pbatch_handler(app: Client):
                                 _del_state(chat_id)
                                 if os.path.exists(media_path):
                                     os.remove(media_path)
-                                await cleanup_persistent_client(user_client)
+                                await safe_stop_client(user_client)
                                 return
                             except Exception as up_e:
                                 LOGGER.warning(f"[PrivateBatch] Upload attempt {up_attempt} failed for msg {chat_message.id}: {up_e}")
@@ -1532,7 +1532,7 @@ def setup_pbatch_handler(app: Client):
                         pass
                     _cleanup_bg()
                     _del_state(chat_id)
-                    await cleanup_persistent_client(user_client)
+                    await safe_stop_client(user_client)
                     return
                 except Exception as e:
                     LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}\n{traceback.format_exc()}")
@@ -1572,5 +1572,5 @@ def setup_pbatch_handler(app: Client):
 
         _del_state(chat_id)
 
-        # ✅ use cleanup_persistent_client — removes session file from disk
-        await cleanup_persistent_client(user_client)
+        # ✅ use safe_stop_client — removes session file from disk
+        await safe_stop_client(user_client)
