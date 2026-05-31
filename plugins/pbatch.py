@@ -975,12 +975,12 @@ def setup_pbatch_handler(app: Client):
     # Private batch download
     # ────────────────────────────────────────────────────────────────────
 
-    async def _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids):
+    async def _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids, access_hash):
         """Fetch messages from private channel via raw API, bypassing peer resolution."""
         raw_channel_id = int(str(pvt_chat_id)[4:])
         result = await user_client.invoke(
             raw.functions.channels.GetMessages(
-                channel=raw.types.InputChannel(channel_id=raw_channel_id, access_hash=0),
+                channel=raw.types.InputChannel(channel_id=raw_channel_id, access_hash=access_hash),
                 id=[raw.types.InputMessageID(id=mid) for mid in chunk_ids]
             )
         )
@@ -1094,6 +1094,22 @@ def setup_pbatch_handler(app: Client):
 
         message_ids = list(range(start_message_id, start_message_id + count))
 
+        # Pre-resolve channel access_hash via GetChannels (needed for raw API fallback)
+        _channel_access_hash = 0
+        try:
+            _raw_channel_id = int(str(pvt_chat_id)[4:])
+            _r = await asyncio.wait_for(
+                user_client.invoke(raw.functions.channels.GetChannels(
+                    id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+                )),
+                timeout=15
+            )
+            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
+                _channel_access_hash = _r.chats[0].access_hash
+                LOGGER.info(f"[PrivateBatch] Resolved channel access_hash via GetChannels")
+        except Exception as e:
+            LOGGER.warning(f"[PrivateBatch] GetChannels pre-resolve failed, will use access_hash=0: {e}")
+
         # Update status before fetch loop (could take a while with fallback)
         try:
             total_chunks = (len(message_ids) + 199) // 200
@@ -1130,7 +1146,7 @@ def setup_pbatch_handler(app: Client):
             if not chunk_msgs:
                 try:
                     chunk_msgs = await asyncio.wait_for(
-                        _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids),
+                            _fetch_private_chunk_raw(user_client, pvt_chat_id, chunk_ids, _channel_access_hash),
                         timeout=30
                     )
                 except Exception as e:
