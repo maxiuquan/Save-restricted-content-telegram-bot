@@ -586,6 +586,7 @@ async def processMediaGroup(
     log_group_id=None,
     log_user=None,
     log_url=None,
+    thumbnail_path=None,
 ):
     media_group_messages = await chat_message.get_media_group()
     valid_media = []
@@ -718,24 +719,28 @@ async def processMediaGroup(
                                     progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.video:
+                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
                                 await upload_client.send_video(
                                     chat_id=upload_target, video=dl_path, caption=caption_text,
                                     duration=msg.video.duration or 0,
                                     width=msg.video.width or 0, height=msg.video.height or 0,
-                                    supports_streaming=True,
+                                    supports_streaming=True, thumb=_thumb,
                                     progress=Leaves.progress_for_pyrogram,
                                     progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.document:
+                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
                                 await upload_client.send_document(
                                     chat_id=upload_target, document=dl_path, caption=caption_text,
+                                    thumb=_thumb,
                                     progress=Leaves.progress_for_pyrogram,
                                     progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
                             elif msg.audio:
+                                _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
                                 await upload_client.send_audio(
                                     chat_id=upload_target, audio=dl_path, caption=caption_text,
-                                    duration=msg.audio.duration or 0,
+                                    duration=msg.audio.duration or 0, thumb=_thumb,
                                     progress=Leaves.progress_for_pyrogram,
                                     progress_args=progressArgs("📤 上传中", progress_message, time()),
                                 )
