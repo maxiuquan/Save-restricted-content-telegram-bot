@@ -764,12 +764,15 @@ def setup_pbatch_handler(app: Client):
 
         for idx, source_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
-                await status_message.edit_text(
-                    f"**⛔ 用户已取消批量下载。**\n\n"
-                    f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                    f"**📊 已处理：** `{idx - 1}/{count}`",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                try:
+                    await status_message.edit_text(
+                        f"**⛔ 用户已取消批量下载。**\n\n"
+                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+                        f"**📊 已处理：** `{idx - 1}/{count}`",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    pass
                 _progress_running = False
                 try:
                     _bg_task.cancel()
@@ -1066,11 +1069,14 @@ def setup_pbatch_handler(app: Client):
                 fail_count += len(chunk_ids)
 
         if not all_messages:
-            await status_message.edit_text(
-                "**❌ 无法获取任何消息。\n"
-                "请确保登录的账号是该频道/群组的成员。**",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            try:
+                await status_message.edit_text(
+                    "**❌ 无法获取任何消息。\n"
+                    "请确保登录的账号是该频道/群组的成员。**",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
             _cleanup_bg()
             _del_state(chat_id)
             # ✅ use safe_stop_client
@@ -1081,12 +1087,15 @@ def setup_pbatch_handler(app: Client):
 
         for idx, chat_message in enumerate(all_messages, 1):
             if cancel_flags.get(chat_id):
-                await status_message.edit_text(
-                    f"**⛔ 用户已取消批量下载。**\n\n"
-                    f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
-                    f"**📊 已处理：** `{idx - 1}/{count}`",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                try:
+                    await status_message.edit_text(
+                        f"**⛔ 用户已取消批量下载。**\n\n"
+                        f"**✅ 完成：** `{success_count}`  **❌ 失败：** `{fail_count}`\n"
+                        f"**📊 已处理：** `{idx - 1}/{count}`",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    pass
                 _cleanup_bg()
                 _del_state(chat_id)
                 await safe_stop_client(user_client)
