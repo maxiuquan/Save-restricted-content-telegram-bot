@@ -27,9 +27,9 @@ from core import prem_plan1, prem_plan2, prem_plan3, user_sessions
 from datetime import datetime
 
 # Timeout constants
-TIMEOUT_OTP = 86400   # 24 hours (accommodates long FloodWait)
-TIMEOUT_2FA = 86400   # 24 hours (accommodates long FloodWait)
-DB_TIMEOUT = 5.0      # Database timeout
+TIMEOUT_OTP = 600   # 10 minutes
+TIMEOUT_2FA = 300   # 5 minutes
+DB_TIMEOUT = 5.0    # Database timeout
 
 # In-memory session state: { chat_id: {...} }
 session_data = {}
@@ -344,7 +344,7 @@ def setup_login_handler(app: Client):
 
         try:
             await asyncio.wait_for(user_client.connect(), timeout=10.0)
-            code = await user_client.send_code(phone)
+            code = await asyncio.wait_for(user_client.send_code(phone), timeout=10.0)
 
             state.update({
                 "stage":      "otp",
@@ -422,7 +422,10 @@ def setup_login_handler(app: Client):
         code        = state["code"]
 
         try:
-            await user_client.sign_in(phone, code.phone_code_hash, otp)
+            await asyncio.wait_for(
+                user_client.sign_in(phone, code.phone_code_hash, otp),
+                timeout=10.0
+            )
             await _generate_session(client, message, state)
             try:
                 await status_msg.delete()
@@ -496,7 +499,10 @@ def setup_login_handler(app: Client):
         )
 
         try:
-            await user_client.check_password(password=password)
+            await asyncio.wait_for(
+                user_client.check_password(password=password),
+                timeout=10.0
+            )
             await _generate_session(client, message, state)
             try:
                 await status_msg.delete()

@@ -12,7 +12,6 @@ from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
-from pyrogram.errors import FloodWait
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -23,36 +22,6 @@ from pyrogram.types import (
 
 from .logging_setup import LOGGER
 
-
-def apply_flood_premium_wait_patch():
-    from pyrogram.session import Session
-    import pyrogram
-
-    _original_invoke = Session.invoke
-
-    async def _patched_invoke(
-        self,
-        query: "pyrogram.raw.core.TLObject",
-        retries: int = Session.MAX_RETRIES,
-        timeout: float = Session.WAIT_TIMEOUT,
-        sleep_threshold: float = Session.SLEEP_THRESHOLD
-    ):
-        while True:
-            try:
-                return await _original_invoke(self, query, retries, timeout, sleep_threshold)
-            except FloodWait as e:
-                wait_seconds = e.value
-                LOGGER.warning(
-                    f"[FloodWait Patch] Waiting {wait_seconds}s "
-                    f"before retrying upload chunk (sleep_threshold was {sleep_threshold}s)..."
-                )
-                await asyncio.sleep(wait_seconds)
-
-    Session.invoke = _patched_invoke
-    LOGGER.info("[FloodWait Patch] Applied to pyrogram.session.Session.invoke")
-
-
-apply_flood_premium_wait_patch()
 
 SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
 
