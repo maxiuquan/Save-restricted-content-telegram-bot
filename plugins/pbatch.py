@@ -1207,23 +1207,16 @@ def setup_pbatch_handler(app: Client):
                     media_group_msgs = await chat_message.get_media_group()
                     group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
                     _current_status = f"🖼 媒体组 {idx}/{count}"
-                    result = None
-                    for _mg_retry in range(3):
-                        try:
-                            result = await processMediaGroup(
-                                chat_message, bot, status_message,
-                                user_client=user_client,
-                                thumbnail_path=thumbnail_path,
-                            )
-                            break
-                        except FloodWait as fw:
-                            _wait = fw.value if hasattr(fw, 'value') else 30
-                            LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s on media group upload, waiting...")
-                            await asyncio.sleep(_wait + 3)
+                    result = await processMediaGroup(
+                        chat_message, bot, status_message,
+                        user_client=user_client,
+                        thumbnail_path=thumbnail_path,
+                    )
                     if result:
                         success_count += group_size
                     else:
                         fail_count += group_size
+                    await asyncio.sleep(3)
                     continue
 
                 if chat_message.media:
@@ -1241,11 +1234,11 @@ def setup_pbatch_handler(app: Client):
                             progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
                         )
                     except CancelDownload:
-                         try:
-                             await progress_msg.delete()
-                         except Exception:
-                             pass
-                         break
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+                        break
 
                     if not media_path or not os.path.exists(media_path):
                         fail_count += 1
@@ -1263,53 +1256,38 @@ def setup_pbatch_handler(app: Client):
                     )
 
                     _current_status = f"📤 上传 {idx}/{count}"
-                    _upload_done = False
                     try:
-                        for _up_retry in range(3):
+                        await send_media_to_saved(
+                            user_client=user_client, bot=bot,
+                            message=status_message,
+                            media_path=media_path, media_type=media_type,
+                            caption=parsed_caption,
+                            progress_message=progress_msg,
+                            start_time=dl_start,
+                            thumbnail_path=thumbnail_path,
+                        )
+                        success_count += 1
+                        if LOG_GROUP_ID and log_user and os.path.exists(media_path):
                             try:
-                                await send_media_to_saved(
-                                    user_client=user_client,
+                                await log_file_to_group(
                                     bot=bot,
-                                    message=status_message,
-                                    media_path=media_path,
+                                    log_group_id=LOG_GROUP_ID,
+                                    user=log_user,
+                                    url=url,
+                                    file_path=media_path,
                                     media_type=media_type,
-                                    caption=parsed_caption,
-                                    progress_message=progress_msg,
-                                    start_time=dl_start,
+                                    caption_original=parsed_caption,
+                                    channel_name=None,
                                     thumbnail_path=thumbnail_path,
                                 )
-                                _upload_done = True
-                                break
-                            except FloodWait as fw:
-                                _wait = fw.value if hasattr(fw, 'value') else 30
-                                LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s on upload, waiting then retrying...")
-                                await asyncio.sleep(_wait + 3)
-                        if _upload_done:
-                            success_count += 1
-                            if LOG_GROUP_ID and log_user and os.path.exists(media_path):
-                                try:
-                                    await log_file_to_group(
-                                        bot=bot,
-                                        log_group_id=LOG_GROUP_ID,
-                                        user=log_user,
-                                        url=url,
-                                        file_path=media_path,
-                                        media_type=media_type,
-                                        caption_original=parsed_caption,
-                                        channel_name=None,
-                                        thumbnail_path=thumbnail_path,
-                                    )
-                                except Exception as log_err:
-                                    LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
+                            except Exception as log_err:
+                                LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
 
                     except AuthKeyUnregistered:
                         try:
                             await user_sessions.update_one(
                                 {"user_id": user_id},
                                 {"$pull": {"sessions": {"session_id": session_id}}}
-                            )
-                            LOGGER.warning(
-                                f"[AuthKey] Batch session {session_id} removed for user {user_id}"
                             )
                         except Exception:
                             pass
@@ -1340,15 +1318,25 @@ def setup_pbatch_handler(app: Client):
                     finally:
                         if os.path.exists(media_path):
                             os.remove(media_path)
+                        try:
+                            await progress_msg.delete()
+                        except Exception:
+                            pass
+
+                    await asyncio.sleep(3)
 
                 elif chat_message.text or chat_message.caption:
                     _current_status = f"📝 文字 {idx}/{count}"
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=parsed_text or parsed_caption,
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                    success_count += 1
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=parsed_text or parsed_caption,
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                        success_count += 1
+                    except Exception as text_e:
+                        LOGGER.warning(f"[PrivateBatch] Text send failed: {text_e}")
+                        fail_count += 1
                     if LOG_GROUP_ID and log_user:
                         try:
                             await log_file_to_group(
@@ -1362,12 +1350,17 @@ def setup_pbatch_handler(app: Client):
                         except Exception as log_err:
                             LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
 
+            except FloodWait as fw:
+                _wait = fw.value if hasattr(fw, 'value') else 60
+                LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s, waiting...")
+                await asyncio.sleep(_wait + 2)
+                fail_count += 1
             except Exception as e:
                 LOGGER.error(f"[PrivateBatch] Error processing msg {chat_message.id}: {e}")
                 fail_count += 1
 
             now = time()
-            if idx % 5 == 0 or idx == count or (now - last_edit) >= 3:
+            if idx % 5 == 0 or idx == count or (now - last_edit) >= 5:
                 try:
                     await status_message.edit_text(
                         _progress_text(idx, count, success_count, fail_count, start_ts, True),
@@ -1379,8 +1372,6 @@ def setup_pbatch_handler(app: Client):
                     last_edit = now
                 except Exception:
                     pass
-
-            await asyncio.sleep(0.3)
 
         _cleanup_bg()
 
