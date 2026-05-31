@@ -271,12 +271,6 @@ def setup_pbatch_handler(app: Client):
         return False, 0
 
     async def get_user_client(user_id: int, session_id: str):
-        """
-        ✅ FIXED: Uses create_optimized_user_client
-        with in_memory=True + no_updates=True.
-        - sqlite3 ProgrammingError: Cannot operate on a closed database — fix
-        - OSError: TCPTransport closed — fix
-        """
         user_session = await user_sessions.find_one({"user_id": user_id})
         if not user_session or not user_session.get("sessions"):
             return None
@@ -290,8 +284,11 @@ def setup_pbatch_handler(app: Client):
                 session_name=f"user_session_{user_id}_{session_id}",
                 session_string=session["session_string"],
             )
-            await client_obj.start()
+            await asyncio.wait_for(client_obj.start(), timeout=30)
             return client_obj
+        except asyncio.TimeoutError:
+            LOGGER.error(f"User client start timed out for {user_id} — session may be invalid")
+            return None
         except Exception as e:
             LOGGER.error(f"Failed to init user client for {user_id}: {e}")
             return None
