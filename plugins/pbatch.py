@@ -1201,11 +1201,19 @@ def setup_pbatch_handler(app: Client):
                     media_group_msgs = await chat_message.get_media_group()
                     group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
                     _current_status = f"🖼 媒体组 {idx}/{count}"
-                    result = await processMediaGroup(
-                        chat_message, bot, status_message,
-                        user_client=user_client,
-                        thumbnail_path=thumbnail_path,
-                    )
+                    result = None
+                    for _mg_retry in range(3):
+                        try:
+                            result = await processMediaGroup(
+                                chat_message, bot, status_message,
+                                user_client=user_client,
+                                thumbnail_path=thumbnail_path,
+                            )
+                            break
+                        except FloodWait as fw:
+                            _wait = fw.value if hasattr(fw, 'value') else 30
+                            LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s on media group upload, waiting...")
+                            await asyncio.sleep(_wait + 3)
                     if result:
                         success_count += group_size
                     else:
@@ -1249,34 +1257,44 @@ def setup_pbatch_handler(app: Client):
                     )
 
                     _current_status = f"📤 上传 {idx}/{count}"
+                    _upload_done = False
                     try:
-                        await send_media_to_saved(
-                            user_client=user_client,
-                            bot=bot,
-                            message=status_message,
-                            media_path=media_path,
-                            media_type=media_type,
-                            caption=parsed_caption,
-                            progress_message=progress_msg,
-                            start_time=dl_start,
-                            thumbnail_path=thumbnail_path,
-                        )
-                        success_count += 1
-                        if LOG_GROUP_ID and log_user and os.path.exists(media_path):
+                        for _up_retry in range(3):
                             try:
-                                await log_file_to_group(
+                                await send_media_to_saved(
+                                    user_client=user_client,
                                     bot=bot,
-                                    log_group_id=LOG_GROUP_ID,
-                                    user=log_user,
-                                    url=url,
-                                    file_path=media_path,
+                                    message=status_message,
+                                    media_path=media_path,
                                     media_type=media_type,
-                                    caption_original=parsed_caption,
-                                    channel_name=None,
+                                    caption=parsed_caption,
+                                    progress_message=progress_msg,
+                                    start_time=dl_start,
                                     thumbnail_path=thumbnail_path,
                                 )
-                            except Exception as log_err:
-                                LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
+                                _upload_done = True
+                                break
+                            except FloodWait as fw:
+                                _wait = fw.value if hasattr(fw, 'value') else 30
+                                LOGGER.warning(f"[PrivateBatch] FloodWait {_wait}s on upload, waiting then retrying...")
+                                await asyncio.sleep(_wait + 3)
+                        if _upload_done:
+                            success_count += 1
+                            if LOG_GROUP_ID and log_user and os.path.exists(media_path):
+                                try:
+                                    await log_file_to_group(
+                                        bot=bot,
+                                        log_group_id=LOG_GROUP_ID,
+                                        user=log_user,
+                                        url=url,
+                                        file_path=media_path,
+                                        media_type=media_type,
+                                        caption_original=parsed_caption,
+                                        channel_name=None,
+                                        thumbnail_path=thumbnail_path,
+                                    )
+                                except Exception as log_err:
+                                    LOGGER.warning(f"[PrivateBatch] Log error for msg {chat_message.id}: {log_err}")
 
                     except AuthKeyUnregistered:
                         try:
