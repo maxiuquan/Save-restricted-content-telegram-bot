@@ -11,6 +11,7 @@
 # ✅ Custom thumbnail support
 # ✅ Auto media type detection (video / audio / document)
 # ✅ Log to group
+# ✅ OPTIMIZED: Non-blocking progress + global semaphores + responsive UI
 
 import os
 import asyncio
@@ -26,7 +27,14 @@ from pyleaves import Leaves
 
 from config import COMMAND_PREFIX, LOG_GROUP_ID
 from utils import LOGGER, progressArgs, log_file_to_group
-from utils.helper import get_readable_file_size, get_readable_time, get_video_thumbnail
+from utils.helper import (
+    get_readable_file_size,
+    get_readable_time,
+    get_video_thumbnail,
+    safe_edit_progress,
+    GLOBAL_DOWNLOAD_SEMAPHORE,
+    GLOBAL_UPLOAD_SEMAPHORE,
+)
 from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -36,7 +44,7 @@ from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 MAX_FILE_SIZE   = 2 * 1024 ** 3    # 2 GB
 FREE_FILE_LIMIT = 500 * 1024 ** 2  # 500 MB
 DOWNLOAD_DIR    = "tgdl_downloads"
-PROGRESS_DELAY  = 3
+PROGRESS_DELAY  = 2.5              # ✅ Reduced from 3s for smoother updates
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -109,13 +117,13 @@ async def _upload_file(
         pct     = (current / total * 100) if total > 0 else 0
         bar     = _progress_bar(pct)
         try:
-            await status_msg.edit_text(
+            await safe_edit_progress(
+                status_msg,
                 f"📤 **Upload হচ্ছে...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
                 f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
                 f"⏳ **ETA:** `{get_readable_time(int(eta))}`",
-                parse_mode=ParseMode.MARKDOWN,
             )
             last_edit[0] = now
         except Exception:
@@ -125,107 +133,109 @@ async def _upload_file(
     audio_exts = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aac"}
     ext        = os.path.splitext(file_path)[1].lower()
 
-    try:
-        # Function to send media with FloodWait retry logic
-        async def send_with_retry(send_func):
-            max_retries = 3
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    return await send_func()
-                except FloodWait as e:
-                    wait_time = e.value
-                    retry_count += 1
-                    LOGGER.warning(
-                        f"[TgDL] FloodWait: waiting {wait_time} seconds "
-                        f"(retry {retry_count}/{max_retries})"
-                    )
-                    try:
-                        await status_msg.edit_text(
-                            f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
-                            f"__(Retry {retry_count}/{max_retries})__",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    except Exception:
-                        pass
-                    await asyncio.sleep(wait_time)
-            # Final attempt without retry
-            return await send_func()
-
-        if media_type == "video" or ext in video_exts:
-            thumb = thumbnail_path
-            if not thumb:
-                try:
-                    thumb = await get_video_thumbnail(file_path, None)
-                except Exception:
-                    thumb = None
-            async def send_video():
-                return await client.send_video(
-                    chat_id=chat_id,
-                    video=file_path,
-                    caption=caption,
-                    thumb=thumb,
-                    supports_streaming=True,
-                    parse_mode=ParseMode.MARKDOWN,
-                    progress=_progress,
-                )
-            await send_with_retry(send_video)
-            if thumb and thumb != thumbnail_path and os.path.exists(thumb):
-                os.remove(thumb)
-
-        elif media_type == "audio" or ext in audio_exts:
-            async def send_audio():
-                return await client.send_audio(
-                    chat_id=chat_id,
-                    audio=file_path,
-                    caption=caption,
-                    thumb=thumbnail_path,
-                    parse_mode=ParseMode.MARKDOWN,
-                    progress=_progress,
-                )
-            await send_with_retry(send_audio)
-
-        elif media_type == "photo":
-            async def send_photo():
-                return await client.send_photo(
-                    chat_id=chat_id,
-                    photo=file_path,
-                    caption=caption,
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            await send_with_retry(send_photo)
-
-        else:
-            # Default: send as document
-            async def send_document():
-                return await client.send_document(
-                    chat_id=chat_id,
-                    document=file_path,
-                    caption=caption,
-                    thumb=thumbnail_path,
-                    parse_mode=ParseMode.MARKDOWN,
-                    progress=_progress,
-                )
-            await send_with_retry(send_document)
-
-        elapsed = get_readable_time(int(time() - start_ts))
-        await status_msg.edit_text(
-            f"✅ **সফলভাবে পাঠানো হয়েছে!**\n\n"
-            f"📦 `{get_readable_file_size(file_size)}`\n"
-            f"⏱ সময়: `{elapsed}`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-
-    except Exception as e:
-        LOGGER.error(f"[TgDL] Upload failed: {e}")
+    # ✅ Use global upload semaphore to prevent MTProto flood and keep bot responsive
+    async with GLOBAL_UPLOAD_SEMAPHORE:
         try:
-            await status_msg.edit_text(
-                f"❌ **Upload ব্যর্থ:**\n`{str(e)[:200]}`",
-                parse_mode=ParseMode.MARKDOWN,
+            # Function to send media with FloodWait retry logic
+            async def send_with_retry(send_func):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        return await send_func()
+                    except FloodWait as e:
+                        wait_time = e.value
+                        retry_count += 1
+                        LOGGER.warning(
+                            f"[TgDL] FloodWait: waiting {wait_time} seconds "
+                            f"(retry {retry_count}/{max_retries})"
+                        )
+                        try:
+                            await safe_edit_progress(
+                                status_msg,
+                                f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
+                                f"__(Retry {retry_count}/{max_retries})__",
+                            )
+                        except Exception:
+                            pass
+                        await asyncio.sleep(wait_time)
+                # Final attempt without retry
+                return await send_func()
+
+            if media_type == "video" or ext in video_exts:
+                thumb = thumbnail_path
+                if not thumb:
+                    try:
+                        thumb = await get_video_thumbnail(file_path, None)
+                    except Exception:
+                        thumb = None
+                async def send_video():
+                    return await client.send_video(
+                        chat_id=chat_id,
+                        video=file_path,
+                        caption=caption,
+                        thumb=thumb,
+                        supports_streaming=True,
+                        parse_mode=ParseMode.MARKDOWN,
+                        progress=_progress,
+                    )
+                await send_with_retry(send_video)
+                if thumb and thumb != thumbnail_path and os.path.exists(thumb):
+                    os.remove(thumb)
+
+            elif media_type == "audio" or ext in audio_exts:
+                async def send_audio():
+                    return await client.send_audio(
+                        chat_id=chat_id,
+                        audio=file_path,
+                        caption=caption,
+                        thumb=thumbnail_path,
+                        parse_mode=ParseMode.MARKDOWN,
+                        progress=_progress,
+                    )
+                await send_with_retry(send_audio)
+
+            elif media_type == "photo":
+                async def send_photo():
+                    return await client.send_photo(
+                        chat_id=chat_id,
+                        photo=file_path,
+                        caption=caption,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                await send_with_retry(send_photo)
+
+            else:
+                # Default: send as document
+                async def send_document():
+                    return await client.send_document(
+                        chat_id=chat_id,
+                        document=file_path,
+                        caption=caption,
+                        thumb=thumbnail_path,
+                        parse_mode=ParseMode.MARKDOWN,
+                        progress=_progress,
+                    )
+                await send_with_retry(send_document)
+
+            elapsed = get_readable_time(int(time() - start_ts))
+            await safe_edit_progress(
+                status_msg,
+                f"✅ **সফলভাবে পাঠানো হয়েছে!**\n\n"
+                f"📦 `{get_readable_file_size(file_size)}`\n"
+                f"⏱ সময়: `{elapsed}`",
             )
-        except Exception:
-            pass
-        raise
+
+        except Exception as e:
+            LOGGER.error(f"[TgDL] Upload failed: {e}")
+            try:
+                await safe_edit_progress(
+                    status_msg,
+                    f"❌ **Upload ব্যর্থ:**\n`{str(e)[:200]}`",
+                )
+            except Exception:
+                pass
+            raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -245,9 +255,9 @@ async def _process_tg_download(
 
     media_obj, media_type = _get_media_obj(source_msg)
     if media_obj is None:
-        await status_msg.edit_text(
+        await safe_edit_progress(
+            status_msg,
             "❌ এই message-এ কোনো downloadable ফাইল নেই।",
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
@@ -256,12 +266,12 @@ async def _process_tg_download(
     max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
     if file_size > max_allowed:
-        await status_msg.edit_text(
+        await safe_edit_progress(
+            status_msg,
             f"❌ **ফাইল অনেক বড়!**\n\n"
             f"📦 ফাইল: `{get_readable_file_size(file_size)}`\n"
             f"🚫 সীমা: `{get_readable_file_size(max_allowed)}`\n\n"
             + ("💎 Premium এ আপগ্রেড করুন: /plans" if not is_premium else ""),
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
@@ -282,42 +292,44 @@ async def _process_tg_download(
         pct     = (current / total * 100) if total > 0 else 0
         bar     = "▓" * int(20 * pct / 100) + "░" * (20 - int(20 * pct / 100))
         try:
-            await status_msg.edit_text(
+            await safe_edit_progress(
+                status_msg,
                 f"⬇️ **Download হচ্ছে...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📥 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
                 f"⚡ **Speed:** `{get_readable_file_size(speed)}/s`\n"
                 f"⏳ **ETA:** `{get_readable_time(int(eta))}`",
-                parse_mode=ParseMode.MARKDOWN,
             )
             last_edit[0] = now
         except Exception:
             pass
 
     try:
-        file_path = await source_msg.download(
-            file_name=user_dir + "/",
-            progress=_dl_progress,
-        )
+        # ✅ Use global download semaphore to prevent overload
+        async with GLOBAL_DOWNLOAD_SEMAPHORE:
+            file_path = await source_msg.download(
+                file_name=user_dir + "/",
+                progress=_dl_progress,
+            )
     except Exception as e:
         LOGGER.error(f"[TgDL] Download failed for user {user_id}: {e}")
-        await status_msg.edit_text(
+        await safe_edit_progress(
+            status_msg,
             f"❌ **Download ব্যর্থ:**\n`{str(e)[:200]}`",
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     if not file_path or not os.path.exists(file_path):
-        await status_msg.edit_text(
+        await safe_edit_progress(
+            status_msg,
             "❌ ফাইল download সম্পন্ন হয়নি।",
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     # ── Upload ────────────────────────────────────────────────────────────────
-    await status_msg.edit_text(
+    await safe_edit_progress(
+        status_msg,
         "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
-        parse_mode=ParseMode.MARKDOWN,
     )
 
     # Fetch user's custom thumbnail

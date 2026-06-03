@@ -3,6 +3,7 @@
 # ✅ FIXED: in_memory=True + no_updates=True → sqlite3 + TCPTransport error fix
 # ✅ FIXED: AuthKeyUnregistered → session auto-remove + user notify
 # ✅ FIXED: safe_stop_client → OSError ignore
+# ✅ OPTIMIZED: Non-blocking progress + global semaphores + responsive UI
 
 import os
 import re
@@ -33,7 +34,13 @@ from utils import (
     send_media_to_saved,
     log_file_to_group,
 )
-from utils.helper import create_optimized_user_client, safe_stop_client
+from utils.helper import (
+    create_optimized_user_client,
+    safe_stop_client,
+    safe_edit_progress,
+    GLOBAL_DOWNLOAD_SEMAPHORE,
+    GLOBAL_UPLOAD_SEMAPHORE,
+)
 from core import (
     daily_limit,
     prem_plan1,
@@ -684,12 +691,9 @@ def setup_pbatch_handler(app: Client):
                 if not _progress_running:
                     break
                 try:
-                    await status_message.edit_text(
+                    await safe_edit_progress(
+                        status_message,
                         _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
                     )
                 except Exception:
                     pass
@@ -739,12 +743,9 @@ def setup_pbatch_handler(app: Client):
                         now = time()
                         if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
                             try:
-                                await status_message.edit_text(
+                                await safe_edit_progress(
+                                    status_message,
                                     _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
-                                    parse_mode=ParseMode.MARKDOWN,
-                                    reply_markup=InlineKeyboardMarkup([[
-                                        InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                    ]]),
                                 )
                                 last_edit = now
                             except Exception:
@@ -768,12 +769,9 @@ def setup_pbatch_handler(app: Client):
                         now = time()
                         if idx % 2 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                             try:
-                                await status_message.edit_text(
+                                await safe_edit_progress(
+                                    status_message,
                                     _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
-                                    parse_mode=ParseMode.MARKDOWN,
-                                    reply_markup=InlineKeyboardMarkup([[
-                                        InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                                    ]]),
                                 )
                                 last_edit = now
                             except Exception:
@@ -887,12 +885,9 @@ def setup_pbatch_handler(app: Client):
                 now = time()
                 if idx % 3 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                     try:
-                        await status_message.edit_text(
+                        await safe_edit_progress(
+                            status_message,
                             _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                            ]]),
                         )
                         last_edit = now
                     except Exception:
@@ -1101,12 +1096,9 @@ def setup_pbatch_handler(app: Client):
                         _human_cur = _cur / 1048576
                         _human_tot = _tot / 1048576
                         _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
-                    await status_message.edit_text(
+                    await safe_edit_progress(
+                        status_message,
                         _progress_text(idx, effective_total, success_count, fail_count, start_ts, True, status_line=_sl),
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                        ]]),
                     )
                 except Exception:
                     pass
@@ -1189,10 +1181,12 @@ def setup_pbatch_handler(app: Client):
                         )
 
                         try:
-                            media_path = await chat_message.download(
-                                progress=_file_progress_cb,
-                                progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
-                            )
+                            # ✅ Use global download semaphore to prevent overload
+                            async with GLOBAL_DOWNLOAD_SEMAPHORE:
+                                media_path = await chat_message.download(
+                                    progress=_file_progress_cb,
+                                    progress_args=progressArgs("📥 下载中", progress_msg, dl_start),
+                                )
                         except CancelDownload:
                             try:
                                 await progress_msg.delete()
@@ -1387,12 +1381,9 @@ def setup_pbatch_handler(app: Client):
                 now = time()
                 if idx % 5 == 0 or idx == effective_total or (now - last_edit) >= 5:
                     try:
-                        await status_message.edit_text(
+                        await safe_edit_progress(
+                            status_message,
                             _progress_text(idx, effective_total, success_count, fail_count, start_ts, True),
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-                            ]]),
                         )
                         last_edit = now
                     except Exception:

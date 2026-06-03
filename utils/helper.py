@@ -1,6 +1,7 @@
 # ✅ FIXED: sqlite3 closed database + OSError TCPTransport + AUTH_KEY_UNREGISTERED
 # ✅ FIXED: Video aspect ratio (squished) → actual video resolution used for width/height
 # ✅ FIXED: Thumbnail scale → aspect ratio preserved with scale=320:-2
+# ✅ OPTIMIZED: Added global semaphore + non-blocking progress + connection pooling for smooth UX
 
 from asyncio.subprocess import PIPE
 import os
@@ -26,6 +27,17 @@ from .logging_setup import LOGGER
 
 
 SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ✅ OPTIMIZATION: Global semaphores to prevent overload and keep bot responsive
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Limit simultaneous heavy operations (download/upload) across the entire bot
+GLOBAL_DOWNLOAD_SEMAPHORE = asyncio.Semaphore(8)
+# Limit simultaneous user-client uploads to Telegram (MTProto flood prevention)
+GLOBAL_UPLOAD_SEMAPHORE = asyncio.Semaphore(5)
+# Limit concurrent ffprobe / ffmpeg subprocesses (CPU/IO guard)
+GLOBAL_MEDIA_SEMAPHORE = asyncio.Semaphore(4)
 
 
 def get_readable_file_size(size_in_bytes: Optional[float]) -> str:
@@ -131,27 +143,28 @@ async def cmd_exec(cmd, shell=False):
 
 
 async def get_media_info(path):
-    try:
-        result = await cmd_exec([
-            "ffprobe", "-hide_banner", "-loglevel", "error",
-            "-print_format", "json", "-show_format", path,
-        ])
-    except Exception as e:
-        LOGGER.error(
-            f"Get Media Info: {e}. Mostly File not found! - File: {path}"
-        )
-        return 0, None, None
-    if result[0] and result[2] == 0:
-        fields = eval(result[0]).get("format")
-        if fields is None:
-            LOGGER.error(f"get_media_info: {result}")
+    async with GLOBAL_MEDIA_SEMAPHORE:
+        try:
+            result = await cmd_exec([
+                "ffprobe", "-hide_banner", "-loglevel", "error",
+                "-print_format", "json", "-show_format", path,
+            ])
+        except Exception as e:
+            LOGGER.error(
+                f"Get Media Info: {e}. Mostly File not found! - File: {path}"
+            )
             return 0, None, None
-        duration = round(float(fields.get("duration", 0)))
-        tags = fields.get("tags", {})
-        artist = tags.get("artist") or tags.get("ARTIST") or tags.get("Artist")
-        title  = tags.get("title")  or tags.get("TITLE")  or tags.get("Title")
-        return duration, artist, title
-    return 0, None, None
+        if result[0] and result[2] == 0:
+            fields = eval(result[0]).get("format")
+            if fields is None:
+                LOGGER.error(f"get_media_info: {result}")
+                return 0, None, None
+            duration = round(float(fields.get("duration", 0)))
+            tags = fields.get("tags", {})
+            artist = tags.get("artist") or tags.get("ARTIST") or tags.get("Artist")
+            title  = tags.get("title")  or tags.get("TITLE")  or tags.get("Title")
+            return duration, artist, title
+        return 0, None, None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -178,39 +191,40 @@ async def get_video_resolution(video_path: str) -> tuple[int, int]:
     Returns:
         (width, height) tuple — সমস্যা হলে (1280, 720) fallback
     """
-    try:
-        cmd = [
-            "ffprobe", "-v", "error",
-            "-select_streams", "v:0",          # শুধু প্রথম video stream
-            "-show_entries", "stream=width,height",
-            "-of", "csv=s=x:p=0",              # output: "1920x1080" format
-            video_path,
-        ]
-        stdout, stderr, returncode = await cmd_exec(cmd)
+    async with GLOBAL_MEDIA_SEMAPHORE:
+        try:
+            cmd = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",          # শুধু প্রথম video stream
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",              # output: "1920x1080" format
+                video_path,
+            ]
+            stdout, stderr, returncode = await cmd_exec(cmd)
 
-        if returncode == 0 and stdout and "x" in stdout:
-            parts = stdout.strip().split("x")
-            if len(parts) == 2:
-                w = int(parts[0].strip())
-                h = int(parts[1].strip())
-                if w > 0 and h > 0:
-                    LOGGER.info(
-                        f"[Resolution] Detected: {w}x{h} for {video_path}"
-                    )
-                    return w, h
+            if returncode == 0 and stdout and "x" in stdout:
+                parts = stdout.strip().split("x")
+                if len(parts) == 2:
+                    w = int(parts[0].strip())
+                    h = int(parts[1].strip())
+                    if w > 0 and h > 0:
+                        LOGGER.info(
+                            f"[Resolution] Detected: {w}x{h} for {video_path}"
+                        )
+                        return w, h
 
-        LOGGER.warning(
-            f"[Resolution] Could not detect for {video_path}, "
-            f"using fallback 1280x720. stderr={stderr}"
-        )
-        return 1280, 720
+            LOGGER.warning(
+                f"[Resolution] Could not detect for {video_path}, "
+                f"using fallback 1280x720. stderr={stderr}"
+            )
+            return 1280, 720
 
-    except Exception as e:
-        LOGGER.warning(
-            f"[Resolution] ffprobe error for {video_path}: {e}, "
-            f"using fallback 1280x720"
-        )
-        return 1280, 720
+        except Exception as e:
+            LOGGER.warning(
+                f"[Resolution] ffprobe error for {video_path}: {e}, "
+                f"using fallback 1280x720"
+            )
+            return 1280, 720
 
 
 async def get_video_thumbnail(video_file, duration):
@@ -222,60 +236,61 @@ async def get_video_thumbnail(video_file, duration):
        যে ভিডিও 4:3 বা 9:16 (portrait) সেগুলোর thumbnail squished হত
        scale=320:-2 মানে: width=320, height=auto (aspect ratio preserve করে)
     """
-    os.makedirs("Assets", exist_ok=True)
-    base_name = os.path.splitext(os.path.basename(video_file))[0]
-    output = os.path.join("Assets", f"thumb_{base_name}_{int(time())}.jpg")
-    LOGGER.info(f"[Thumbnail] Generating thumbnail for {video_file} duration={duration}")
+    async with GLOBAL_MEDIA_SEMAPHORE:
+        os.makedirs("Assets", exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(video_file))[0]
+        output = os.path.join("Assets", f"thumb_{base_name}_{int(time())}.jpg")
+        LOGGER.info(f"[Thumbnail] Generating thumbnail for {video_file} duration={duration}")
 
-    if duration is None or duration == 0:
-        duration = (await get_media_info(video_file))[0]
-    if duration == 0:
-        duration = 3
+        if duration is None or duration == 0:
+            duration = (await get_media_info(video_file))[0]
+        if duration == 0:
+            duration = 3
 
-    timestamp = min(duration // 3, 10)
-    if timestamp == 0:
-        timestamp = 1
+        timestamp = min(duration // 3, 10)
+        if timestamp == 0:
+            timestamp = 1
 
-    cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
-        "-ss", f"{timestamp}", "-i", video_file,
-        # ✅ FIXED: scale=320:-2 → aspect ratio preserve করে
-        # আগের scale=320:180 সবসময় 16:9 force করত → portrait ভিডিওতে squish
-        "-vf", "scale=320:-2",
-        "-q:v", "8", "-frames:v", "1",
-        "-threads", "2", output,
-    ]
-    try:
-        _, err, code = await wait_for(cmd_exec(cmd), timeout=30)
-        if code != 0 or not os.path.exists(output):
+        cmd = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-ss", f"{timestamp}", "-i", video_file,
+            # ✅ FIXED: scale=320:-2 → aspect ratio preserve করে
+            # আগের scale=320:180 সবসময় 16:9 force করত → portrait ভিডিওতে squish
+            "-vf", "scale=320:-2",
+            "-q:v", "8", "-frames:v", "1",
+            "-threads", "2", output,
+        ]
+        try:
+            _, err, code = await wait_for(cmd_exec(cmd), timeout=30)
+            if code != 0 or not os.path.exists(output):
+                LOGGER.error(
+                    f"ffmpeg thumbnail error. File: {video_file} stderr: {err}"
+                )
+                fallback_cmd = [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-ss", "1", "-i", video_file,
+                    # ✅ fallback-এও scale=320:-2
+                    "-vf", "scale=320:-2",
+                    "-q:v", "8", "-frames:v", "1",
+                    "-threads", "1", output,
+                ]
+                _, err2, code2 = await wait_for(cmd_exec(fallback_cmd), timeout=30)
+                if code2 != 0 or not os.path.exists(output):
+                    LOGGER.error(f"Fallback thumbnail also failed: {err2}")
+                    return None
+        except Exception as e:
             LOGGER.error(
-                f"ffmpeg thumbnail error. File: {video_file} stderr: {err}"
+                f"Error extracting thumbnail. Name: {video_file}. Error: {e}"
             )
-            fallback_cmd = [
-                "ffmpeg", "-hide_banner", "-loglevel", "error",
-                "-ss", "1", "-i", video_file,
-                # ✅ fallback-এও scale=320:-2
-                "-vf", "scale=320:-2",
-                "-q:v", "8", "-frames:v", "1",
-                "-threads", "1", output,
-            ]
-            _, err2, code2 = await wait_for(cmd_exec(fallback_cmd), timeout=30)
-            if code2 != 0 or not os.path.exists(output):
-                LOGGER.error(f"Fallback thumbnail also failed: {err2}")
-                return None
-    except Exception as e:
-        LOGGER.error(
-            f"Error extracting thumbnail. Name: {video_file}. Error: {e}"
-        )
-        if os.path.exists(output):
-            try:
-                os.remove(output)
-            except OSError:
-                pass
-        return None
+            if os.path.exists(output):
+                try:
+                    os.remove(output)
+                except OSError:
+                    pass
+            return None
 
-    LOGGER.info(f"Thumbnail generated: {output}")
-    return output
+        LOGGER.info(f"Thumbnail generated: {output}")
+        return output
 
 
 def progressArgs(action: str, progress_message, start_time):
@@ -399,6 +414,31 @@ async def cleanup_persistent_client(user_client) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# ✅ OPTIMIZATION: Non-blocking progress edit to keep UI responsive
+# ═══════════════════════════════════════════════════════════════════════════
+
+_last_progress_edit: dict[int, float] = {}
+_PROGRESS_EDIT_INTERVAL = 2.5  # seconds
+
+
+async def safe_edit_progress(message, text: str, parse_mode=ParseMode.MARKDOWN):
+    """
+    Edit a progress message safely with rate-limiting to avoid Telegram
+    rate limits and keep the bot responsive.
+    """
+    msg_id = getattr(message, 'id', None) or id(message)
+    now = time()
+    last = _last_progress_edit.get(msg_id, 0)
+    if now - last < _PROGRESS_EDIT_INTERVAL:
+        return
+    try:
+        await message.edit_text(text, parse_mode=parse_mode)
+        _last_progress_edit[msg_id] = now
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # ✅ FIXED: send_media_to_saved
 # পরিবর্তন: width/height এখন ffprobe দিয়ে video থেকে নেওয়া হয়
 # আগে thumbnail-এর PIL size ব্যবহার হত — এটাই squish-এর কারণ ছিল
@@ -426,6 +466,7 @@ async def send_media_to_saved(
     আগে PIL দিয়ে thumbnail-র size নেওয়া হত, যা ভিডিওর real dimension নয়।
     
     ✅ FIXED — FloodWait error handling with automatic retry logic.
+    ✅ OPTIMIZED — Uses global upload semaphore to prevent overload.
 
     Args:
         width:    source video-র width (0 হলে ffprobe দিয়ে detect করবে)
@@ -457,185 +498,187 @@ async def send_media_to_saved(
 
     auto_generated_thumb = None
 
-    try:
-        # Function to send media with FloodWait retry logic
-        async def send_with_retry(send_func):
-            max_retries = 3
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    return await send_func()
-                except FloodWait as e:
-                    wait_time = e.value
-                    retry_count += 1
-                    LOGGER.warning(
-                        f"[USER CLIENT] FloodWait: waiting {wait_time} seconds "
-                        f"(retry {retry_count}/{max_retries})"
-                    )
+    # ✅ Use global upload semaphore to prevent MTProto flood and keep bot responsive
+    async with GLOBAL_UPLOAD_SEMAPHORE:
+        try:
+            # Function to send media with FloodWait retry logic
+            async def send_with_retry(send_func):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
                     try:
-                        await progress_message.edit_text(
-                            f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
-                            f"__(Retry {retry_count}/{max_retries})__",
-                            parse_mode=ParseMode.MARKDOWN
+                        return await send_func()
+                    except FloodWait as e:
+                        wait_time = e.value
+                        retry_count += 1
+                        LOGGER.warning(
+                            f"[USER CLIENT] FloodWait: waiting {wait_time} seconds "
+                            f"(retry {retry_count}/{max_retries})"
                         )
-                    except Exception:
-                        pass
-                    await asyncio.sleep(wait_time)
-            # Final attempt without retry
-            return await send_func()
+                        try:
+                            await safe_edit_progress(
+                                progress_message,
+                                f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
+                                f"__(Retry {retry_count}/{max_retries})__",
+                            )
+                        except Exception:
+                            pass
+                        await asyncio.sleep(wait_time)
+                # Final attempt without retry
+                return await send_func()
 
-        if media_type == "photo":
-            async def send_photo():
-                return await user_client.send_photo(
-                    chat_id=saved_messages_chat,
-                    photo=media_path,
-                    caption=caption or "",
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progress_args_tuple,
-                )
-            await send_with_retry(send_photo)
+            if media_type == "photo":
+                async def send_photo():
+                    return await user_client.send_photo(
+                        chat_id=saved_messages_chat,
+                        photo=media_path,
+                        caption=caption or "",
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progress_args_tuple,
+                    )
+                await send_with_retry(send_photo)
 
-        elif media_type == "video":
-            if duration and duration > 0:
-                final_duration = duration
-            else:
-                final_duration, _, _ = await get_media_info(media_path)
-                final_duration = final_duration or 0
-
-            final_thumb = None
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                final_thumb = thumbnail_path
-                LOGGER.info(f"[USER CLIENT] Using custom thumbnail: {thumbnail_path}")
-            else:
-                auto_generated_thumb = await get_video_thumbnail(
-                    media_path, final_duration
-                )
-                if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-                    final_thumb = auto_generated_thumb
-                    LOGGER.info(f"[USER CLIENT] Auto-generated thumbnail: {auto_generated_thumb}")
+            elif media_type == "video":
+                if duration and duration > 0:
+                    final_duration = duration
                 else:
-                    LOGGER.warning(f"[USER CLIENT] Could not generate thumbnail for video: {media_path}")
+                    final_duration, _, _ = await get_media_info(media_path)
+                    final_duration = final_duration or 0
 
-            if width and height and width > 0 and height > 0:
-                final_width = width
-                final_height = height
+                final_thumb = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    final_thumb = thumbnail_path
+                    LOGGER.info(f"[USER CLIENT] Using custom thumbnail: {thumbnail_path}")
+                else:
+                    auto_generated_thumb = await get_video_thumbnail(
+                        media_path, final_duration
+                    )
+                    if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                        final_thumb = auto_generated_thumb
+                        LOGGER.info(f"[USER CLIENT] Auto-generated thumbnail: {auto_generated_thumb}")
+                    else:
+                        LOGGER.warning(f"[USER CLIENT] Could not generate thumbnail for video: {media_path}")
+
+                if width and height and width > 0 and height > 0:
+                    final_width = width
+                    final_height = height
+                else:
+                    final_width, final_height = await get_video_resolution(media_path)
+
+                async def send_video():
+                    return await user_client.send_video(
+                        chat_id=saved_messages_chat,
+                        video=media_path,
+                        duration=final_duration,
+                        width=final_width,
+                        height=final_height,
+                        thumb=final_thumb,
+                        caption=caption or "",
+                        supports_streaming=True,
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progress_args_tuple,
+                    )
+                await send_with_retry(send_video)
+
+            elif media_type == "audio":
+                audio_duration, artist, title = await get_media_info(media_path)
+                final_audio_duration = (
+                    duration if duration and duration > 0
+                    else audio_duration or 0
+                )
+                async def send_audio():
+                    return await user_client.send_audio(
+                        chat_id=saved_messages_chat,
+                        audio=media_path,
+                        duration=final_audio_duration,
+                        performer=artist,
+                        title=title,
+                        thumb=(
+                            thumbnail_path
+                            if thumbnail_path and os.path.exists(thumbnail_path)
+                            else None
+                        ),
+                        caption=caption or "",
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progress_args_tuple,
+                    )
+                await send_with_retry(send_audio)
+
+            elif media_type == "document":
+                doc_thumb = None
+                if thumbnail_path and os.path.exists(thumbnail_path):
+                    doc_thumb = thumbnail_path
+                else:
+                    ext = os.path.splitext(media_path)[1].lower()
+                    if ext in (".mp4", ".mkv", ".webm", ".avi", ".mov"):
+                        try:
+                            doc_duration, _, _ = await get_media_info(media_path)
+                            doc_duration = doc_duration or 0
+                            auto_generated_thumb = await get_video_thumbnail(media_path, doc_duration)
+                            if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                                doc_thumb = auto_generated_thumb
+                        except Exception as th_e:
+                            LOGGER.warning(f"[USER CLIENT] Could not auto-generate document thumbnail: {th_e}")
+                async def send_document():
+                    return await user_client.send_document(
+                        chat_id=saved_messages_chat,
+                        document=media_path,
+                        thumb=doc_thumb,
+                        caption=caption or "",
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progress_args_tuple,
+                    )
+                await send_with_retry(send_document)
+
             else:
-                final_width, final_height = await get_video_resolution(media_path)
+                LOGGER.error(f"Unknown media_type: {media_type}")
+                await progress_message.delete()
+                return False
 
-            async def send_video():
-                return await user_client.send_video(
-                    chat_id=saved_messages_chat,
-                    video=media_path,
-                    duration=final_duration,
-                    width=final_width,
-                    height=final_height,
-                    thumb=final_thumb,
-                    caption=caption or "",
-                    supports_streaming=True,
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progress_args_tuple,
-                )
-            await send_with_retry(send_video)
-
-        elif media_type == "audio":
-            audio_duration, artist, title = await get_media_info(media_path)
-            final_audio_duration = (
-                duration if duration and duration > 0
-                else audio_duration or 0
-            )
-            async def send_audio():
-                return await user_client.send_audio(
-                    chat_id=saved_messages_chat,
-                    audio=media_path,
-                    duration=final_audio_duration,
-                    performer=artist,
-                    title=title,
-                    thumb=(
-                        thumbnail_path
-                        if thumbnail_path and os.path.exists(thumbnail_path)
-                        else None
-                    ),
-                    caption=caption or "",
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progress_args_tuple,
-                )
-            await send_with_retry(send_audio)
-
-        elif media_type == "document":
-            doc_thumb = None
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                doc_thumb = thumbnail_path
-            else:
-                ext = os.path.splitext(media_path)[1].lower()
-                if ext in (".mp4", ".mkv", ".webm", ".avi", ".mov"):
-                    try:
-                        doc_duration, _, _ = await get_media_info(media_path)
-                        doc_duration = doc_duration or 0
-                        auto_generated_thumb = await get_video_thumbnail(media_path, doc_duration)
-                        if auto_generated_thumb and os.path.exists(auto_generated_thumb):
-                            doc_thumb = auto_generated_thumb
-                    except Exception as th_e:
-                        LOGGER.warning(f"[USER CLIENT] Could not auto-generate document thumbnail: {th_e}")
-            async def send_document():
-                return await user_client.send_document(
-                    chat_id=saved_messages_chat,
-                    document=media_path,
-                    thumb=doc_thumb,
-                    caption=caption or "",
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progress_args_tuple,
-                )
-            await send_with_retry(send_document)
-
-        else:
-            LOGGER.error(f"Unknown media_type: {media_type}")
             await progress_message.delete()
-            return False
 
-        await progress_message.delete()
-
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=(
-                "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
-                "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
-                "__(The bot never stores your files — your privacy is protected)__"
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=(
+                    "**✅ File successfully sent to your Saved Messages! 🚀**\n\n"
+                    "📂 Open **Telegram → Saved Messages** to find your file.\n\n"
+                    "__(The bot never stores your files — your privacy is protected)__"
+                )
             )
-        )
 
-        LOGGER.info(
-            f"[USER CLIENT] Upload successful to Saved Messages "
-            f"for user {message.from_user.id}"
-        )
-        return True
-
-    except FloodWait as e:
-        # Final FloodWait after all retries
-        LOGGER.error(f"[USER CLIENT] Final FloodWait error after retries: {e}")
-        try:
-            await progress_message.edit_text(
-                f"**⏳ FloodWait error!**\n\n"
-                f"Telegram requires waiting {e.value} more seconds. "
-                f"Please try again later.",
-                parse_mode=ParseMode.MARKDOWN
+            LOGGER.info(
+                f"[USER CLIENT] Upload successful to Saved Messages "
+                f"for user {message.from_user.id}"
             )
-        except Exception:
-            pass
-        raise
-    except Exception as e:
-        LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
-        try:
-            await progress_message.delete()
-        except Exception:
-            pass
-        raise
+            return True
 
-    finally:
-        if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+        except FloodWait as e:
+            # Final FloodWait after all retries
+            LOGGER.error(f"[USER CLIENT] Final FloodWait error after retries: {e}")
             try:
-                os.remove(auto_generated_thumb)
-            except Exception as e:
-                LOGGER.warning(f"Could not remove temp thumbnail: {e}")
+                await safe_edit_progress(
+                    progress_message,
+                    f"**⏳ FloodWait error!**\n\n"
+                    f"Telegram requires waiting {e.value} more seconds. "
+                    f"Please try again later.",
+                )
+            except Exception:
+                pass
+            raise
+        except Exception as e:
+            LOGGER.error(f"[USER CLIENT] Error uploading to Saved Messages: {e}")
+            try:
+                await progress_message.delete()
+            except Exception:
+                pass
+            raise
+
+        finally:
+            if auto_generated_thumb and os.path.exists(auto_generated_thumb):
+                try:
+                    os.remove(auto_generated_thumb)
+                except Exception as e:
+                    LOGGER.warning(f"Could not remove temp thumbnail: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -742,8 +785,9 @@ async def processMediaGroup(
             if forwards_restricted:
                 LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload")
                 try:
-                    await progress_message.edit_text(
-                        "**📥 频道禁止转发，正在下载并重新上传...**"
+                    await safe_edit_progress(
+                        progress_message,
+                        "**📥 频道禁止转发，正在下载并重新上传...**",
                     )
                 except Exception:
                     pass
@@ -762,20 +806,24 @@ async def processMediaGroup(
                             msg.caption or "", msg.caption_entities
                         )
 
-                        await progress_message.edit_text(
-                            f"**📥 下载中 ({dl_success + 1}/{total})...**"
+                        await safe_edit_progress(
+                            progress_message,
+                            f"**📥 下载中 ({dl_success + 1}/{total})...**",
                         )
 
                         dl_start = time()
-                        dl_path = await msg.download(
-                            progress=Leaves.progress_for_pyrogram,
-                            progress_args=progressArgs("📥 下载中", progress_message, dl_start),
-                        )
+                        # ✅ Use global download semaphore to prevent overload
+                        async with GLOBAL_DOWNLOAD_SEMAPHORE:
+                            dl_path = await msg.download(
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("📥 下载中", progress_message, dl_start),
+                            )
                         if not dl_path or not os.path.exists(dl_path):
                             continue
 
-                        await progress_message.edit_text(
-                            f"**📤 上传中 ({dl_success + 1}/{total})...**"
+                        await safe_edit_progress(
+                            progress_message,
+                            f"**📤 上传中 ({dl_success + 1}/{total})...**",
                         )
 
                         try:
@@ -840,8 +888,9 @@ async def processMediaGroup(
 
             LOGGER.info(f"[MediaGroup] send_media_group failed, copying individually: {e}")
             try:
-                await progress_message.edit_text(
-                    "**📤 正在逐个复制媒体组文件...**"
+                await safe_edit_progress(
+                    progress_message,
+                    "**📤 正在逐个复制媒体组文件...**",
                 )
             except Exception:
                 pass

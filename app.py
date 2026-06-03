@@ -13,9 +13,10 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workers=100,
-    # ── স্পিড বাড়ানোর জন্য গুরুত্বপূর্ণ সেটিং ──
-    max_concurrent_transmissions=5,  # একসাথে ৫টা ফাইল transfer করতে পারবে
+    workers=256,                      # 增加 workers 处理更多并发消息
+    max_concurrent_transmissions=10,  # 提升并发传输数，减少排队等待
+    # 可选: 如果 pyrofork 支持，可启用更快的事件循环策略
+    # no_updates=False 保持默认，让 bot 能正常接收更新
 )
 
 LOGGER.info("Bot Client Created Successfully!")
