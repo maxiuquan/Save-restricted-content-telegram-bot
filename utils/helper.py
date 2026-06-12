@@ -10,7 +10,12 @@ import os
 from time import time
 from typing import Optional
 from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
-from pyrogram.errors import FloodWait, PeerStorageLimitReached
+from pyrogram.errors import FloodWait
+
+try:
+    from pyrogram.errors import PeerStorageLimitReached
+except ImportError:
+    PeerStorageLimitReached = None
 from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
@@ -872,7 +877,7 @@ async def processMediaGroup(
                             except FloodWait as fw:
                                 LOGGER.warning(f"[MediaGroup] FloodWait {fw.value}s for item {idx}, waiting...")
                                 await asyncio.sleep(fw.value)
-                            except (PeerStorageLimitReached, OSError) as e:
+                            except (OSError,) + ((PeerStorageLimitReached,) if PeerStorageLimitReached else ()) as e:
                                 LOGGER.error(f"[MediaGroup] Permanent download error for item {idx}: {e}")
                                 dl_path = None
                                 break
