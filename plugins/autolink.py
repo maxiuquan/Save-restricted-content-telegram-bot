@@ -415,7 +415,7 @@ def setup_autolink_handler(app: Client):
                     log_url=url
                 ):
                     await message.reply_text(
-                        "**❌ 无法从媒体组提取内容。**",
+                        "**❌ 无法提取内容。**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 return
@@ -1111,7 +1111,7 @@ def setup_autolink_handler(app: Client):
                     log_group_id=LOG_GROUP_ID, log_user=user, log_url=url
                 ):
                     await message.reply_text(
-                        "**❌ 无法从媒体组提取内容。**",
+                        "**❌ 无法提取内容。**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 return

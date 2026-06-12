@@ -735,12 +735,15 @@ async def processMediaGroup(
     thumbnail_path=None,
 ):
     media_group_messages = await chat_message.get_media_group()
+    total_media = sum(1 for m in media_group_messages if m.video or m.audio or m.document or m.photo)
+    is_single = total_media == 1
+    group_label = "文件" if is_single else "媒体组"
     valid_media = []
 
     start_time = time()
-    progress_message = await message.reply("**📥 处理媒体组中...**")
+    progress_message = await message.reply(f"**📥 处理{group_label}中...**")
     LOGGER.info(
-        f"Processing media group with {len(media_group_messages)} items..."
+        f"Processing {'single media' if is_single else f'media group with {len(media_group_messages)} items'}..."
     )
 
     for msg in media_group_messages:
@@ -773,7 +776,7 @@ async def processMediaGroup(
                     )
                 elif msg.photo:
                     valid_media.append(
-                        InputMediaPhoto(media=msg.photo[-1].file_id, caption=caption_text)
+                        InputMediaPhoto(media=msg.photo.file_id, caption=caption_text)
                     )
             except Exception as e:
                 LOGGER.warning(f"[MediaGroup] Skipping item (file_id error): {e}")
@@ -795,7 +798,7 @@ async def processMediaGroup(
                 await bot.send_message(
                     chat_id=message.chat.id,
                     text=(
-                        "**✅ 媒体组已成功发送到"
+                        f"**✅ {group_label}已成功发送到"
                         "你的收藏夹！🚀**\n\n"
                         "📂 打开 **Telegram → 收藏夹** 查找"
                         "你的文件。"
@@ -813,7 +816,7 @@ async def processMediaGroup(
                 if user_client:
                     await bot.send_message(
                         chat_id=message.chat.id,
-                        text="**✅ 媒体组已成功发送到你的收藏夹！**",
+                        text=f"**✅ {group_label}已成功发送到你的收藏夹！**",
                     )
                 return True
 
@@ -909,7 +912,7 @@ async def processMediaGroup(
                 # ── 第二阶段：构建媒体列表并以媒体组形式发送 ──
                 await safe_edit_progress(
                     progress_message,
-                    f"**📤 上传到媒体组中 ({len(downloaded_items)}/{total})...**",
+                    f"**📤 上传中 ({len(downloaded_items)}/{total})...**",
                 )
 
                 if downloaded_items:
@@ -983,7 +986,7 @@ async def processMediaGroup(
                     await bot.send_message(
                         chat_id=message.chat.id,
                         text=(
-                            f"**✅ 媒体组已发送到你的收藏夹！**\n"
+                            f"**✅ {group_label}已发送到你的收藏夹！**\n"
                             f"**✅ 成功：** `{dl_success}`"
                             + (f"\n**❌ 失败：** `{dl_fail_permanent}`" if dl_fail_permanent > 0 else "")
                         ),
@@ -994,7 +997,7 @@ async def processMediaGroup(
             try:
                 await safe_edit_progress(
                     progress_message,
-                    "**📤 正在逐个复制媒体组文件...**",
+                    f"**📤 正在逐个发送{group_label}...**",
                 )
             except Exception:
                 pass  # 进度消息可能已被删除
@@ -1074,7 +1077,7 @@ async def processMediaGroup(
                 pass  # 进度消息可能已被删除
             if user_client:
                 summary = (
-                    f"**✅ 媒体组已发送到你的收藏夹！**\n"
+                    f"**✅ {group_label}已发送到你的收藏夹！**\n"
                     f"**✅ 成功：** `{success_count}`"
                 )
                 if fail_count:
@@ -1116,7 +1119,7 @@ async def processMediaGroup(
         return True
 
     await progress_message.delete()
-    await message.reply("**❌ 媒体组中未找到有效媒体。**")
+    await message.reply(f"**❌ 未找到有效{group_label}。**")
     return False
 
 

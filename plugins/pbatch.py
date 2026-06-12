@@ -1151,7 +1151,7 @@ def setup_pbatch_handler(app: Client):
                         _processed_groups.add(chat_message.media_group_id)
                         media_group_msgs = await chat_message.get_media_group()
                         group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
-                        _current_status = f"🖼 媒体组 {idx}/{effective_total}"
+                        _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
                             chat_message, bot, status_message,
                             user_client=user_client,
