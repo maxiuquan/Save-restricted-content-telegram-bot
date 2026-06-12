@@ -2,39 +2,38 @@
 Multi-User YouTube Direct Upload Handler
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FIXES APPLIED:
-  ✅ FIX 1: redirect_uri → "http://localhost" রাখা হয়েছে কিন্তু
-             yt_credentials.json এ "Desktop App" type ব্যবহার করতে হবে
-  ✅ FIX 2: fetch_token() এ authorization_response ভুল parameter সরানো হয়েছে
-  ✅ FIX 3: User-কে browser URL bar থেকে full URL বা শুধু code
-             যেকোনোটা paste করতে বলা হয়েছে
-  ✅ FIX 4: OAUTHLIB_INSECURE_TRANSPORT env set করা হয়েছে
-  ✅ FIX 5: yt_credentials.json এ "installed" type check যোগ করা হয়েছে
+  ✅ FIX 1: redirect_uri → "http://localhost" 保持不变，
+             但必须使用 "Desktop App" 类型
+  ✅ FIX 2: 移除了 fetch_token() 中错误的 authorization_response 参数
+  ✅ FIX 3: 已要求用户在浏览器 URL 栏中粘贴完整 URL 或仅粘贴 code
+  ✅ FIX 4: 已设置 OAUTHLIB_INSECURE_TRANSPORT 环境变量
+  ✅ FIX 5: 已在 yt_credentials.json 中添加了 "installed" 类型检查
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Features:
-  • Per-user YouTube Channel OAuth — each user uploads to their own channel
-  • Mode 1: Telegram Video Reply  → YouTube Upload
-  • Mode 2: Any Website URL       → yt-dlp download → YouTube Upload
-  • Free users  : 1 upload at a time, 5-min cooldown between uploads
-  • Premium users: unlimited simultaneous uploads, 10-sec cooldown
-  • Privacy control : public / private / unlisted
-  • Custom title & description support
-  • Referer / HLS / CDN protected stream support
-  • Professional tracking & logging (matches ytdl.py style)
-  • Full in-bot tutorial via /ythelp
+  • Per-user YouTube Channel OAuth — 每个用户上传到自己的频道
+  • 模式 1: Telegram 视频回复  → YouTube 上传
+  • 模式 2: 任意网站 URL       → yt-dlp 下载 → YouTube 上传
+  • 免费用户  : 每次只能上传 1 个，上传间隔 5 分钟冷却
+  • 高级用户: 无限同时上传，10 秒冷却
+  • 隐私控制 : 公开 / 私密 / 不公开
+  • 支持自定义标题和描述
+  • 支持 Referer / HLS / CDN 受保护流
+  • 专业跟踪和日志记录（匹配 ytdl.py 风格）
+  • 完整的 bot 内教程 /ythelp
 Commands:
-  /ytconnect              — Connect your YouTube Channel
-  /ytcode <code>          — Submit OAuth authorization code
-  /ytdisconnect           — Disconnect your YouTube Channel
-  /ytme                   — View connected channel info
-  /ythelp                 — Full tutorial & guide
-  /ytupload <url>         — Upload from any website URL
+  /ytconnect              — 连接你的 YouTube 频道
+  /ytcode <code>          — 提交 OAuth 授权码
+  /ytdisconnect           — 断开你的 YouTube 频道
+  /ytme                   — 查看已连接频道信息
+  /ythelp                 — 完整指南和教程
+  /ytupload <url>         — 从任意网站 URL 上传
   /ytupload <url> --private
   /ytupload <url> --unlisted
-  /ytupload <url> --title "Custom Title"
+  /ytupload <url> --title "自定义标题"
   /ytupload <url> referer:<site>
-  [Reply to video] /ytsend           — Upload Telegram video to YouTube
-  [Reply to video] /ytsend --private
-  [Reply to video] /ytsend --title "Custom Title"
+  [回复视频] /ytsend           — 上传 Telegram 视频到 YouTube
+  [回复视频] /ytsend --private
+  [回复视频] /ytsend --title "自定义标题"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -46,9 +45,6 @@ import tempfile
 from io import BytesIO
 from time import time
 from datetime import datetime
-
-# ✅ FIX: OAUTHLIB_INSECURE_TRANSPORT set করা — http://localhost allow করার জন্য
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 from pyrogram import Client, filters
 from pyrogram.types import (
@@ -65,7 +61,7 @@ from utils.logging_setup import LOGGER
 from utils.helper import get_readable_file_size, get_readable_time
 from core import daily_limit, prem_plan1, prem_plan2, prem_plan3
 
-# ── Shared helpers from ytdl.py ───────────────────────────────────────────────
+# ── 来自 ytdl.py 的共享工具函数 ───────────────────────────────────────────────
 from plugins.ytdl import (
     download_single_video,
     get_single_video_info,
@@ -98,7 +94,7 @@ except ImportError:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CONSTANTS
+# 常量
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SCOPES           = [
@@ -107,9 +103,9 @@ SCOPES           = [
 ]
 CREDENTIALS_FILE = "yt_credentials.json"
 
-# ✅ FIX: redirect_uri → http://localhost (Desktop App type-এ এটাই সঠিক)
-# Google Cloud Console-এ "Desktop App" type credential তৈরি করলে
-# http://localhost automatically allowed থাকে
+# ✅ FIX: redirect_uri → http://localhost（Desktop App 类型下这是正确的）
+# Google Cloud Console 中创建 "Desktop App" 类型凭据后
+# http://localhost 会自动被允许
 REDIRECT_URI = "http://localhost"
 
 YT_TITLE_MAX    = 100
@@ -130,11 +126,11 @@ PRIVACY_FROM_CB = {"pub": "public", "prv": "private", "unl": "unlisted"}
 FREE_COOLDOWN    = 300
 PREMIUM_COOLDOWN = 10
 
-# ── MongoDB Collections ───────────────────────────────────────────────────────
+# ── MongoDB 集合 ────────────────────────────────────────────────────────
 yt_tokens_col  = daily_limit.database["yt_user_tokens"]
 yt_uploads_col = daily_limit.database["yt_upload_logs"]
 
-# ── In-memory session stores ──────────────────────────────────────────────────
+# ── 内存中的会话存储 ──────────────────────────────────────────────────
 ytup_sessions:        dict = {}
 oauth_sessions:       dict = {}
 user_last_upload:     dict = {}
@@ -142,7 +138,7 @@ active_uploads_free:  set  = set()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# RATE LIMIT CHECKER
+# 上传速率限制检查器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _check_upload_rate_limit(user_id: int, is_premium: bool) -> tuple:
@@ -177,7 +173,7 @@ async def _check_upload_rate_limit(user_id: int, is_premium: bool) -> tuple:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PREMIUM CHECK
+# 高级检查
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _is_premium(user_id: int) -> bool:
@@ -190,7 +186,7 @@ async def _is_premium(user_id: int) -> bool:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# MONGODB — TOKEN MANAGER
+# MongoDB — 令牌管理器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _save_user_token(user_id: int, creds, channel_info: dict):
@@ -263,16 +259,16 @@ async def _is_youtube_connected(user_id: int) -> bool:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ✅ FIX: OAUTH FLOW — সম্পূর্ণ নতুন ও সঠিক implementation
+# ✅ FIX: OAUTH 流程 — 全新且正确的实现
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _validate_credentials_file() -> tuple:
     """
-    yt_credentials.json validate করে।
-    Returns: (is_valid: bool, error_message: str)
+    验证 yt_credentials.json 文件。
+    返回: (是否有效: bool, 错误信息: str)
     
-    ✅ yt_credentials.json অবশ্যই "installed" type হতে হবে (Desktop App)।
-    "web" type হলে redirect_uri mismatch error হবে।
+    ✅ yt_credentials.json 必须是 "installed" 类型（Desktop App）。
+    如果是 "web" 类型会导致 redirect_uri 不匹配错误。
     """
     if not os.path.exists(CREDENTIALS_FILE):
         return False, (
@@ -289,7 +285,7 @@ def _validate_credentials_file() -> tuple:
         with open(CREDENTIALS_FILE, "r") as f:
             data = json.load(f)
         
-        # ✅ FIX: "installed" key check — Desktop App type verify করা
+        # ✅ FIX: 检查 "installed" key — 验证 Desktop App 类型
         if "installed" not in data:
             if "web" in data:
                 return False, (
@@ -317,9 +313,9 @@ def _validate_credentials_file() -> tuple:
 
 def _create_oauth_flow():
     """
-    ✅ FIX: Correct OAuth Flow তৈরি করা।
-    - redirect_uri = "http://localhost" (Desktop App type-এ automatically allowed)
-    - OAUTHLIB_INSECURE_TRANSPORT = "1" set করা হয়েছে উপরে
+    ✅ FIX: 创建正确的 OAuth Flow。
+    - redirect_uri = "http://localhost"（Desktop App 类型下自动被允许）
+    - 已在上方设置了 OAUTHLIB_INSECURE_TRANSPORT = "1"
     """
     is_valid, err_msg = _validate_credentials_file()
     if not is_valid:
@@ -358,7 +354,7 @@ def _fetch_channel_info_sync(creds) -> dict:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# YOUTUBE UPLOAD CORE
+# YouTube 上传核心
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _upload_file_to_youtube_sync(
@@ -425,7 +421,7 @@ def _upload_file_to_youtube_sync(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# INPUT PARSER
+# 输入解析器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _parse_upload_flags(raw: str) -> dict:
@@ -456,7 +452,7 @@ def _parse_ytsend_flags(raw: str) -> dict:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TRACKING — MongoDB Upload Log
+# 跟踪 — MongoDB 上传日志
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _save_upload_log(
@@ -499,7 +495,7 @@ async def _save_upload_log(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TRACKING — Log Group Notifier
+# 跟踪 — 日志组通知器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _log_to_group(
@@ -622,7 +618,7 @@ async def _log_failed_attempt(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PROGRESS UPDATER
+# 进度更新器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def _yt_upload_progress_updater(msg, progress_data: dict):
@@ -650,7 +646,7 @@ async def _yt_upload_progress_updater(msg, progress_data: dict):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# KEYBOARD BUILDERS
+# 键盘构建器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _privacy_keyboard(chat_id: int) -> InlineKeyboardMarkup:
@@ -665,7 +661,7 @@ def _privacy_keyboard(chat_id: int) -> InlineKeyboardMarkup:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# UTILITY FUNCTIONS
+# 工具函数
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _cleanup_dir(dirpath: str):
@@ -685,10 +681,10 @@ def _user_display(user) -> str:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TUTORIAL TEXT
+# 教程文本
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ✅ FIX: Help text update — সঠিক নির্দেশনা যোগ করা হয়েছে
+# ✅ FIX: 更新帮助文本 — 添加正确的说明
 HELP_TEXT = """
 📺 **YouTube 上传 — 完整指南**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -745,7 +741,7 @@ HELP_TEXT = """
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# MAIN SETUP FUNCTION
+# 主注册函数
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def setup_ytupload_handler(app: Client):
@@ -766,7 +762,7 @@ def setup_ytupload_handler(app: Client):
         )
 
     # ═══════════════════════════════════════════════════════════
-    # /ytconnect — ✅ FIX: সম্পূর্ণ নতুন implementation
+    # /ytconnect — ✅ FIX: 全新实现
     # ═══════════════════════════════════════════════════════════
 
     async def ytconnect_command(client: Client, message: Message):
@@ -781,7 +777,7 @@ def setup_ytupload_handler(app: Client):
             )
             return
 
-        # ✅ FIX: credentials file validate করা
+        # ✅ FIX: 验证 credentials 文件
         is_valid, err_msg = _validate_credentials_file()
         if not is_valid:
             await message.reply_text(
@@ -801,7 +797,7 @@ def setup_ytupload_handler(app: Client):
             )
             return
 
-        # ✅ FIX: flow তৈরি করা ও error handle করা
+        # ✅ FIX: 创建 flow 并处理错误
         flow, flow_err = _create_oauth_flow()
         if not flow:
             await message.reply_text(
@@ -819,8 +815,8 @@ def setup_ytupload_handler(app: Client):
 
         oauth_sessions[user_id] = {"flow": flow, "created_at": time()}
 
-        # ✅ FIX: User-কে সঠিক নির্দেশনা দেওয়া হচ্ছে
-        # localhost refused হবে — এটা expected, URL থেকে code copy করতে হবে
+        # ✅ FIX: 向用户提供正确的说明
+        # localhost 会拒绝连接 — 这是预期的，需要从 URL 中复制 code
         await message.reply_text(
             "🔐 **Connect Your YouTube Channel**\n\n"
             "**Step 1** — নিচের link-এ click করুন:\n"
@@ -841,7 +837,7 @@ def setup_ytupload_handler(app: Client):
         )
 
     # ═══════════════════════════════════════════════════════════
-    # /ytcode — ✅ FIX: সম্পূর্ণ নতুন fetch_token implementation
+    # /ytcode — ✅ FIX: 全新的 fetch_token 实现
     # ═══════════════════════════════════════════════════════════
 
     async def ytcode_command(client: Client, message: Message):
@@ -876,23 +872,23 @@ def setup_ytupload_handler(app: Client):
             )
             return
 
-        # ✅ FIX: user full URL বা শুধু code যেকোনোটা paste করতে পারবে
+        # ✅ FIX: 用户可以粘贴完整 URL 或仅粘贴 code
         raw_input = " ".join(message.command[1:]).strip()
         
-        # Full URL থেকে code extract করার চেষ্টা
+        # 尝试从完整 URL 中提取 code
         code_match = re.search(r'[?&]code=([^&\s]+)', raw_input)
         if code_match:
             auth_code = code_match.group(1).strip()
-            # URL-encoded characters decode করা
+            # 解码 URL 编码字符
             auth_code = auth_code.replace("%2F", "/").replace("%3D", "=")
         else:
-            # শুধু code দিয়েছে
+            # 仅提供了 code
             auth_code = raw_input.strip()
 
         if not auth_code:
             await message.reply_text(
-                "❌ **Code খুঁজে পাওয়া যাচ্ছে না!**\n\n"
-                "Browser URL bar থেকে পুরো URL copy করে পাঠান।\n"
+                "❌ **找不到 Code！**\n\n"
+                "请从浏览器 URL 栏中复制完整 URL。\n"
                 "Example: `/ytcode http://localhost/?code=4/0AX4XfW...`",
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -907,9 +903,9 @@ def setup_ytupload_handler(app: Client):
         try:
             loop = asyncio.get_event_loop()
             
-            # ✅ FIX: সঠিকভাবে fetch_token call করা
-            # শুধু code= parameter দেওয়া হচ্ছে, authorization_response নয়
-            # এটাই Desktop App flow-এর সঠিক পদ্ধতি
+            # ✅ FIX: 正确地调用 fetch_token
+            # 仅传递 code= 参数，不传递 authorization_response
+            # 这才是 Desktop App 流程的正确方式
             await loop.run_in_executor(
                 None,
                 lambda: flow.fetch_token(code=auth_code)
@@ -947,13 +943,13 @@ def setup_ytupload_handler(app: Client):
             err_str = str(e)
             LOGGER.error(f"[ytupload] OAuth exchange error for {user_id}: {err_str}")
             
-            # ✅ FIX: User-friendly error messages
+            # ✅ FIX: 用户友好的错误信息
             if "invalid_grant" in err_str.lower():
                 err_detail = (
-                    "Code টি invalid বা expired হয়ে গেছে।\n\n"
-                    "• Code একবারই use করা যায়\n"
-                    "• /ytconnect দিয়ে নতুন link নিন\n"
-                    "• Link open করার পরপরই code copy করুন"
+                    "Code 无效或已过期。\n\n"
+                "• Code 只能使用一次\n"
+                "• 使用 /ytconnect 获取新链接\n"
+                "• 打开链接后立即复制 code"
                 )
             elif "redirect_uri_mismatch" in err_str.lower():
                 err_detail = (
@@ -1347,7 +1343,7 @@ def setup_ytupload_handler(app: Client):
             )
 
     # ═══════════════════════════════════════════════════════════
-    # CORE — URL Upload Execution
+    # 核心 — URL 上传执行
     # ═══════════════════════════════════════════════════════════
 
     async def _execute_url_upload(client, cq: CallbackQuery, session: dict, privacy: str):
@@ -1544,7 +1540,7 @@ def setup_ytupload_handler(app: Client):
             ))
 
     # ═══════════════════════════════════════════════════════════
-    # CORE — Telegram Upload Execution
+    # 核心 — Telegram 上传执行
     # ═══════════════════════════════════════════════════════════
 
     async def _execute_telegram_upload(client, cq: CallbackQuery, session: dict, privacy: str):
@@ -1707,7 +1703,7 @@ def setup_ytupload_handler(app: Client):
             ))
 
     # ═══════════════════════════════════════════════════════════
-    # CALLBACKS
+    # 回调处理
     # ═══════════════════════════════════════════════════════════
 
     @app.on_callback_query(filters.regex(r"^ytup_(pub|prv|unl)_\d+$"))
@@ -1802,7 +1798,7 @@ def setup_ytupload_handler(app: Client):
         )
 
     # ═══════════════════════════════════════════════════════════
-    # HANDLER REGISTRATION
+    # 处理器注册
     # ═══════════════════════════════════════════════════════════
 
     _f = filters.private | filters.group

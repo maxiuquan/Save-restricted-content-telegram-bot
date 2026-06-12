@@ -1,2 +1,2 @@
-# DEPRECATED SHIM — সব একই database.py থেকে আসছে
+# 已弃用的适配层 — 所有内容均来自 database.py
 from .database import daily_limit, total_users  # noqa: F401

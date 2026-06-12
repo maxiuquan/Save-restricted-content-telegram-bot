@@ -7,4 +7,4 @@ from .keyboards import (
     back_to_home,
     BUTTON_COMMAND_MAP,
 )
-# Note: button_router is imported directly in main.py to avoid circular imports
+# 注意：button_router 在 main.py 中直接导入以避免循环导入

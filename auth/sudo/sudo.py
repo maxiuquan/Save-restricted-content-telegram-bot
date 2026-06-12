@@ -1,4 +1,4 @@
-# FIXED: Premium users count, Free users negative bug, stats accuracy
+# 已修复：高级用户计数、免费用户负数 Bug、统计数据准确性
 
 import os
 import time
@@ -66,8 +66,8 @@ def setup_sudo_handler(app: Client):
     async def get_extended_stats():
         current_time = datetime.utcnow()
 
-        # FIX: সঠিকভাবে unique premium users count করো
-        # তিনটা plan collection থেকে সব active user_id এক set-এ রাখো
+        # 修复：正确计算唯一的付费用户数量
+        # 从三个 plan 集合中收集所有活跃的 user_id 到一个集合中
         try:
             p1_ids = set()
             p2_ids = set()
@@ -91,7 +91,7 @@ def setup_sudo_handler(app: Client):
                 if "user_id" in doc:
                     p3_ids.add(doc["user_id"])
 
-            # Union: unique premium users (একজন user একাধিক plan-এ থাকলেও একবার গোনা হবে)
+            # 并集：唯一付费用户（即使一个用户拥有多个计划也只计一次）
             all_premium_ids = p1_ids | p2_ids | p3_ids
             total_premium = len(all_premium_ids)
 
@@ -99,16 +99,16 @@ def setup_sudo_handler(app: Client):
             LOGGER.warning(f"Failed to fetch premium users count: {e}")
             total_premium = 0
 
-        # Total registered users
+        # 总注册用户数
         try:
             total_registered = await total_users.count_documents({})
         except Exception:
             total_registered = 0
 
-        # FIX: Free users = total registered - premium (minimum 0)
+        # 修复：免费用户 = 总注册用户 - 高级用户（最低为 0）
         free_users = max(0, total_registered - total_premium)
 
-        # Total downloads from daily_limit collection
+        # 从 daily_limit 集合统计总下载次数
         try:
             pipeline = [{"$group": {"_id": None, "total": {"$sum": "$total_downloads"}}}]
             cursor = daily_limit.aggregate(pipeline)
@@ -121,7 +121,7 @@ def setup_sudo_handler(app: Client):
             except Exception:
                 total_downloads = 0
 
-        # Active batches
+        # 活跃批次
         try:
             active_batches = await batches_collection.count_documents({"status": "active"})
         except Exception as e:
@@ -149,7 +149,7 @@ def setup_sudo_handler(app: Client):
         return total_premium, free_users, total_downloads, active_batches, uptime_str, mem_used, total_mem, mem_percent, cpu_percent
 
     # ══════════════════════════════════════════════════════════════════════
-    # /stats command
+    # /stats 命令
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("stats", prefixes=COMMAND_PREFIX) & filters.private)
@@ -208,7 +208,7 @@ def setup_sudo_handler(app: Client):
         )
 
     # ══════════════════════════════════════════════════════════════════════
-    # /users command
+    # /users 命令
     # ══════════════════════════════════════════════════════════════════════
 
     USERS_PER_PAGE = 20
@@ -309,9 +309,9 @@ def setup_sudo_handler(app: Client):
         await callback_query.answer()
 
     # ══════════════════════════════════════════════════════════════════════
-    # /refresh command — Update ALL user info from Telegram API
-    # Usage: /refresh          → bulk refresh all users
-    #        /refresh <user_id> → refresh a single user by ID
+    # /refresh 命令 — 从 Telegram API 更新所有用户信息
+    # 用法：/refresh           → 批量刷新所有用户
+    #       /refresh <用户ID>  → 按 ID 刷新单个用户
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("refresh", prefixes=COMMAND_PREFIX) & filters.private)
@@ -323,7 +323,7 @@ def setup_sudo_handler(app: Client):
         await update_user_activity(user_id)
         LOGGER.info(f"/refresh command received from developer {user_id}")
 
-        # ── Single-user refresh: /refresh <user_id> ──────────────────────
+        # ── 单个用户刷新：/refresh <用户ID> ──────────────────────
         if len(message.command) >= 2:
             try:
                 target_uid = int(message.command[1])
@@ -385,7 +385,7 @@ def setup_sudo_handler(app: Client):
             LOGGER.info(f"[Refresh] Single user refreshed: {target_uid}")
             raise StopPropagation
 
-        # ── Bulk refresh: /refresh (no args) ─────────────────────────────
+        # ── 批量刷新：/refresh（无参数）─────────────────────────────
         progress_msg = await message.reply_text(
             "**✘ ডাটাবেজ থেকে ইউজার লোড হচ্ছে... ↯**",
             parse_mode=ParseMode.MARKDOWN
@@ -481,7 +481,7 @@ def setup_sudo_handler(app: Client):
         raise StopPropagation
 
     # ══════════════════════════════════════════════════════════════════════
-    # /gcast command
+    # /gcast 命令
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("gcast", prefixes=COMMAND_PREFIX) & filters.private)
@@ -561,7 +561,7 @@ def setup_sudo_handler(app: Client):
         await client.send_message(chat_id=user_id, text=report_message, parse_mode=ParseMode.MARKDOWN)
 
     # ══════════════════════════════════════════════════════════════════════
-    # /acast command
+    # /acast 命令
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("acast", prefixes=COMMAND_PREFIX) & filters.private)
@@ -638,7 +638,7 @@ def setup_sudo_handler(app: Client):
         await client.send_message(chat_id=user_id, text=report_message, parse_mode=ParseMode.MARKDOWN)
 
     # ══════════════════════════════════════════════════════════════════════
-    # /send command — Send message to a specific user by user ID
+    # /send 命令 — 按用户 ID 发送消息给指定用户
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("send", prefixes=COMMAND_PREFIX) & filters.private)
@@ -678,7 +678,7 @@ def setup_sudo_handler(app: Client):
             )
             return
 
-        # Check if user exists in database
+        # 检查用户是否存在于数据库中
         user_doc = await total_users.find_one({"user_id": target_user_id})
         if not user_doc:
             await message.reply_text(
@@ -721,7 +721,7 @@ def setup_sudo_handler(app: Client):
             LOGGER.error(f"Failed to send message to user {target_user_id}: {e}")
 
     # ══════════════════════════════════════════════════════════════════════
-    # /broadcast command — Clean broadcast to all users (no extra buttons)
+    # /broadcast 命令 — 向所有用户纯净广播（无额外按钮）
     # ══════════════════════════════════════════════════════════════════════
 
     @app.on_message(filters.command("broadcast", prefixes=COMMAND_PREFIX) & filters.private)
@@ -789,7 +789,7 @@ def setup_sudo_handler(app: Client):
                     LOGGER.error(f"Failed to send broadcast to user {target_user_id}: {e}")
                     break
 
-            # Update progress every 25 users
+            # 每 25 个用户更新一次进度
             if idx % 25 == 0 or idx == total_count:
                 try:
                     await progress_msg.edit_text(

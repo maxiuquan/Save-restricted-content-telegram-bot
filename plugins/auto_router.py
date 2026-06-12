@@ -1,12 +1,12 @@
 #
-# plugins/auto_router.py — Fully Automatic Link Router
-# কোনো command ছাড়াই URL paste করলে অটো download শুরু হবে
+# plugins/auto_router.py — 全自动链接路由器
+# 无需命令，粘贴 URL 即可自动开始下载
 #
 # ═══════════════════════════════════════════════════════════════════
-# আপনার plugin files এর সাথে compatible:
+# 与你的 plugin 文件兼容：
 #   gdl.py      → _process_gdl(client, message, url)
 #   directdl.py → _process_ddl(client, message, url, status_msg)
-#                 ⚠️ message.from_user.id directly use করে
+#                 ⚠️ message.from_user.id 直接使用
 #   aria2dl.py  → _run_download(...) + _cancel_events + _is_premium
 # ═══════════════════════════════════════════════════════════════════
 
@@ -24,31 +24,31 @@ from utils import LOGGER
 from utils.force_sub import check_force_sub
 
 # ─────────────────────────────────────────────────────────────────
-# PATTERN DEFINITIONS
+# 模式定义
 # ─────────────────────────────────────────────────────────────────
 
-# Telegram লিংক — autolink.py handle করবে
+# Telegram 链接 — 由 autolink.py 处理
 TELEGRAM_LINK_PATTERN = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/(?:c/)?([a-zA-Z0-9_]+|\d+)/(\d+)(?:/\d+)?",
     re.IGNORECASE,
 )
 
-# Magnet লিংক
+# Magnet 链接
 MAGNET_PATTERN = re.compile(r"^magnet:\?xt=", re.IGNORECASE)
 
-# Torrent URL
+# Torrent 链接
 TORRENT_PATTERN = re.compile(r"\.torrent(\?.*)?$", re.IGNORECASE)
 
-# HLS stream
+# HLS 流媒体
 HLS_PATTERN = re.compile(r"\.m3u8(\?.*)?$", re.IGNORECASE)
 
-# Generic URL extractor (http/https + magnet)
+# 通用 URL 提取器 (http/https + magnet)
 GENERIC_URL_PATTERN = re.compile(
     r"(?:https?://[^\s<>\"{}|\\^`\[\]]+|magnet:\?[^\s]+)",
     re.IGNORECASE,
 )
 
-# yt-dlp supported domains
+# yt-dlp 支持的域名
 YTDLP_DOMAINS = {
     "youtube.com", "youtu.be", "m.youtube.com",
     "music.youtube.com", "vimeo.com", "dailymotion.com",
@@ -68,9 +68,9 @@ YTDLP_DOMAINS = {
     "naver.com", "daum.net", "imdb.com",
 }
 
-# directdl.py supported domains
-# directdl.py এর is_supported_site() function use করব
-# তবু fallback এর জন্য এখানেও রাখা হলো
+# directdl.py 支持域名
+# 使用 directdl.py 的 is_supported_site() 函数
+# 同时保留此处作为 fallback
 DIRECTDL_DOMAINS = {
     "mediafire.com", "gofile.io", "pixeldrain.com", "pixeldra.in",
     "1fichier.com", "streamtape.com", "wetransfer.com", "we.tl",
@@ -93,11 +93,11 @@ DIRECTDL_DOMAINS = {
 
 
 # ─────────────────────────────────────────────────────────────────
-# DOMAIN HELPER
+# 域名检测
 # ─────────────────────────────────────────────────────────────────
 
 def _get_domain(url: str) -> str:
-    """URL থেকে clean domain বের করে"""
+    """从 URL 中提取干净的域名"""
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
@@ -109,13 +109,13 @@ def _get_domain(url: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
-# SAFE USER ID EXTRACTOR
-# directdl.py message.from_user.id directly use করে
-# তাই from_user None হলে crash হবে — এটা prevent করতে হবে
+# 安全用户ID提取器
+# directdl.py 直接使用 message.from_user.id
+# 因此 if from_user 为 None 时会崩溃 — 需要防止此情况
 # ─────────────────────────────────────────────────────────────────
 
 def _get_user_id(message: Message) -> int:
-    """message.from_user None হলেও safe ভাবে user_id return করে"""
+    """即使 message.from_user 为 None 也安全地返回 user_id"""
     if message.from_user:
         return message.from_user.id
     if message.sender_chat:
@@ -125,34 +125,34 @@ def _get_user_id(message: Message) -> int:
 
 def _has_valid_from_user(message: Message) -> bool:
     """
-    directdl.py ও অন্য plugins message.from_user.id directly use করে।
-    from_user না থাকলে সেই plugins crash করবে।
+    directdl.py 及其他插件直接使用 message.from_user.id。
+    若没有 from_user，这些插件会崩溃。
     """
     return message.from_user is not None
 
 
 # ─────────────────────────────────────────────────────────────────
-# ROUTE DETECTION
+# 路由检测
 # ─────────────────────────────────────────────────────────────────
 
 def detect_route(url: str) -> str:
     """
-    URL বিশ্লেষণ করে সঠিক route return করে।
+    分析 URL 并返回正确的路由。
 
-    Returns:
-        "telegram"  → autolink.py (skip করব)
+    返回：
+        "telegram"  → autolink.py (跳过)
         "gdrive"    → gdl.py → _process_gdl()
         "aria2"     → aria2dl.py → _run_download()
         "ytdlp"     → ytdl.py
         "directdl"  → directdl.py → _process_ddl()
         "urldl"     → urldl.py
-        "unknown"   → handle করা যাবে না
+        "unknown"   → 无法处理
     """
     url = url.strip()
     if not url:
         return "unknown"
 
-    # ── 1. Telegram লিংক (সর্বোচ্চ priority) ────────────────────
+    # ── 1. Telegram 链接（最高优先级）────────────────────────────
     if TELEGRAM_LINK_PATTERN.search(url):
         return "telegram"
 
@@ -170,29 +170,29 @@ def detect_route(url: str) -> str:
     if TORRENT_PATTERN.search(url.split("?")[0]):
         return "aria2"
 
-    # ── 5. HLS stream → yt-dlp ───────────────────────────────────
+    # ── 5. HLS 流媒体 → yt-dlp ───────────────────────────────────
     if HLS_PATTERN.search(url.split("?")[0]):
         return "ytdlp"
 
-    # ── 6. Known yt-dlp site ─────────────────────────────────────
+    # ── 6. 已知的 yt-dlp 站点 ─────────────────────────────────────
     for yd in YTDLP_DOMAINS:
         if domain == yd or domain.endswith(f".{yd}"):
             return "ytdlp"
 
-    # ── 7. directdl.py এর is_supported_site() দিয়ে চেক ─────────
-    # এটাই সবচেয়ে accurate — directdl.py নিজের list জানে
+    # ── 7. 使用 directdl.py 的 is_supported_site() 检查 ─────────
+    # 这是最准确的 — directdl.py 了解自己的列表
     try:
         from utils.direct_links import is_supported_site
         url_for_check = url.split("::")[0].strip()
         if is_supported_site(url_for_check):
             return "directdl"
     except ImportError:
-        # Fallback: manual domain check
+        # Fallback：手动域名检查
         for dd in DIRECTDL_DOMAINS:
             if domain == dd or domain.endswith(f".{dd}") or dd in domain:
                 return "directdl"
 
-    # ── 8. Generic HTTP/HTTPS ────────────────────────────────────
+    # ── 8. 通用 HTTP/HTTPS ────────────────────────────────────
     if url.startswith(("http://", "https://")):
         tg_domains = {"t.me", "telegram.me", "telegram.org"}
         if not any(td in domain for td in tg_domains):
@@ -202,7 +202,7 @@ def detect_route(url: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
-# ROUTE INFO
+# 路由信息
 # ─────────────────────────────────────────────────────────────────
 
 ROUTE_INFO = {
@@ -216,7 +216,7 @@ ROUTE_INFO = {
 
 
 # ─────────────────────────────────────────────────────────────────
-# ERROR REPORTER — user-কে error দেখায় + log করে
+# 错误报告 — 向用户显示错误 + 记录日志
 # ─────────────────────────────────────────────────────────────────
 
 async def _report_error(
@@ -240,13 +240,13 @@ async def _report_error(
 
 
 # ─────────────────────────────────────────────────────────────────
-# SAFE BACKGROUND TASK — silent fail prevent করে
+# 安全后台任务 — 防止静默失败
 # ─────────────────────────────────────────────────────────────────
 
 async def _safe_task(coro, message: Message, label: str):
     """
-    asyncio.create_task() এর ভেতরে error হলে সাধারণত silent fail হয়।
-    এই wrapper সেটা prevent করে — error user-কে দেখায়।
+    在 asyncio.create_task() 内部出错时通常会静默失败。
+    此 wrapper 可防止此情况 — 错误会向用户显示。
     """
     try:
         await coro
@@ -256,7 +256,7 @@ async def _safe_task(coro, message: Message, label: str):
 
 
 # ─────────────────────────────────────────────────────────────────
-# ROUTE EXECUTORS — প্রতিটি plugin আলাদা function
+# 路由执行器 — 每个插件独立函数
 # ─────────────────────────────────────────────────────────────────
 
 async def _exec_gdrive(client: Client, message: Message, url: str):
@@ -273,10 +273,10 @@ async def _exec_gdrive(client: Client, message: Message, url: str):
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] gdl import failed: {e}")
         await message.reply_text(
-            f"❌ **Google Drive downloader load হয়নি!**\n\n"
-            f"Manual: `/gdl {url[:60]}`\n\n"
-            f"`{e}`",
-            parse_mode=ParseMode.MARKDOWN,
+                f"❌ **Google Drive 下载器加载失败！**\n\n"
+                f"手动：`/gdl {url[:60]}`\n\n"
+                f"`{e}`",
+                parse_mode=ParseMode.MARKDOWN,
         )
     except Exception as e:
         await _report_error(message, "Google Drive", e)
@@ -296,13 +296,13 @@ async def _exec_aria2(
         import shutil as _shutil
         if not _shutil.which("aria2c"):
             await message.reply_text(
-                "❌ **aria2c ইনস্টল নেই!**\n\n"
+                "❌ **未安装 aria2c！**\n\n"
                 "`sudo apt install aria2`",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
-        # aria2dl.py থেকে সঠিক functions import
+        # 从 aria2dl.py 导入正确的函数
         from plugins.aria2dl import (
             _run_download,
             _cancel_events,
@@ -314,7 +314,7 @@ async def _exec_aria2(
         is_prem = await _is_premium(user_id)
 
         status_msg = await message.reply_text(
-            f"🌊 **Torrent/Magnet download শুরু হচ্ছে...**\n\n"
+            f"🌊 **Torrent/Magnet 开始下载...**\n\n"
             f"`{url[:80]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -322,7 +322,7 @@ async def _exec_aria2(
         cancel_event = asyncio.Event()
         _cancel_events[status_msg.id] = cancel_event
 
-        # _safe_task দিয়ে চালাই — error দেখা যাবে
+        # 使用 _safe_task 后台运行 — 可看到错误
         asyncio.create_task(
             _safe_task(
                 _run_download(
@@ -342,8 +342,8 @@ async def _exec_aria2(
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] aria2dl import failed: {e}")
         await message.reply_text(
-            f"❌ **Aria2 downloader load হয়নি!**\n\n"
-            f"Manual: `/dl {url[:60]}`\n\n"
+            f"❌ **Aria2 下载器加载失败！**\n\n"
+            f"手动：`/dl {url[:60]}`\n\n"
             f"`{e}`",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -365,7 +365,7 @@ async def _exec_ytdlp(
 
         LOGGER.info(f"[AutoRouter] → ytdl._handle_single_video_initiate_public() | url={url[:60]}")
 
-        # Optional helpers — না থাকলেও চলবে
+        # Optional helpers — 没有也可以
         try:
             from plugins.ytdl import parse_url_and_referer
             url_clean, referer = parse_url_and_referer(url)
@@ -396,18 +396,18 @@ async def _exec_ytdlp(
 
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] ytdl import failed: {e}")
-        # ytdl.py না থাকলে command hint দাও
+        # ytdl.py 不存在时给出命令提示
         await message.reply_text(
-            f"🎬 **Video link detected!**\n\n"
-            f"Download করতে:\n`/ytdl {url[:80]}`",
+            f"🎬 **检测到视频链接！**\n\n"
+            f"下载请执行：\n`/ytdl {url[:80]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
     except AttributeError as e:
-        # Function নাম ভুল হলে
+        # 函数名称错误
         LOGGER.error(f"[AutoRouter] ytdl function not found: {e}")
         await message.reply_text(
-            f"🎬 **Video link detected!**\n\n"
-            f"Download করতে:\n`/ytdl {url[:80]}`",
+            f"🎬 **检测到视频链接！**\n\n"
+            f"下载请执行：\n`/ytdl {url[:80]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
     except Exception as e:
@@ -422,26 +422,26 @@ async def _exec_directdl(
     """
     directdl.py → _process_ddl(client, message, url, status_msg)
 
-    ⚠️ CRITICAL: directdl.py এর _process_ddl() তে:
-       user_id = message.from_user.id  ← directly access করে
-       তাই from_user None হলে crash হবে।
-       এই function call করার আগে _has_valid_from_user() check করতে হবে।
+    ⚠️ 关键：directdl.py 的 _process_ddl() 中：
+       user_id = message.from_user.id  ← 直接访问
+       因此 if from_user 为 None 时会崩溃。
+       调用此函数前需要先检查 _has_valid_from_user()。
 
-    Signature: async def _process_ddl(client, message, url, status_msg) -> None
+    签名：async def _process_ddl(client, message, url, status_msg) -> None
     """
     try:
         from plugins.directdl import _process_ddl
 
         LOGGER.info(f"[AutoRouter] → directdl._process_ddl() | url={url[:60]}")
 
-        # status_msg আগে তৈরি করতে হবে — _process_ddl এর parameter
+        # 需要先创建 status_msg — _process_ddl 的参数
         status_msg = await message.reply_text(
-            f"📦 **Direct link resolve করছে...**\n\n"
+            f"📦 **正在解析直链...**\n\n"
             f"🔗 `{url[:80]}`",
             parse_mode=ParseMode.MARKDOWN,
         )
 
-        # _safe_task দিয়ে background এ চালাই
+        # 使用 _safe_task 在后台运行
         asyncio.create_task(
             _safe_task(
                 _process_ddl(client, message, url, status_msg),
@@ -453,8 +453,8 @@ async def _exec_directdl(
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] directdl import failed: {e}")
         await message.reply_text(
-            f"❌ **File downloader load হয়নি!**\n\n"
-            f"Manual: `/ddl {url[:60]}`\n\n"
+            f"❌ **文件下载器加载失败！**\n\n"
+            f"手动：`/ddl {url[:60]}`\n\n"
             f"`{e}`",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -475,8 +475,8 @@ async def _exec_urldl(client: Client, message: Message, url: str):
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] urldl import failed: {e}")
         await message.reply_text(
-            f"❌ **URL downloader load হয়নি!**\n\n"
-            f"Manual: `/urldl {url[:60]}`\n\n"
+            f"❌ **URL 下载器加载失败！**\n\n"
+            f"手动：`/urldl {url[:60]}`\n\n"
             f"`{e}`",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -485,7 +485,7 @@ async def _exec_urldl(client: Client, message: Message, url: str):
 
 
 # ─────────────────────────────────────────────────────────────────
-# MAIN EXECUTOR
+# 主执行器
 # ─────────────────────────────────────────────────────────────────
 
 async def execute_route(
@@ -495,8 +495,8 @@ async def execute_route(
     route: str,
 ):
     """
-    Route অনুযায়ী সঠিক plugin function call করে।
-    Public — অন্য plugin থেকেও call করা যাবে।
+    根据路由调用正确的插件函数。
+    公开方法 — 其他插件也可调用。
     """
     user_id = _get_user_id(message)
     info = ROUTE_INFO.get(route, {"icon": "❓", "label": route})
@@ -509,7 +509,7 @@ async def execute_route(
     )
 
     if route == "telegram":
-        return  # autolink.py handle করবে
+        return  # 由 autolink.py 处理করবে
 
     elif route == "gdrive":
         await _exec_gdrive(client, message, url)
@@ -540,13 +540,13 @@ async def execute_route(
         )
 
 
-# Backward compatibility alias
+# 向后兼容别名
 _execute_route = execute_route
 
 
 # ─────────────────────────────────────────────────────────────────
-# MAIN AUTO-DETECT HANDLER
-# group=3 — autolink(1) ও urldl(2) এর পরে
+# 主自动检测处理器
+# group=3 — autolink(1) 和 urldl(2) 之后
 # ─────────────────────────────────────────────────────────────────
 
 async def _auto_detect_handler(client: Client, message: Message):
@@ -563,7 +563,7 @@ async def _auto_detect_handler(client: Client, message: Message):
     • Force sub fail
     """
 
-    # ── Step 1: Basic validation ──────────────────────────────────
+    # ── 步骤 1：基本验证 ──────────────────────────────────
     if not message.text:
         return
 
@@ -571,16 +571,16 @@ async def _auto_detect_handler(client: Client, message: Message):
     if not text:
         return
 
-    # ── Step 2: Command message skip ─────────────────────────────
+    # ── 步骤 2：跳过命令消息 ─────────────────────────────
     for prefix in COMMAND_PREFIX:
         if text.startswith(prefix):
             return
 
-    # ── Step 3: Telegram লিংক → autolink.py এর উপর ছেড়ে দাও ───
+    # ── 步骤 3：Telegram 链接 → 交给 autolink.py 处理 ───
     if TELEGRAM_LINK_PATTERN.search(text):
         return
 
-    # ── Step 4: pbatch session চেক ───────────────────────────────
+    # ── 步骤 4：pbatch 会话检查 ───────────────────────────────
     _pbatch = sys.modules.get("plugins.pbatch")
     if _pbatch and hasattr(_pbatch, "batch_data"):
         uid = message.from_user.id if message.from_user else -1
@@ -588,23 +588,23 @@ async def _auto_detect_handler(client: Client, message: Message):
         if state and state.get("user_id") == uid:
             return
 
-    # ── Step 5: URL বের করা ──────────────────────────────────────
+    # ── 步骤 5：提取 URL ──────────────────────────────────────
     url = None
 
-    # Magnet লিংক আলাদা (http দিয়ে শুরু না)
+    # Magnet 链接单独处理（不以 http 开头）
     if MAGNET_PATTERN.match(text):
-        # শুধু magnet URL নাও (বাকি text বাদ)
+        # 只取 magnet URL（忽略其余文本）
         url = text.split()[0]
     else:
         match = GENERIC_URL_PATTERN.search(text)
         if match:
-            # Trailing punctuation সরাও
+            # 去除尾部标点符号
             url = match.group(0).rstrip(".,;!?)'\"")
 
     if not url:
         return
 
-    # ── Step 6: Route নির্ধারণ ───────────────────────────────────
+    # ── 步骤 6：确定路由 ───────────────────────────────────
     route = detect_route(url)
 
     LOGGER.info(
@@ -615,27 +615,27 @@ async def _auto_detect_handler(client: Client, message: Message):
         f"user={_get_user_id(message)}"
     )
 
-    # ── Step 7: Skip routes ───────────────────────────────────────
+    # ── 步骤 7：跳过路由 ───────────────────────────────────────
     if route in ("telegram", "unknown"):
         return
 
-    # urldl route:
-    # urldl.py group=2 তে আগেই handle করে।
-    # তাই শুধু তখনই handle করব যখন urldl module load নেই।
+    # urldl 路由：
+    # urldl.py 在 group=2 中已经处理了。
+    # 所以只有在 urldl 模块未加载时才处理。
     if route == "urldl":
         urldl_module = sys.modules.get("plugins.urldl")
         if urldl_module is not None:
-            # urldl.py loaded — সে নিজেই handle করবে group=2 তে
+            # urldl.py 已加载 — 它会在 group=2 中自行处理
             LOGGER.debug(
                 "[AutoRouter] urldl route — "
                 "urldl.py already handles this in group=2, skipping"
             )
             return
-        # urldl.py না থাকলে আমরাই handle করব
+        # 如果 urldl.py 不存在，则由我们来处理
 
-    # ── Step 8: directdl route — from_user check ──────────────────
-    # directdl.py তে message.from_user.id directly access হয়
-    # from_user None হলে crash হবে
+    # ── 步骤 8：directdl 路由 — from_user 检查 ──────────────────
+    # directdl.py 中直接访问 message.from_user.id
+    # 如果 from_user 为 None 则会崩溃
     if route == "directdl" and not _has_valid_from_user(message):
         LOGGER.warning(
             f"[AutoRouter] directdl skip — "
@@ -644,10 +644,10 @@ async def _auto_detect_handler(client: Client, message: Message):
         )
         return
 
-    # ── Step 9: User ID ───────────────────────────────────────────
+    # ── 步骤 9：用户 ID ───────────────────────────────────────────
     user_id = _get_user_id(message)
 
-    # ── Step 10: Force sub check (private chat only) ──────────────
+    # ── 步骤 10：强制订阅检查（仅私聊） ──────────────
     if message.chat.type == ChatType.PRIVATE and message.from_user:
         try:
             if not await check_force_sub(client, user_id):
@@ -657,14 +657,14 @@ async def _auto_detect_handler(client: Client, message: Message):
                 return
         except Exception as e:
             LOGGER.warning(f"[AutoRouter] Force sub check error: {e}")
-            # force sub error হলে download block করব না
+            # 强制订阅错误不会阻止下载
 
-    # ── Step 11: Execute ──────────────────────────────────────────
+    # ── 步骤 11：执行 ──────────────────────────────────────────
     await execute_route(client, message, url, route)
 
 
 # ─────────────────────────────────────────────────────────────────
-# /route COMMAND — লিংক বিশ্লেষণ করে দেখাবে
+# /route 命令 — 分析链接并显示结果
 # ─────────────────────────────────────────────────────────────────
 
 async def _route_command_handler(client: Client, message: Message):
@@ -688,7 +688,7 @@ async def _route_command_handler(client: Client, message: Message):
     route = detect_route(url)
     info = ROUTE_INFO.get(route, {"icon": "❓", "label": "Unknown"})
 
-    # directdl হলে is_supported_site দিয়ে verify করো
+    # 如果是 directdl，用 is_supported_site 验证
     extra = ""
     if route == "directdl":
         try:
@@ -711,7 +711,7 @@ async def _route_command_handler(client: Client, message: Message):
 
 
 # ─────────────────────────────────────────────────────────────────
-# /plugininfo COMMAND
+# /plugininfo 命令
 # ─────────────────────────────────────────────────────────────────
 
 async def _plugininfo_command_handler(client: Client, message: Message):
@@ -739,7 +739,7 @@ async def _plugininfo_command_handler(client: Client, message: Message):
 
 
 # ─────────────────────────────────────────────────────────────────
-# SETUP
+# 设置
 # ─────────────────────────────────────────────────────────────────
 
 def setup_auto_router(app: Client):
@@ -762,7 +762,7 @@ def setup_auto_router(app: Client):
     """
     from pyrogram.handlers import MessageHandler
 
-    # /route command
+    # /route 命令
     app.add_handler(
         MessageHandler(
             _route_command_handler,
@@ -772,7 +772,7 @@ def setup_auto_router(app: Client):
         group=1,
     )
 
-    # /plugininfo command
+    # /plugininfo 命令
     app.add_handler(
         MessageHandler(
             _plugininfo_command_handler,
@@ -785,8 +785,8 @@ def setup_auto_router(app: Client):
         group=1,
     )
 
-    # ── মূল Auto-Detect Handler ──────────────────────────────────
-    # group=3 — autolink ও urldl এর পরে
+    # ── 主自动检测处理器 ──────────────────────────────────
+    # group=3 — autolink 和 urldl 之后
     app.add_handler(
         MessageHandler(
             _auto_detect_handler,

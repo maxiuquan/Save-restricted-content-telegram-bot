@@ -1,4 +1,4 @@
-# core/start.py — UPDATED: Uses new process_referral() from plugins/referral.py
+# core/start.py — 更新：使用 plugins/referral.py 中新的 process_referral() 函数
 
 from datetime import datetime
 import asyncio
@@ -22,7 +22,7 @@ def setup_start_handler(app: Client):
             f"{user.last_name or ''}".strip()
         )
 
-        # ── MongoDB-তে ইউজার সেভ/আপডেট করো ─────────────────────────────────
+        # ── 在 MongoDB 中保存/更新用户 ─────────────────────────────────
         try:
             await total_users.update_one(
                 {"user_id": user.id},
@@ -42,19 +42,19 @@ def setup_start_handler(app: Client):
         except Exception as e:
             LOGGER.error(f"Failed to save user {user.id} to DB: {e}")
 
-        # ── Referral tracking: /start <referrer_id> ───────────────────────
+        # ── 推荐追踪：/start <推荐人ID> ───────────────────────
         if len(message.command) > 1:
             referrer_arg = message.command[1]
             try:
                 referrer_id = int(referrer_arg)
-                # Import here to avoid circular imports
+                # 在此导入以避免循环导入
                 from plugins.referral import process_referral
-                # process_referral handles anti-cheat + reward automatically
+                # process_referral 自动处理防作弊 + 奖励
                 success = await process_referral(client, user.id, referrer_id)
                 if success:
                     LOGGER.info(f"Referral processed: {user.id} referred by {referrer_id}")
             except (ValueError, TypeError):
-                pass  # Not a referral deep link
+                pass  # 不是推荐深链接
             except Exception as e:
                 LOGGER.error(f"Referral tracking error for {user.id}: {e}")
 

@@ -1,4 +1,4 @@
-# Fixed: All DB calls now use Motor async (await)
+# 已修复：所有数据库调用现在使用 Motor 异步 (await)
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.enums import ParseMode
@@ -12,7 +12,7 @@ pending_transfers = {}
 
 
 async def _get_active_plan(user_id: int):
-    """Motor async — sender-এর active plan খোঁজে।"""
+    """Motor 异步 — 查找发送者的活跃套餐。"""
     current_time = datetime.utcnow()
     for plan_key, collection in [("plan3", prem_plan3), ("plan2", prem_plan2), ("plan1", prem_plan1)]:
         doc = await collection.find_one({"user_id": user_id})

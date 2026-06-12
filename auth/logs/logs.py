@@ -8,11 +8,11 @@ from telegraph import Telegraph
 from config import DEVELOPER_USER_ID, COMMAND_PREFIX
 from utils import LOGGER
 
-# Setup logging
+# 配置日志记录
 logging.basicConfig(level=logging.INFO)
 logger = LOGGER
 
-# Initialize Telegraph client
+# 初始化 Telegraph 客户端
 telegraph = Telegraph()
 telegraph.create_account(
     short_name="RestrictedContentDL",
@@ -21,14 +21,14 @@ telegraph.create_account(
 )
 
 def setup_logs_handler(app: Client):
-    """Set up handlers for logs command and callback queries."""
+    """设置日志命令和回调查询的处理函数。"""
 
     async def create_telegraph_page(content: str) -> list:
-        """Create Telegraph pages with the given content, each under 20 KB, and return list of URLs."""
+        """使用给定内容创建 Telegraph 页面（每页不超过20KB），并返回URL列表。"""
         try:
-            truncated_content = content[:40000]  # Limit to avoid Telegraph issues
+            truncated_content = content[:40000]  # 限制长度以避免 Telegraph 问题
             content_bytes = truncated_content.encode('utf-8')
-            max_size_bytes = 20 * 1024  # 20 KB limit per page
+            max_size_bytes = 20 * 1024  # 每页 20 KB 限制
             pages = []
             page_content = ""
             current_size = 0
@@ -138,7 +138,7 @@ def setup_logs_handler(app: Client):
             )
             return
 
-        logger.info("User is developer, processing callback")
+        logger.info("用户是开发者，处理回调")
         if data == "close_doc$":
             await query.message.delete()
             await query.answer()

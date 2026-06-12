@@ -11,8 +11,8 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 async def _get_active_plan(user_id: int):
     """
-    Motor async — user-এর সর্বোচ্চ active plan খোঁজে।
-    Returns (plan_label, expiry_date_ist_str) or ("Free", None)
+    Motor 异步 — 查找用户的最高活跃套餐。
+    返回 (套餐标签, IST 格式的到期时间字符串) 或 ("免费", None)
     """
     now = datetime.utcnow()
     plan_checks = [
@@ -33,8 +33,8 @@ async def _get_active_plan(user_id: int):
 
 async def _get_login_status(user_id: int):
     """
-    Motor async — session গণনা।
-    Returns (account_count, account_names_list)
+    Motor 异步 — 计算会话数。
+    返回 (账户数量, 账户名称列表)
     """
     session_doc = await user_sessions.find_one({"user_id": user_id})
     if not session_doc:

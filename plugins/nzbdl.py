@@ -1,16 +1,16 @@
 #
-# plugins/nzbdl.py — SABnzbd / Usenet NZB Downloader
+# plugins/nzbdl.py — SABnzbd / Usenet NZB 下载器
 #
-# Handles:
-#   • /nzb <NZB URL>           → Download from Usenet via NZB URL
-#   • /nzb (reply to .nzb)     → Download .nzb file attachment
+# 处理:
+#   • /nzb <NZB URL>           → 通过 NZB URL 从 Usenet 下载
+#   • /nzb (回复 .nzb)         → 下载 .nzb 文件附件
 #
-# ✅ Real-time progress bar
-# ✅ Premium / free size check
-# ✅ Multi-stage status (Downloading → Verifying → Repairing → Extracting)
-# ✅ Auto upload to Telegram after completion
-# ✅ Cancel button support
-# ✅ Cleanup after operation
+# ✅ 实时进度条
+# ✅ 高级用户/免费用户文件大小检查
+# ✅ 多阶段状态（下载中 → 验证中 → 修复中 → 解压中）
+# ✅ 完成后自动上传到 Telegram
+# ✅ 支持取消按钮
+# ✅ 操作后清理
 
 import os
 import shutil
@@ -33,11 +33,11 @@ from core import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG
+# 配置
 # ─────────────────────────────────────────────────────────────────────────────
 
 SAB_HOST     = os.environ.get("SAB_HOST",    "http://localhost:8070")
-SAB_API_KEY  = os.environ.get("SAB_API_KEY", "mltb")
+SAB_API_KEY  = os.environ.get("SAB_API_KEY")
 
 DOWNLOAD_DIR    = os.path.join(tempfile.gettempdir(), "nzbdl_downloads")
 PROGRESS_DELAY  = 4
@@ -52,7 +52,7 @@ _cancel_flags: dict = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SABnzbd API CLIENT
+# SABnzbd API 客户端
 # ─────────────────────────────────────────────────────────────────────────────
 
 class SABClient:
@@ -84,7 +84,7 @@ class SABClient:
             "mode":  "addurl",
             "name":  nzb_url,
             "cat":   cat,
-            "pp":    "3",      # Download + Verify + Repair + Unpack
+            "pp":    "3",      # 下载 + 验证 + 修复 + 解压
         }
         if dest:
             params["dir"] = dest
@@ -142,7 +142,7 @@ sab = SABClient()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -184,7 +184,7 @@ def _find_completed_file(storage_path: str) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD HELPER
+# 上传辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _upload_to_telegram(
@@ -255,7 +255,7 @@ async def _upload_to_telegram(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE PIPELINE
+# 核心流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_nzb_download(
@@ -296,7 +296,7 @@ async def _run_nzb_download(
                     pass
                 return
 
-            # ── Check active queue ────────────────────────────────────────
+            # ── 检查活跃队列 ────────────────────────────────────────────
             queue_data = await sab.get_queue(nzo_id)
             slots      = queue_data.get("queue", {}).get("slots", [])
 
@@ -312,7 +312,7 @@ async def _run_nzb_download(
                 pct  = (done_mb / total_mb * 100) if total_mb > 0 else 0
                 eta_str = slot.get("timeleft", "")
 
-                # Size check
+                # 大小检查
                 total_bytes = total_mb * 1024 * 1024
                 max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
                 if total_bytes > max_allowed and total_bytes > 0:
@@ -350,7 +350,7 @@ async def _run_nzb_download(
                         pass
 
             else:
-                # ── Check history (post-processing) ──────────────────────
+                # ── 检查历史记录（后处理）──────────────────────────
                 history_data = await sab.get_history(nzo_id)
                 hist_slots   = history_data.get("history", {}).get("slots", [])
 
@@ -386,7 +386,7 @@ async def _run_nzb_download(
                         except Exception:
                             pass
                 else:
-                    # Both queue and history empty — still starting
+                    # 队列和历史记录都为空 — 仍在启动中
                     pass
 
             await asyncio.sleep(POLL_INTERVAL)
@@ -402,7 +402,7 @@ async def _run_nzb_download(
                 pass
             return
 
-        # ── Locate completed file ─────────────────────────────────────────
+        # ── 定位已完成的文件 ─────────────────────────────────────────────
         await status_msg.edit_text(
             "✅ **下载 সম্পন্ন!**\n\n📤 上传 করা হচ্ছে...",
             parse_mode=ParseMode.MARKDOWN,
@@ -410,7 +410,7 @@ async def _run_nzb_download(
 
         upload_path = _find_completed_file(storage)
         if not upload_path:
-            # Fallback: search by name in SABnzbd complete directory
+            # 回退方案：在 SABnzbd 完成目录中按名称搜索
             sab_complete = os.path.join(
                 os.path.expanduser("~"), "Downloads", "complete"
             )
@@ -424,7 +424,7 @@ async def _run_nzb_download(
             )
             return
 
-        # ── Thumbnail ─────────────────────────────────────────────────────
+        # ── 缩略图 ─────────────────────────────────────────────────────────
         thumbnail_path = None
         try:
             user_data = await user_activity_collection.find_one({"user_id": user_id})
@@ -434,7 +434,7 @@ async def _run_nzb_download(
         except Exception:
             thumbnail_path = None
 
-        # ── Upload ────────────────────────────────────────────────────────
+        # ── 上传 ────────────────────────────────────────────────────────────
         file_sz = os.path.getsize(upload_path)
         caption = (
             f"📄 **{os.path.basename(upload_path)}**\n"
@@ -461,7 +461,7 @@ async def _run_nzb_download(
         except Exception as upload_err:
             LOGGER.error(f"[NZBDl] Upload failed: {upload_err}")
 
-        # ── Cleanup ───────────────────────────────────────────────────────
+        # ── 清理 ───────────────────────────────────────────────────────────
         await sab.delete_history(nzo_id, delete_files=True)
 
     except Exception as e:
@@ -482,7 +482,7 @@ async def _run_nzb_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMMAND HANDLER SETUP
+# 命令处理器注册
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_nzbdl_handler(app: Client):
@@ -499,7 +499,7 @@ def setup_nzbdl_handler(app: Client):
         source_url    = ""
         nzb_name      = "NZB 下载"
 
-        # ── Input: replied .nzb file ──────────────────────────────────────
+        # ── 输入：回复的 .nzb 文件 ──────────────────────────────────────────
         if message.reply_to_message:
             doc = message.reply_to_message.document
             if doc and (
@@ -513,7 +513,7 @@ def setup_nzbdl_handler(app: Client):
                 nzb_file_path = await message.reply_to_message.download()
                 nzb_name      = doc.file_name or "nzb_file"
 
-        # ── Input: URL from args ──────────────────────────────────────────
+        # ── 输入：来自参数的 URL ──────────────────────────────────────────────
         if not nzb_file_path:
             parts      = message.text.split(None, 1)
             source_url = parts[1].strip() if len(parts) > 1 else ""
@@ -540,7 +540,7 @@ def setup_nzbdl_handler(app: Client):
         )
 
         try:
-            # ── Add to SABnzbd ────────────────────────────────────────────
+            # ── 添加到 SABnzbd ────────────────────────────────────────────────
             user_dir = os.path.join(DOWNLOAD_DIR, str(user_id))
             os.makedirs(user_dir, exist_ok=True)
 
@@ -586,7 +586,7 @@ def setup_nzbdl_handler(app: Client):
             if nzb_file_path and os.path.exists(nzb_file_path):
                 os.remove(nzb_file_path)
 
-    # ── Cancel callback ────────────────────────────────────────────────────
+    # ── 取消回调 ────────────────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^nzb_cancel_(\d+)$"))
     async def nzb_cancel_callback(client, callback_query):
         user_id = int(callback_query.data.split("_")[-1])

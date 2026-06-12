@@ -1,21 +1,21 @@
 #
-# db/users.py — MongoDB upsert helper for user profile data.
+# db/users.py — MongoDB 用户个人资料数据更新辅助函数。
 #
-# MongoDB Schema (total_users collection):
+# MongoDB 模式（total_users 集合）：
 # {
-#   "user_id":       int,         # PRIMARY KEY (immutable)
-#   "username":      str | None,  # nullable — user may not have one
-#   "first_name":    str,         # always present in Telegram API
-#   "last_name":     str | None,  # nullable
-#   "full_name":     str,         # computed: first_name + last_name
-#   "is_premium":    bool,        # Telegram Premium subscriber flag
-#   "is_verified":   bool,        # Verified account (blue tick)
-#   "is_scam":       bool,        # Telegram-flagged scam account
-#   "is_fake":       bool,        # Telegram-flagged fake account
-#   "language_code": str | None,  # IETF language tag, nullable
-#   "dc_id":         int | None,  # Telegram DC — available via get_users()
-#   "last_active":   datetime,    # last /start or any interaction
-#   "refreshed_at":  datetime,    # UTC timestamp of last /refresh
+#   "user_id":       int,         # 主键（不可变）
+#   "username":      str | None,  # 可为空 — 用户可能没有
+#   "first_name":    str,         # Telegram API 中始终存在
+#   "last_name":     str | None,  # 可为空
+#   "full_name":     str,         # 计算字段：first_name + last_name
+#   "is_premium":    bool,        # Telegram Premium 订阅者标识
+#   "is_verified":   bool,        # 已验证账户（蓝勾）
+#   "is_scam":       bool,        # Telegram 标记的诈骗账户
+#   "is_fake":       bool,        # Telegram 标记的伪造账户
+#   "language_code": str | None,  # IETF 语言标签，可为空
+#   "dc_id":         int | None,  # Telegram 数据中心 — 通过 get_users() 获取
+#   "last_active":   datetime,    # 最后一次 /start 或任何交互
+#   "refreshed_at":  datetime,    # 最后一次 /refresh 的 UTC 时间戳
 # }
 
 from datetime import datetime, timezone
@@ -25,15 +25,15 @@ from core.database import total_users
 
 async def upsert_user(user) -> dict:
     """
-    Upsert a Pyrogram User object into the total_users collection.
+    将 Pyrogram User 对象更新或插入到 total_users 集合中。
 
-    Fields guaranteed by Telegram API:
+    Telegram API 保证的字段：
         user_id, first_name, is_bot, is_premium, is_verified, is_scam, is_fake
 
-    Optional / nullable fields:
+    可选 / 可为空字段：
         username, last_name, language_code, dc_id
 
-    Returns a dict of the fields that were written to DB.
+    返回写入数据库的字段字典。
     """
     now = datetime.now(timezone.utc)
 
@@ -63,9 +63,9 @@ async def upsert_user(user) -> dict:
             {"$set": doc},
             upsert=True,
         )
-        LOGGER.info(f"[upsert_user] user_id={user.id} updated in DB.")
+        LOGGER.info(f"[upsert_user] user_id={user.id} 已更新到数据库。")
     except Exception as exc:
-        LOGGER.error(f"[upsert_user] DB error for user_id={user.id}: {exc}")
+        LOGGER.error(f"[upsert_user] user_id={user.id} 数据库错误：{exc}")
         raise
 
     return doc

@@ -1,15 +1,15 @@
-# utils/direct_links.py — Direct Link Generator
+# utils/direct_links.py — 直链生成器
 #
-# Resolves indirect links from 40+ file hosting sites to direct download URLs.
-# Adapted from: https://github.com/anasty17/mirror-leech-telegram-bot
+# 将 40+ 个文件托管网站的间接链接解析为直链下载 URL。
+# 改编自：https://github.com/anasty17/mirror-leech-telegram-bot
 #
-# Supported sites:
-#   MediaFire (files + folders), GoFile, TeraBox, Pixeldrain, 1Fichier,
+# 支持的网站：
+#   MediaFire（文件 + 文件夹）, GoFile, TeraBox, Pixeldrain, 1Fichier,
 #   StreamTape, WeTransfer, SwissTransfer, qiwi.gg, mp4upload, berkasdrive,
-#   BuzzHeavier, Send.cm, LinkBox, Doodstream family, Racaty, Krakenfiles,
+#   BuzzHeavier, Send.cm, LinkBox, Doodstream 系列, Racaty, Krakenfiles,
 #   Solidfiles, Uploadee, TmpSend, EasyUpload, StreamVid, StreamHub,
 #   pCloud, AkmFiles, Shrdsk, FileLions+StreamWish, Hxfile, OneDrive,
-#   GitHub releases, OSDN, Yandex Disk, devuploads, UploadHaven,
+#   GitHub 发布, OSDN, Yandex 网盘, devuploads, UploadHaven,
 #   FuckingFast, Lulacloud, MediaFile, BerkasDrive, SwisstTransfer
 
 import re
@@ -30,9 +30,26 @@ from urllib3.util.retry import Retry
 
 from utils import LOGGER
 
+import ipaddress
+
+def _is_safe_url(url: str) -> bool:
+    """防止 SSRF 攻击：阻止访问内网地址"""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        if not host:
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+            return not (ip.is_private or ip.is_loopback or ip.is_link_local)
+        except ValueError:
+            return True
+    except Exception:
+        return False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EXCEPTIONS
+# 异常
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DirectLinkException(Exception):
@@ -41,7 +58,7 @@ class DirectLinkException(Exception):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONSTANTS
+# 常量
 # ─────────────────────────────────────────────────────────────────────────────
 
 USER_AGENT = (
@@ -55,7 +72,7 @@ PASSWORD_ERROR = (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROUTER — main entry point
+# 路由器 — 主入口
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_direct_link(url: str) -> str | dict:
@@ -74,11 +91,11 @@ def generate_direct_link(url: str) -> str | dict:
     url = url.strip()
     domain = urlparse(url).hostname or ""
 
-    # Route by domain
+    # 按域名路由
     if not domain:
         raise DirectLinkException("Invalid URL — could not parse domain.")
 
-    # ── Yandex Disk ───────────────────────────────────────────────────────────
+    # ── Yandex 网盘 ───────────────────────────────────────────────────────────
     if "yadi.sk" in url or "disk.yandex." in url:
         return _yandex_disk(url)
 
@@ -202,7 +219,7 @@ def generate_direct_link(url: str) -> str | dict:
     if any(x in domain for x in ["akmfiles.com", "akmfls.xyz"]):
         return _akmfiles(url)
 
-    # ── Doodstream family ─────────────────────────────────────────────────────
+    # ── Doodstream 系列 ─────────────────────────────────────────────────────
     _dood_domains = {
         "dood.watch", "doodstream.com", "dood.to", "dood.so", "dood.cx",
         "dood.la", "dood.ws", "dood.sh", "doodstream.co", "dood.pm",
@@ -213,7 +230,7 @@ def generate_direct_link(url: str) -> str | dict:
     if any(x in domain for x in _dood_domains):
         return _doods(url)
 
-    # ── StreamTape family ─────────────────────────────────────────────────────
+    # ── StreamTape 系列 ─────────────────────────────────────────────────────
     _tape_domains = {
         "streamtape.com", "streamtape.co", "streamtape.cc", "streamtape.to",
         "streamtape.net", "streamta.pe", "streamtape.xyz",
@@ -225,7 +242,7 @@ def generate_direct_link(url: str) -> str | dict:
     if any(x in domain for x in ["wetransfer.com", "we.tl"]):
         return _wetransfer(url)
 
-    # ── TeraBox family ────────────────────────────────────────────────────────
+    # ── TeraBox 系列 ────────────────────────────────────────────────────────
     _tera_domains = {
         "terabox.com", "nephobox.com", "4funbox.com", "mirrobox.com",
         "momerybox.com", "teraboxapp.com", "1024tera.com", "terabox.app",
@@ -236,7 +253,7 @@ def generate_direct_link(url: str) -> str | dict:
     if any(x in domain for x in _tera_domains):
         return _terabox(url)
 
-    # ── FileLions / StreamWish family ─────────────────────────────────────────
+    # ── FileLions / StreamWish 系列 ─────────────────────────────────────────
     _lions_domains = {
         "filelions.co", "filelions.site", "filelions.live", "filelions.to",
         "mycloudz.cc", "cabecabean.lol", "filelions.online", "embedwish.com",
@@ -257,7 +274,7 @@ def generate_direct_link(url: str) -> str | dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _session_with_retries() -> Session:
@@ -300,7 +317,7 @@ def _cloudscraper_session():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SITE HANDLERS (alphabetical)
+# 网站处理器（按字母顺序）
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _akmfiles(url: str) -> str:
@@ -317,6 +334,9 @@ def _akmfiles(url: str) -> str:
 
 
 def _berkasdrive(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("BerkasDrive: invalid URL.")
     try:
         res = requests.get(url)
         m = search(r"showFileInformation\((.*?)\)", res.text)
@@ -580,6 +600,9 @@ def _filelions_streamwish(url: str) -> str:
 
 
 def _fuckingfast(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("FuckingFast: invalid URL.")
     try:
         res = requests.get(url)
         m = search(r"window\.open\(([\"'])(https://fuckingfast\.co/dl/[^\"']+)\1", res.text)
@@ -662,6 +685,9 @@ def _gofile(url: str) -> str | tuple:
 
 
 def _hxfile(url: str) -> tuple[str, list]:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("HxFile: invalid URL.")
     if not ospath.isfile("hxfile.txt"):
         raise DirectLinkException("HxFile: hxfile.txt (cookies) not found.")
     jar = MozillaCookieJar()
@@ -753,6 +779,9 @@ def _linkbox(url: str) -> str | dict:
 
 
 def _lulacloud(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("LulaCloud: invalid URL.")
     try:
         res = requests.post(url, headers={"Referer": url}, allow_redirects=False)
         return res.headers["location"]
@@ -761,6 +790,9 @@ def _lulacloud(url: str) -> str:
 
 
 def _mediafile(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("MediaFile: invalid URL.")
     try:
         res = requests.get(url, allow_redirects=True)
         m = search(r"href='([^']+)'", res.text)
@@ -790,7 +822,7 @@ def _mediafile(url: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MEDIAFIRE — File + Folder handler  (v3 — multi-fallback)
+# MEDIAFIRE — 文件 + 文件夹处理器（v3 — 多重回退）
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _mf_resolve_indirect(href: str, pwd: str | None, session) -> str:
@@ -805,22 +837,22 @@ def _mf_resolve_indirect(href: str, pwd: str | None, session) -> str:
     if not href:
         return href
 
-    # Fix protocol-relative URLs
+    # 修复协议相对 URL
     if href.startswith("//"):
         href = f"https:{href}"
 
-    # Already a CDN direct link → return immediately
+    # 已是 CDN 直链 → 立即返回
     if search(r"download\d*\.mediafire\.com", href):
         return href
 
-    # Another mediafire.com/file/ page — follow it once (one hop only)
+    # 另一个 mediafire.com/file/ 页面 — 跟随一次（仅一层）
     if "mediafire.com/file/" in href:
         try:
             from lxml.etree import HTML as lhtml
             res       = session.get(href, timeout=20)
             html_tree = lhtml(res.text)
 
-            # Try all XPath selectors on the inner page
+            # 在内层页面上尝试所有 XPath 选择器
             for selector in [
                 '//a[@id="downloadButton"]/@href',
                 '//a[@aria-label="Download file"]/@href',
@@ -830,7 +862,7 @@ def _mf_resolve_indirect(href: str, pwd: str | None, session) -> str:
                 if sub_link and sub_link[0].startswith("http"):
                     return sub_link[0]
 
-            # Regex fallback on the inner page raw HTML
+            # 内层页面原始 HTML 上的正则回退
             raw = findall(
                 r'https?://download\d*\.mediafire\.com/[^"\'<>\s]+', res.text
             )
@@ -860,24 +892,24 @@ def _mediafire(url: str, session=None) -> str | dict:
       5. Regex  → raw HTML scan for download CDN URLs
       6. MediaFire Public API v1.5              (no HTML parsing — most robust)
     """
-    # ── Folder → delegate ─────────────────────────────────────────────────────
+    # ── 文件夹 → 委托 ─────────────────────────────────────────────────────
     if "/folder/" in url:
         return _mediafire_folder(url)
 
-    # ── Password split ────────────────────────────────────────────────────────
+    # ── 密码分割 ────────────────────────────────────────────────────────
     pwd = None
     if "::" in url:
         pwd = url.split("::")[-1]
         url = url.split("::")[-2]
 
-    # ── Already a direct CDN URL → return immediately ─────────────────────────
+    # ── 已是直接 CDN URL → 立即返回 ─────────────────────────
     direct_match = findall(
         r"https?://download\d*\.mediafire\.com/[^\s\"'<>]+", url
     )
     if direct_match:
         return direct_match[0]
 
-    # ── Build clean URL (strip query params) ──────────────────────────────────
+    # ── 构建干净的 URL（去除查询参数） ──────────────────────────────────
     parsed    = urlparse(url)
     clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
@@ -885,7 +917,7 @@ def _mediafire(url: str, session=None) -> str | dict:
         session = _cloudscraper_session()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 1 — Fetch the MediaFire page
+    # 步骤 1 — 获取 MediaFire 页面
     # ─────────────────────────────────────────────────────────────────────────
     try:
         response  = session.get(
@@ -903,23 +935,23 @@ def _mediafire(url: str, session=None) -> str | dict:
         raise DirectLinkException(f"MediaFire: failed to fetch page — {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 2 — Parse HTML with lxml
+    # 步骤 2 — 用 lxml 解析 HTML
     # ─────────────────────────────────────────────────────────────────────────
     html_tree = None
     try:
         from lxml.etree import HTML as lhtml
         html_tree = lhtml(page_text)
     except ImportError:
-        pass  # lxml not installed → skip XPath fallbacks, go to regex/API
+        pass  # lxml 未安装 → 跳过 XPath 回退，使用正则/API
 
-    # ── Error page detection ──────────────────────────────────────────────────
+    # ── 错误页面检测 ──────────────────────────────────────────────────
     if html_tree is not None:
-        # Official error paragraph
+        # 官方错误段落
         mf_errors = html_tree.xpath('//p[@class="notranslate"]/text()')
         if mf_errors:
             raise DirectLinkException(f"MediaFire: {mf_errors[0].strip()}")
 
-        # Generic error text in divs
+        # div 中的通用错误文本
         for err_text in html_tree.xpath('//div[contains(@class,"error")]//text()'):
             err_lower = err_text.lower().strip()
             if err_lower and any(
@@ -928,7 +960,7 @@ def _mediafire(url: str, session=None) -> str | dict:
             ):
                 raise DirectLinkException(f"MediaFire: {err_text.strip()}")
 
-    # ── Password-protected page detection ─────────────────────────────────────
+    # ── 密码保护页面检测 ─────────────────────────────────────
     _pw_indicators = [
         "passwordPrompt",
         "password_container",
@@ -951,7 +983,7 @@ def _mediafire(url: str, session=None) -> str | dict:
         if not pwd:
             raise DirectLinkException(f"MediaFire: {PASSWORD_ERROR}")
 
-        # Submit password via POST
+        # 通过 POST 提交密码
         try:
             resp2     = session.post(
                 clean_url,
@@ -964,12 +996,12 @@ def _mediafire(url: str, session=None) -> str | dict:
         except Exception as e:
             raise DirectLinkException(f"MediaFire: password submit failed — {e}")
 
-        # Still on password page → wrong password
+        # 仍在密码页面 → 密码错误
         if any(ind in page_text for ind in _pw_indicators):
             raise DirectLinkException("MediaFire: wrong password.")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 1 — a#downloadButton  (MediaFire's current primary button 2024/25)
+    # 回退 1 — a#downloadButton（MediaFire 当前主按钮 2024/2025）
     # ─────────────────────────────────────────────────────────────────────────
     if html_tree is not None:
         link = html_tree.xpath('//a[@id="downloadButton"]/@href')
@@ -979,7 +1011,7 @@ def _mediafire(url: str, session=None) -> str | dict:
                 return resolved
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 2 — aria-label="Download file"  (legacy selector)
+    # 回退 2 — aria-label="Download file"（旧版选择器）
     # ─────────────────────────────────────────────────────────────────────────
     if html_tree is not None:
         link = html_tree.xpath('//a[@aria-label="Download file"]/@href')
@@ -989,7 +1021,7 @@ def _mediafire(url: str, session=None) -> str | dict:
                 return resolved
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 3 — a[contains(@class,"popsok")]  (alternate button class)
+    # 回退 3 — a[contains(@class,"popsok")]（备选按钮类）
     # ─────────────────────────────────────────────────────────────────────────
     if html_tree is not None:
         link = html_tree.xpath('//a[contains(@class,"popsok")]/@href')
@@ -999,7 +1031,7 @@ def _mediafire(url: str, session=None) -> str | dict:
                 return resolved
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 4 — Broad href scan: any <a> linking to a mediafire download
+    # 回退 4 — 宽泛 href 扫描：链接到 mediafire 下载的任何 <a>
     # ─────────────────────────────────────────────────────────────────────────
     if html_tree is not None:
         for href in html_tree.xpath("//a/@href"):
@@ -1010,7 +1042,7 @@ def _mediafire(url: str, session=None) -> str | dict:
                     return resolved
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 5 — Raw HTML regex: scan for CDN download URLs
+    # 回退 5 — 原始 HTML 正则：扫描 CDN 下载 URL
     # ─────────────────────────────────────────────────────────────────────────
     raw_cdn_links = findall(
         r'https?://download\d*\.mediafire\.com/[^"\'<>\s\\]+',
@@ -1020,9 +1052,9 @@ def _mediafire(url: str, session=None) -> str | dict:
         return raw_cdn_links[0]
 
     # ─────────────────────────────────────────────────────────────────────────
-    # FALLBACK 6 — MediaFire Public API v1.5
-    #   Uses the file's quick_key extracted from the URL.
-    #   Returns the direct normal_download link without HTML scraping.
+    # 回退 6 — MediaFire 公共 API v1.5
+    #   使用从 URL 中提取的文件 quick_key。
+    #   返回直接的 normal_download 链接，无需 HTML 抓取。
     # ─────────────────────────────────────────────────────────────────────────
     key_match = search(r"/file/([a-zA-Z0-9]+)", clean_url)
     if key_match:
@@ -1057,7 +1089,7 @@ def _mediafire(url: str, session=None) -> str | dict:
         except Exception as api_exc:
             LOGGER.warning(f"[MediaFire] API fallback failed: {api_exc}")
 
-    # ── All 6 fallbacks exhausted ─────────────────────────────────────────────
+    # ── 所有 6 个回退已穷尽 ─────────────────────────────────────────────
     raise DirectLinkException(
         "MediaFire: download link পাওয়া যায়নি।\n"
         "সম্ভাব্য কারণ:\n"
@@ -1082,19 +1114,19 @@ def _mediafire_folder(url: str) -> dict | str:
         str  — if folder contains exactly 1 file (returns its direct URL)
         dict — {"title", "total_size", "contents": [{"filename","path","url"}]}
     """
-    # ── Password split ────────────────────────────────────────────────────────
+    # ── 密码分割 ────────────────────────────────────────────────────────
     pwd = None
     if "::" in url:
         pwd = url.split("::")[-1]
         url = url.split("::")[-2]
 
-    # ── Extract folder key(s) from URL ────────────────────────────────────────
-    # Handles both:
+    # ── 从 URL 中提取文件夹 key ────────────────────────────────────────
+    # 处理两种格式：
     #   /folder/abc123def456/FolderName
     #   /folder/abc123,def456,ghi789  (multi-folder)
     path_part   = urlparse(url).path
     after_folder = path_part.split("/folder/")[-1]
-    # First path segment only (ignore /FolderName suffix)
+    # 仅取第一个路径段（忽略 /FolderName 后缀）
     first_segment = after_folder.split("/")[0]
     raw_keys      = first_segment.split(",")
     folder_keys   = [k.strip() for k in raw_keys if k.strip()]
@@ -1114,7 +1146,7 @@ def _mediafire_folder(url: str) -> dict | str:
     session = _cloudscraper_session()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # INNER HELPERS
+    # 内部辅助函数
     # ─────────────────────────────────────────────────────────────────────────
 
     def _resolve_file_link(file_info: dict) -> str:
@@ -1129,12 +1161,12 @@ def _mediafire_folder(url: str) -> dict | str:
         """
         links = file_info.get("links", {})
 
-        # Priority 1: direct CDN link from API (not always present)
+        # 优先级 1：来自 API 的直接 CDN 链接（不总是存在）
         direct = links.get("direct_download", "")
         if direct and "download" in direct and "mediafire.com" in direct:
             return direct
 
-        # Priority 2 & 3: normal_download or view page → resolve
+        # 优先级 2 & 3：normal_download 或 view 页面 → 解析
         for link_key in ("normal_download", "view"):
             page_link = links.get(link_key, "")
             if not page_link:
@@ -1154,7 +1186,7 @@ def _mediafire_folder(url: str) -> dict | str:
     def _collect_files(folder_key: str, folder_path: str) -> None:
         """Paginate through all files in a folder and add them to details."""
         chunk        = 1
-        total_chunks = 1   # Will be updated after first API call
+        total_chunks = 1   # 将在第一次 API 调用后更新
 
         while chunk <= total_chunks:
             try:
@@ -1186,7 +1218,7 @@ def _mediafire_folder(url: str) -> dict | str:
                 )
                 break
 
-            # Update total chunk count from first response
+            # 从第一个响应更新总块数
             try:
                 total_chunks = int(folder_content.get("chunks", total_chunks))
             except (ValueError, TypeError):
@@ -1254,22 +1286,22 @@ def _mediafire_folder(url: str) -> dict | str:
                 if not sub_key:
                     continue
 
-                # Build nested path
+                # 构建嵌套路径
                 new_path = (
                     f"{parent_path}/{sub_name}" if parent_path else sub_name
                 )
 
-                # Recurse: files first, then deeper sub-folders
+                # 递归：先处理文件，再处理更深层的子文件夹
                 _collect_files(sub_key, new_path)
                 _collect_subfolders(sub_key, new_path)
 
             chunk += 1
 
     # ─────────────────────────────────────────────────────────────────────────
-    # MAIN LOOP — process each folder key
+    # 主循环 — 处理每个文件夹 key
     # ─────────────────────────────────────────────────────────────────────────
     for fkey in folder_keys:
-        # ── Get folder metadata (name) ────────────────────────────────────────
+        # ── 获取文件夹元数据（名称） ────────────────────────────────────────
         try:
             info_res = session.post(
                 "https://www.mediafire.com/api/1.5/folder/get_info.php",
@@ -1294,13 +1326,13 @@ def _mediafire_folder(url: str) -> dict | str:
             if not details["title"]:
                 details["title"] = fkey
 
-        # ── Collect all files (flat + recursive sub-folders) ──────────────────
+        # ── 收集所有文件（扁平 + 递归子文件夹） ──────────────────
         root_path = details["title"]
         _collect_files(fkey, root_path)
         _collect_subfolders(fkey, root_path)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # RESULT
+    # 结果
     # ─────────────────────────────────────────────────────────────────────────
     if not details["contents"]:
         raise DirectLinkException(
@@ -1311,7 +1343,7 @@ def _mediafire_folder(url: str) -> dict | str:
             "  • সব file এর link resolve করা ব্যর্থ হয়েছে"
         )
 
-    # Single file in folder → return plain URL string
+    # 文件夹中只有一个文件 → 返回纯 URL 字符串
     if len(details["contents"]) == 1:
         return details["contents"][0]["url"]
 
@@ -1409,6 +1441,9 @@ def _pixeldrain(url: str) -> str:
 
 
 def _qiwi(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("qiwi.gg: invalid URL.")
     file_id = url.split("/")[-1]
     try:
         from lxml.etree import HTML as lhtml
@@ -1423,6 +1458,9 @@ def _qiwi(url: str) -> str:
 
 
 def _racaty(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("Racaty: invalid URL.")
     with _cloudscraper_session() as s:
         url = s.get(url).url
         try:
@@ -1560,6 +1598,9 @@ def _streamhub(url: str) -> str:
 
 
 def _streamtape(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("StreamTape: invalid URL.")
     parts = url.split("/")
     vid_id = parts[4] if len(parts) >= 6 else parts[-1]
     try:
@@ -1711,6 +1752,9 @@ def _tmpsend(url: str) -> tuple[str, list]:
 
 
 def _transfer_it(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("Transfer.it: invalid URL.")
     res = requests.post("https://transfer-it-henna.vercel.app/post", json={"url": url})
     if res.status_code == 200:
         return res.json()["url"]
@@ -1731,6 +1775,9 @@ def _uploadee(url: str) -> str:
 
 
 def _uploadhaven(url: str) -> str:
+    if not _is_safe_url(url):
+        LOGGER.warning(f"[DirectLinks] Blocked suspicious URL: {url}")
+        raise DirectLinkException("UploadHaven: invalid URL.")
     try:
         from lxml.etree import HTML as lhtml
         res = requests.get(url, headers={"Referer": "http://steamunlocked.net/"})
@@ -1779,7 +1826,7 @@ def _yandex_disk(url: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UTILITY: check if URL needs direct link resolution
+# 工具：检查 URL 是否需要直链解析
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SUPPORTED_DOMAINS = {

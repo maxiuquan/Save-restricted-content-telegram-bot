@@ -1,8 +1,8 @@
-# UPDATED: Multi-duration pricing — users choose how many days they want
-# Stars pricing based on 1 Star ≈ $0.0157 USD, $1 ≈ ৳122 BDT
-# All Star amounts end in 0 or 5
-# FIX: promote_user clears all old plans before assigning new one
-# FIX: No duplicate entries, premium_users collection stays in sync
+# 已更新：多时长定价 — 用户可选择所需天数
+# Stars 定价基于 1 Star ≈ $0.0157 USD，$1 ≈ ৳122 BDT
+# 所有 Star 金额以 0 或 5 结尾
+# 修复：promote_user 在分配新套餐前清除所有旧套餐
+# 修复：无重复条目，premium_users 集合保持同步
 
 import uuid
 import hashlib
@@ -36,21 +36,21 @@ from core import prem_plan1, prem_plan2, prem_plan3, daily_limit
 from core.database import premium_users, downloads_collection
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ADMIN CONTACT
+# 管理员联系方式
 # ─────────────────────────────────────────────────────────────────────────────
 ADMIN_USERNAME = "@studyqoroo"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAYMENT DETAILS
+# 支付详情
 # ─────────────────────────────────────────────────────────────────────────────
 BKASH_NUMBER = "01915575697"
 NAGAD_NUMBER = "01XXXXXXXXX"
 BINANCE_UID  = "1134625758"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MULTI-DURATION PRICING
-# Rate: ⭐1 Star ≈ $0.0157 USD | $1 ≈ ৳122 BDT
-# Stars always end in 0 or 5
+# 多时长定价
+# 汇率：⭐1 Star ≈ $0.0157 USD | $1 ≈ ৳122 BDT
+# Stars 金额始终以 0 或 5 结尾
 #
 # Plan 1 (base ৳5/day):
 #   1d=৳10($0.08)≈5⭐  3d=৳30($0.25)≈15⭐  7d=৳50($0.41)≈25⭐
@@ -90,7 +90,7 @@ PLAN_DURATIONS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PLAN DEFINITIONS (features)
+# 套餐定义（功能特性）
 # ─────────────────────────────────────────────────────────────────────────────
 PLANS = {
     "plan1": {
@@ -117,7 +117,7 @@ PLANS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MESSAGE TEMPLATES
+# 消息模板
 # ─────────────────────────────────────────────────────────────────────────────
 
 PLAN_OPTIONS_TEXT = """
@@ -316,13 +316,13 @@ ADMIN_NOTIFICATION_TEXT = """
 
 active_invoices: dict = {}
 
-# Emoji map for plans
+# 套餐表情符号映射
 PLAN_EMOJIS = {"plan1": "✨", "plan2": "🌟", "plan3": "💎"}
 
 
 def setup_plan_handler(app: Client):
 
-    # ── Keyboards ─────────────────────────────────────────────────────────
+    # 键盘
 
     def get_plan_buttons() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
@@ -359,7 +359,7 @@ def setup_plan_handler(app: Client):
             [InlineKeyboardButton("🏠 主菜单",               callback_data="menu_home")],
         ])
 
-    # ── promote_user ──────────────────────────────────────────────────────
+    # ── 升级用户 ──────────────────────────────────────────────────────
 
     async def promote_user(user_id: int, plan_key: str, days: int) -> dict:
         plan        = PLANS[plan_key]
@@ -390,7 +390,7 @@ def setup_plan_handler(app: Client):
         plan_doc.pop("_id", None)
         return plan_doc
 
-    # ── Telegram Stars invoice ────────────────────────────────────────────
+    # ── Telegram Stars 发票 ────────────────────────────────────────────
 
     async def generate_stars_invoice(client: Client, chat_id: int, user_id: int,
                                       plan_key: str, dur_key: str):
@@ -485,14 +485,14 @@ def setup_plan_handler(app: Client):
         )
         LOGGER.info(f"[Plans] /plans from user {message.from_user.id}")
 
-    # ── /add (admin) ──────────────────────────────────────────────────────
+    # ── /add（管理员）──────────────────────────────────────────────────────
 
     async def add_premium_command(client: Client, message: Message):
         if message.from_user.id != DEVELOPER_USER_ID:
             await message.reply_text("❌ **仅管理员可使用此命令！**", parse_mode=ParseMode.MARKDOWN)
             return
-        # Usage: /add {user} {1|2|3} [days]
-        # days defaults to 30 if not specified
+        # 用法：/add {用户} {1|2|3} [天数]
+        # 未指定天数时默认 30 天
         if len(message.command) < 3 or message.command[2] not in ["1", "2", "3"]:
             await message.reply_text(
                 "❌ **格式无效！**\n\n用法：`/add {用户名/用户ID} {1, 2, 或 3} [天数]`\n\n"
@@ -547,7 +547,7 @@ def setup_plan_handler(app: Client):
             await message.reply_text(f"❌ **错误：**`{str(e)}`", parse_mode=ParseMode.MARKDOWN)
             LOGGER.error(f"[Add] Error: {e}")
 
-    # ── /rm (admin) ───────────────────────────────────────────────────────
+    # ── /rm（管理员）──────────────────────────────────────────────────────
 
     async def remove_premium_command(client: Client, message: Message):
         if message.from_user.id != DEVELOPER_USER_ID:
@@ -608,7 +608,7 @@ def setup_plan_handler(app: Client):
             await message.reply_text(f"❌ **错误：**`{str(e)}`", parse_mode=ParseMode.MARKDOWN)
             LOGGER.error(f"[Rm] Error: {e}")
 
-    # ── Callback handler ──────────────────────────────────────────────────
+    # ── 回调处理 ──────────────────────────────────────────────────
 
     async def handle_plan_callback(client: Client, cq: CallbackQuery):
         data    = cq.data
@@ -616,7 +616,7 @@ def setup_plan_handler(app: Client):
         chat_id = cq.message.chat.id
         msg_id  = cq.message.id
 
-        # Plan selected → show duration options
+        # 已选套餐 → 显示时长选项
         if data.startswith("plan_select_"):
             plan_key = data[len("plan_select_"):]
             if plan_key not in PLANS:
@@ -642,7 +642,7 @@ def setup_plan_handler(app: Client):
             )
             return await cq.answer()
 
-        # Duration selected → payment method screen
+        # 已选时长 → 支付方式界面
         if data.startswith("plan_dur_"):
             # plan_dur_{plan_key}_{dur_key}
             parts    = data[len("plan_dur_"):].split("_", 1)
@@ -793,7 +793,7 @@ def setup_plan_handler(app: Client):
             )
             return await cq.answer("联系管理员进行支付")
 
-        # Back to plan list
+        # 返回套餐列表
         if data == "show_plan_options":
             await client.edit_message_text(
                 chat_id, msg_id, PLAN_OPTIONS_TEXT,
@@ -804,7 +804,7 @@ def setup_plan_handler(app: Client):
 
         await cq.answer()
 
-    # ── Raw: pre-checkout + Stars payment success ─────────────────────────
+    # ── 原始更新：预结算 + Stars 支付成功 ─────────────────────────
 
     async def raw_update_handler(client: Client, update, users, chats):
 
@@ -854,7 +854,7 @@ def setup_plan_handler(app: Client):
             else:                               chat_id = user_id
 
             payload  = payment.payload.decode()
-            # payload format: plan_{plan_key}_{dur_key}_{user_id}_{amount}_{ts}_{uid}
+            # payload 格式：plan_{plan_key}_{dur_key}_{user_id}_{amount}_{ts}_{uid}
             parts    = payload.split("_")
             if len(parts) < 4 or parts[0] != "plan":
                 LOGGER.error(f"[Payment] Unexpected payload: {payload}")
@@ -867,7 +867,7 @@ def setup_plan_handler(app: Client):
                 LOGGER.error(f"[Payment] Unknown plan_key: {plan_key}")
                 return
 
-            # dur_key might be missing in old invoices (backwards compat) → default 30d
+            # 旧发票中可能缺少 dur_key（向后兼容）→ 默认 30 天
             if dur_key not in PLAN_DURATIONS.get(plan_key, {}):
                 LOGGER.warning(f"[Payment] Unknown dur_key '{dur_key}', defaulting to 30d")
                 dur_key = "30"
@@ -948,7 +948,7 @@ def setup_plan_handler(app: Client):
             except Exception:
                 pass
 
-    # ── Register handlers ─────────────────────────────────────────────────
+    # ── 注册处理函数 ─────────────────────────────────────────────────
 
     app.add_handler(
         MessageHandler(

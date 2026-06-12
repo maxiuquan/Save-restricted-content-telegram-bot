@@ -1,7 +1,7 @@
 # utils/tracker.py
-# ✅ FIXED: Private channel name → user client দিয়ে resolve
-# ✅ FIXED: Thread/topic link regex
-# ✅ FIXED: Graceful fallback on all errors
+# ✅ 已修复：通过用户客户端解析私有频道名称
+# ✅ 已修复：话题/讨论串链接正则
+# ✅ 已修复：所有错误的优雅回退
 
 import os
 import re
@@ -21,7 +21,7 @@ import asyncio
 from .logging_setup import LOGGER
 from .helper import get_video_thumbnail
 
-# ── IST timezone (UTC+5:30) ────────────────────────────────────────────────
+# ── IST 时区 (UTC+5:30) ────────────────────────────────────────────────
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -61,7 +61,7 @@ def _extract_ids_from_url(url: str) -> tuple:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# ✅ CORE FIX: User client দিয়ে private channel name resolve
+# ✅ 核心修复：通过用户客户端解析私有频道名称
 # ══════════════════════════════════════════════════════════════════════════
 
 async def _get_user_client_for_resolve(user_id: int):
@@ -73,7 +73,7 @@ async def _get_user_client_for_resolve(user_id: int):
         user_client অথবা None
     """
     try:
-        # core থেকে import — circular import এড়াতে function-এর ভেতরে
+        # 从 core 导入 — 在函数内部导入以避免循环导入
         from core import user_sessions
         from pyrogram import Client as PyroClient
 
@@ -89,15 +89,15 @@ async def _get_user_client_for_resolve(user_id: int):
         if not sessions:
             return None
 
-        # প্রথম available session নাও
+        # 取第一个可用会话
         session = sessions[0]
 
         user_client = PyroClient(
             name=f"resolve_{user_id}",
             session_string=session["session_string"],
-            in_memory=True,    # ✅ no SQLite file
-            no_updates=True,   # ✅ no background task
-            workers=1,         # ✅ minimum — শুধু resolve করব
+            in_memory=True,    # ✅ 无 SQLite 文件
+            no_updates=True,   # ✅ 无后台任务
+            workers=1,         # ✅ 最小化 — 仅用于解析
         )
         await asyncio.wait_for(user_client.start(), timeout=8.0)
         return user_client
@@ -137,7 +137,7 @@ async def _resolve_channel_name(
 
     is_private = not str(channel_id).startswith("@")
 
-    # ── Public channel → bot দিয়েই পারবে ─────────────────────────────────
+    # ── 公共频道 → 机器人可以直接处理 ─────────────────────────────────
     if not is_private:
         try:
             chat  = await bot.get_chat(channel_id)
@@ -152,8 +152,8 @@ async def _resolve_channel_name(
             LOGGER.warning(f"[Tracker] Public resolve error: {e}")
             return str(channel_id)
 
-    # ── Private channel ────────────────────────────────────────────────────
-    raw_id = str(channel_id)  # e.g. "2821790337"
+    # ── 私有频道 ────────────────────────────────────────────────────
+    raw_id = str(channel_id)  # 例如 "2821790337"
 
     try:
         from pyrogram.utils import get_channel_id
@@ -161,7 +161,7 @@ async def _resolve_channel_name(
     except Exception:
         cid = int(raw_id)
 
-    # Step 1: Bot দিয়ে চেষ্টা করো (bot যদি সেই channel-এ থাকে)
+    # 步骤 1：尝试用机器人（如果机器人在该频道中）
     try:
         chat  = await bot.get_chat(cid)
         title = getattr(chat, "title", None) or raw_id
@@ -169,7 +169,7 @@ async def _resolve_channel_name(
         return f"{title} (Private)"
 
     except (ChannelInvalid, ChannelPrivate, PeerIdInvalid, BadRequest):
-        # Bot নেই → user client দিয়ে চেষ্টা করো
+        # 机器人不在 → 尝试用用户客户端
         LOGGER.info(
             f"[Tracker] Bot not in private channel {raw_id} "
             f"→ trying user client"
@@ -177,7 +177,7 @@ async def _resolve_channel_name(
     except Exception as e:
         LOGGER.warning(f"[Tracker] Bot resolve error for {raw_id}: {e}")
 
-    # Step 2: User client দিয়ে চেষ্টা
+    # 步骤 2：尝试用用户客户端
     if user_id is None:
         LOGGER.info(
             f"[Tracker] No user_id provided for private resolve → "
@@ -211,7 +211,7 @@ async def _resolve_channel_name(
         return f"Private Channel ({raw_id})"
 
     except (ChannelInvalid, ChannelPrivate, PeerIdInvalid, BadRequest) as e:
-        # User-ও সেই channel-এ নেই
+        # 用户也不在该频道中
         LOGGER.info(
             f"[Tracker] User client also cannot access {raw_id}: "
             f"{type(e).__name__}"
@@ -225,7 +225,7 @@ async def _resolve_channel_name(
         return f"Private Channel ({raw_id})"
 
     finally:
-        # ✅ সবসময় client বন্ধ করো
+        # ✅ 始终关闭客户端
         try:
             from .helper import safe_stop_client
             await safe_stop_client(user_client)
@@ -234,7 +234,7 @@ async def _resolve_channel_name(
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# notify_admin_link
+# 通知管理员链接
 # ══════════════════════════════════════════════════════════════════════════
 
 async def notify_admin_link(
@@ -260,7 +260,7 @@ async def notify_admin_link(
     ltype    = _link_type(url)
 
     if channel_name is None:
-        # ✅ user.id পাস করো — private channel resolve-এ কাজে লাগবে
+        # ✅ 传递 user.id — 用于私有频道解析
         channel_name = await _resolve_channel_name(bot, url, user_id=user.id)
 
     text = (
@@ -298,7 +298,7 @@ async def notify_admin_link(
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# log_file_to_group
+# 记录文件到群组
 # ══════════════════════════════════════════════════════════════════════════
 
 async def log_file_to_group(
@@ -330,7 +330,7 @@ async def log_file_to_group(
     username = f"@{user.username}" if user.username else "N/A"
     ltype    = _link_type(url)
 
-    # ✅ user.id পাস করো
+    # ✅ 传递 user.id
     if channel_name is None:
         channel_name = await _resolve_channel_name(bot, url, user_id=user.id)
 
@@ -353,7 +353,7 @@ async def log_file_to_group(
     sent_msg = None
 
     try:
-        # ── file_id দিয়ে পাঠানো ───────────────────────────────────────────
+        # ── 通过 file_id 发送 ───────────────────────────────────────────
         if file_id:
             if media_type == "photo":
                 sent_msg = await bot.send_photo(
@@ -362,7 +362,7 @@ async def log_file_to_group(
                     caption=orig,
                 )
             elif media_type == "video":
-                # ✅ fast path — metadata overhead নেই
+                # ✅ 快速路径 — 无元数据开销
                 sent_msg = await bot.send_video(
                     chat_id=log_group_id,
                     video=file_id,
@@ -382,12 +382,12 @@ async def log_file_to_group(
                     caption=orig,
                 )
 
-        # ── file_path থেকে upload ─────────────────────────────────────────
+        # ── 从 file_path 上传 ─────────────────────────────────────────
         elif file_path and os.path.exists(file_path):
 
             if media_type == "video":
-                # Thumbnail — শুধু caller দিলে ব্যবহার করো
-                # auto-generate করব না — performance priority
+                # 缩略图 — 仅在调用者提供时使用
+                # 不自动生成 — 性能优先
                 log_thumb = (
                     thumbnail_path
                     if thumbnail_path and os.path.exists(thumbnail_path)
@@ -423,14 +423,14 @@ async def log_file_to_group(
                     caption=orig,
                 )
 
-        # ── ফাইল নেই — plain text ─────────────────────────────────────────
+        # ── 文件不存在 — 纯文本 ─────────────────────────────────────────
         else:
             sent_msg = await bot.send_message(
                 chat_id=log_group_id,
                 text=orig or "(No content)",
             )
 
-        # ── User info reply ───────────────────────────────────────────────
+        # ── 用户信息回复 ───────────────────────────────────────────────
         if sent_msg:
             try:
                 await bot.send_message(

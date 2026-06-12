@@ -1,24 +1,24 @@
 """
-Advanced Settings Plugin v3.0 — Full-featured interactive settings panel.
+高级设置插件 v3.0 — 功能完整的交互式设置面板。
 
-Features:
-  - Upload Type (DOCUMENT / MEDIA)
-  - Custom Caption with live placeholders preview
-  - Rename Tag (prefix / suffix / both)
-  - Word Delete (caption filter)
-  - Word Replace (caption substitution)
-  - Custom Forward Chat ID (with topic support)
-  - Spoiler Animation toggle
-  - Public Channel Clone toggle
-  - Auto-Forward Mode toggle
-  - Thumbnail Mode (keep original / custom / none)
-  - File Naming Template
-  - Download Quality Preference
-  - Caption Position (top / bottom / disabled)
-  - Reset individual settings or all at once
-  - Full English UI, no italic markdown
-  - Conversation-based text input with auto-expiry
-  - Persistent MongoDB storage via Motor async
+功能：
+  - 上传类型（DOCUMENT / MEDIA）
+  - 自定义标题及实时占位符预览
+  - 重命名标签（前缀 / 后缀 / 两者）
+  - 删除词（标题过滤）
+  - 替换词（标题替换）
+  - 自定义转发对话 ID（支持话题）
+  - 剧透动画开关
+  - 公开频道克隆开关
+  - 自动转发模式开关
+  - 缩略图模式（保留原图 / 自定义 / 无）
+  - 文件名模板
+  - 下载质量偏好
+  - 标题位置（顶部 / 底部 / 禁用）
+  - 重置单个设置或全部重置
+  - 完整中文 UI，不使用斜体 markdown
+  - 基于对话的文本输入，带自动过期
+  - 通过 Motor 异步持久化 MongoDB 存储
 """
 
 import asyncio
@@ -37,18 +37,18 @@ from core import user_activity_collection, user_sessions
 from utils import LOGGER
 
 # ═════════════════════════════════════════════════════════════════
-# CONSTANTS
+# 常量
 # ═════════════════════════════════════════════════════════════════
 
-CONV_TIMEOUT = 180   # 3 minutes for text input sessions
-DB_TIMEOUT   = 5.0   # MongoDB operation timeout
+CONV_TIMEOUT = 180   # 文本输入会话 3 分钟超时
+DB_TIMEOUT   = 5.0   # MongoDB 操作超时
 
-# Active text-input conversations: { user_id: state_dict }
+# 活跃文本输入会话：{ user_id: state_dict }
 _conv: dict = {}
 
 
 # ═════════════════════════════════════════════════════════════════
-# TOGGLE SETTINGS — cycle through predefined values
+# 切换设置 — 循环遍历预设值
 # ═════════════════════════════════════════════════════════════════
 
 TOGGLE_META: dict = {
@@ -138,7 +138,7 @@ TOGGLE_META: dict = {
 
 
 # ═════════════════════════════════════════════════════════════════
-# TEXT-INPUT SETTINGS — require user to type a value
+# 文本输入设置 — 需要用户输入值
 # ═════════════════════════════════════════════════════════════════
 
 SETTINGS_META: dict = {
@@ -250,7 +250,7 @@ SETTINGS_META: dict = {
 
 
 # ═════════════════════════════════════════════════════════════════
-# ASYNC DATABASE HELPERS
+# 异步数据库辅助函数
 # ═════════════════════════════════════════════════════════════════
 
 async def _get_settings(user_id: int) -> dict:
@@ -326,11 +326,11 @@ async def _reset_all_settings(user_id: int) -> bool:
 
 
 # ═════════════════════════════════════════════════════════════════
-# VALUE FORMATTERS
+# 值格式化函数
 # ═════════════════════════════════════════════════════════════════
 
 def _fmt(val) -> str:
-    """Format a settings value for display."""
+    """格式化设置值用于显示"""
     if val is None or val == "":
         return "未设置"
     if isinstance(val, dict):
@@ -348,7 +348,7 @@ def _toggle_display(settings: dict, key: str) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════
-# STATUS HELPERS
+# 状态辅助函数
 # ═════════════════════════════════════════════════════════════════
 
 async def _get_session_status(user_id: int) -> str:
@@ -381,7 +381,7 @@ async def _get_thumbnail_status(user_id: int) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════
-# SETTINGS PANEL TEXT BUILDER
+# 设置面板文本生成器
 # ═════════════════════════════════════════════════════════════════
 
 async def _settings_text(user_id: int) -> str:
@@ -421,7 +421,7 @@ async def _settings_text(user_id: int) -> str:
     for key, meta in SETTINGS_META.items():
         val = s.get(key)
         display = _fmt(val)
-        # Truncate long values for panel display
+        # 截断过长的值以适应面板显示
         if len(display) > 60:
             display = display[:57] + "..."
         lines.append(f"{meta['icon']} {meta['label']}: {display}")
@@ -436,18 +436,18 @@ async def _settings_text(user_id: int) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════
-# KEYBOARD BUILDERS  (all at module level — fully importable)
+# 键盘生成器（全部在模块级别 — 完全可导入）
 # ═════════════════════════════════════════════════════════════════
 
 def _main_keyboard() -> InlineKeyboardMarkup:
     rows = []
 
-    # Section header button (non-clickable separator)
+    # 节标题按钮（不可点击的分割线）
     rows.append([InlineKeyboardButton(
         "— 开关设置 —", callback_data="cfg_noop"
     )])
 
-    # Toggle buttons — 2 per row
+    # 切换按钮 — 每行2个
     toggle_keys = list(TOGGLE_META.keys())
     for i in range(0, len(toggle_keys), 2):
         row = []
@@ -463,7 +463,7 @@ def _main_keyboard() -> InlineKeyboardMarkup:
         "— 文本设置 —", callback_data="cfg_noop"
     )])
 
-    # Text-input settings — 2 per row
+    # 文本输入设置 — 每行2个
     text_keys = list(SETTINGS_META.keys())
     for i in range(0, len(text_keys), 2):
         row = []
@@ -479,7 +479,7 @@ def _main_keyboard() -> InlineKeyboardMarkup:
         "— 操作 —", callback_data="cfg_noop"
     )])
 
-    # Action buttons
+    # 操作按钮
     rows.append([
         InlineKeyboardButton("📋 导出设置", callback_data="cfg_export"),
         InlineKeyboardButton("📥 导入设置", callback_data="cfg_import"),
@@ -495,8 +495,8 @@ def _main_keyboard() -> InlineKeyboardMarkup:
 
 def _settings_keyboard() -> InlineKeyboardMarkup:
     """
-    Module-level alias for _main_keyboard.
-    Importable by button_router.py and misc/callback.py via:
+    _main_keyboard 的模块级别别名。
+    可通过以下方式由 button_router.py 和 misc/callback.py 导入：
         from plugins.settings import _settings_text, _settings_keyboard
     """
     return _main_keyboard()
@@ -518,7 +518,7 @@ def _field_keyboard(key: str, has_value: bool = True) -> InlineKeyboardMarkup:
 def _toggle_detail_keyboard(key: str) -> InlineKeyboardMarkup:
     meta = TOGGLE_META[key]
     rows = []
-    # Show all possible values as quick-set buttons
+    # 显示所有可能的值作为快捷设置按钮
     for val in meta["values"]:
         rows.append([InlineKeyboardButton(
             f"设置为: {val}",
@@ -538,14 +538,14 @@ def _reset_confirm_keyboard() -> InlineKeyboardMarkup:
 
 
 # ═════════════════════════════════════════════════════════════════
-# PARSERS
+# 解析器
 # ═════════════════════════════════════════════════════════════════
 
 def _parse_chat_id(raw: str):
     """
-    Parse custom forward chat input.
-    Supports: @username, -100xxxxxxxxxx, -100xxxxxxxxxx/topic_id
-    Returns (chat_id, topic_id | None) or (None, None) on failure.
+    解析自定义转发对话输入。
+    支持：@username, -100xxxxxxxxxx, -100xxxxxxxxxx/topic_id
+    返回 (chat_id, topic_id | None)，失败时返回 (None, None)。
     """
     raw = raw.strip()
     if "/" in raw and not raw.startswith("@"):
@@ -568,7 +568,7 @@ def _parse_chat_id(raw: str):
 
 
 def _parse_word_replace(raw: str) -> dict:
-    """Parse 'old->new, old2->new2' into a dict."""
+    """将 'old->new, old2->new2' 解析为字典"""
     result = {}
     for pair in raw.split(","):
         pair = pair.strip()
@@ -582,14 +582,14 @@ def _parse_word_replace(raw: str) -> dict:
 
 
 def _parse_word_delete(raw: str) -> list:
-    """Accept comma-separated or space-separated word lists."""
+    """接受逗号分隔或空格分隔的词列表"""
     if "," in raw:
         return [w.strip() for w in raw.split(",") if w.strip()]
     return [w.strip() for w in raw.split() if w.strip()]
 
 
 def _parse_max_size(raw: str, is_premium: bool) -> int | None:
-    """Parse and validate a max file size value in MB."""
+    """解析并验证以 MB 为单位的最大文件大小值"""
     try:
         val = int(raw.strip())
         if val <= 0:
@@ -601,7 +601,7 @@ def _parse_max_size(raw: str, is_premium: bool) -> int | None:
 
 
 def _parse_blocked_extensions(raw: str) -> list:
-    """Parse comma-separated extension list, strip dots."""
+    """解析逗号分隔的扩展名列表，去除点号"""
     return [
         ext.strip().lstrip(".").lower()
         for ext in raw.split(",")
@@ -610,7 +610,7 @@ def _parse_blocked_extensions(raw: str) -> list:
 
 
 # ═════════════════════════════════════════════════════════════════
-# PUBLIC API — used by autolink, pbatch, ytdl, etc.
+# 公共 API — 被 autolink、pbatch、ytdl 等模块使用
 # ═════════════════════════════════════════════════════════════════
 
 async def apply_caption(
@@ -621,28 +621,28 @@ async def apply_caption(
     url: str = "",
 ) -> str:
     """
-    Apply caption template and word filters to a caption string.
-    Returns the processed caption.
+    对标题字符串应用标题模板和词语过滤器。
+    返回处理后的标题。
     """
     s = await _get_settings(user_id)
     caption = original_caption or ""
 
-    # 1. Word delete
+    # 1. 词语删除
     for word in (s.get("word_delete") or []):
         caption = caption.replace(word, "")
 
-    # 2. Word replace
+    # 2. 词语替换
     for old, new in (s.get("word_replace") or {}).items():
         caption = caption.replace(old, new)
 
     caption = caption.strip()
 
-    # 3. Caption position check
+    # 3. 标题位置检查
     position = s.get("caption_position", "BOTTOM")
     if position == "DISABLED":
         return ""
 
-    # 4. Custom caption template
+    # 4. 自定义标题模板
     template = s.get("caption")
     if template:
         from datetime import date
@@ -733,7 +733,7 @@ async def get_max_file_size_bytes(user_id: int, is_premium: bool) -> int:
             return int(custom_mb) * 1024 * 1024
         except (ValueError, TypeError):
             pass
-    # Default limits
+    # 默认限制
     return (2 * 1024 * 1024 * 1024) if is_premium else (500 * 1024 * 1024)
 
 
@@ -792,7 +792,7 @@ async def export_settings(user_id: int) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════
-# PREMIUM CHECK (lightweight, avoids circular imports)
+# 高级会员检查（轻量级，避免循环导入）
 # ═════════════════════════════════════════════════════════════════
 
 async def _is_premium(user_id: int) -> bool:
@@ -813,7 +813,7 @@ async def _is_premium(user_id: int) -> bool:
 
 
 # ═════════════════════════════════════════════════════════════════
-# SETUP
+# 注册处理函数
 # ═════════════════════════════════════════════════════════════════
 
 def setup_settings_handler(app: Client):
@@ -838,13 +838,13 @@ def setup_settings_handler(app: Client):
             reply_markup=_main_keyboard(),
         )
 
-    # ── No-op button ─────────────────────────────────────────────────────
+    # ── 空操作按钮 ─────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_noop$"))
     async def cfg_noop(client: Client, cq: CallbackQuery):
         await cq.answer()
 
-    # ── Close panel ──────────────────────────────────────────────────────
+    # ── 关闭面板 ──────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_close$"))
     async def cfg_close(client: Client, cq: CallbackQuery):
@@ -855,7 +855,7 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer("设置已关闭。")
 
-    # ── Back to main panel ───────────────────────────────────────────────
+    # ── 返回主面板 ───────────────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_back$"))
     async def cfg_back(client: Client, cq: CallbackQuery):
@@ -872,7 +872,7 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer()
 
-    # ── Cancel active text input ─────────────────────────────────────────
+    # ── 取消当前文本输入 ─────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_cancel_input$"))
     async def cfg_cancel_input(client: Client, cq: CallbackQuery):
@@ -889,7 +889,7 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer("输入已取消。")
 
-    # ── Toggle: cycle value ──────────────────────────────────────────────
+    # ── 切换：循环值 ──────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_toggle_([a-z_]+)$"))
     async def cfg_toggle(client: Client, cq: CallbackQuery):
@@ -922,7 +922,7 @@ def setup_settings_handler(app: Client):
         await cq.answer(f"{meta['icon']} {meta['label']} 已设置为：{new_val}")
         LOGGER.info(f"[Settings] user={user_id} toggled {key} -> {new_val}")
 
-    # ── Toggle: direct value set ─────────────────────────────────────────
+    # ── 切换：直接设置值 ─────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_set_([a-z_]+)_(.+)$"))
     async def cfg_set_value(client: Client, cq: CallbackQuery):
@@ -957,13 +957,13 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer(f"{meta['icon']} {meta['label']} 已设置为：{matched_val}")
 
-    # ── Open text-input setting ──────────────────────────────────────────
+    # ── 打开文本输入设置 ──────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_([a-z_]+)$"))
     async def cfg_open_field(client: Client, cq: CallbackQuery):
         key = cq.data[4:]
 
-        # Route reserved keys to their own handlers
+        # 将保留的键路由到各自的处理函数
         if key in ("noop", "close", "back", "cancel_input", "export",
                    "import", "reset_all", "reset_confirm", "help"):
             return
@@ -1002,7 +1002,7 @@ def setup_settings_handler(app: Client):
 
         await cq.answer()
 
-        # Start conversation
+        # 开始对话
         _conv[user_id] = {
             "stage":        key,
             "chat_id":      cq.message.chat.id,
@@ -1028,7 +1028,7 @@ def setup_settings_handler(app: Client):
 
         asyncio.create_task(_expire_conv())
 
-    # ── Clear individual setting ─────────────────────────────────────────
+    # ── 清除单个设置 ─────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_clear_([a-z_]+)$"))
     async def cfg_clear(client: Client, cq: CallbackQuery):
@@ -1056,7 +1056,7 @@ def setup_settings_handler(app: Client):
         await cq.answer(f"{SETTINGS_META[key]['icon']} {SETTINGS_META[key]['label']} 已清除。")
         LOGGER.info(f"[Settings] user={user_id} cleared {key}")
 
-    # ── Reset all — confirmation step ────────────────────────────────────
+    # ── 全部重置 — 确认步骤 ────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_reset_all$"))
     async def cfg_reset_all(client: Client, cq: CallbackQuery):
@@ -1095,7 +1095,7 @@ def setup_settings_handler(app: Client):
         await cq.answer("所有设置已重置。")
         LOGGER.info(f"[Settings] user={user_id} reset all settings")
 
-    # ── Export settings ──────────────────────────────────────────────────
+    # ── 导出设置 ──────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_export$"))
     async def cfg_export(client: Client, cq: CallbackQuery):
@@ -1110,7 +1110,7 @@ def setup_settings_handler(app: Client):
             LOGGER.error(f"[Settings] Export failed: {e}")
         await cq.answer("设置已导出。")
 
-    # ── Import settings (placeholder — guides user) ──────────────────────
+    # ── 导入设置（占位 — 引导用户）──────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_import$"))
     async def cfg_import(client: Client, cq: CallbackQuery):
@@ -1126,7 +1126,7 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer("导入指南已发送。")
 
-    # ── Help: explains all settings ──────────────────────────────────────
+    # ── 帮助：解释所有设置 ──────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^cfg_help$"))
     async def cfg_help(client: Client, cq: CallbackQuery):
@@ -1162,7 +1162,7 @@ def setup_settings_handler(app: Client):
             pass
         await cq.answer("帮助已发送。")
 
-    # ── Text input handler ───────────────────────────────────────────────
+    # ── 文本输入处理 ───────────────────────────────────────────────
 
     @app.on_message(
         filters.text
@@ -1191,7 +1191,7 @@ def setup_settings_handler(app: Client):
 
         meta = SETTINGS_META[key]
 
-        # ── "off" disables the setting ───────────────────────────────────
+        # ── "off" 禁用该设置 ───────────────────────────────────
         if raw.lower() == "off":
             await _clear_setting(user_id, key)
             _conv.pop(user_id, None)
@@ -1202,7 +1202,7 @@ def setup_settings_handler(app: Client):
             await _refresh_panel(client, state, user_id)
             return
 
-        # ── Per-key validation and saving ────────────────────────────────
+        # ── 逐键验证并保存 ────────────────────────────────
         reply = ""
         save_ok = False
 
@@ -1357,7 +1357,7 @@ def setup_settings_handler(app: Client):
 
         LOGGER.info(f"[Settings] user={user_id} updated {key}")
 
-    # ── Refresh the floating panel message ───────────────────────────────
+    # ── 刷新浮动面板消息 ───────────────────────────────
 
     async def _refresh_panel(client: Client, state: dict, user_id: int):
         panel_msg_id = state.get("panel_msg_id")

@@ -1,4 +1,4 @@
-# 🔧 Telegram থেকে Async/Await ফিক্স করার কমান্ড
+# 🔧 通过 Telegram 修复 Async/Await 的命令
 
 import os
 import re
@@ -29,36 +29,36 @@ def setup_fix_handler(app: Client):
             replaced_count = 0
             lines_count = len(content.split('\n'))
 
-            # Pattern: DB collection কলের আগে await যোগ করা
+            # 模式：在 DB 集合调用前添加 await
             patterns = [
-                # find operations
+                # 查找操作
                 (r'(\s)(\w+)\.find_one\(', r'\1await \2.find_one('),
                 (r'(\s)(\w+)\.find\(', r'\1await \2.find('),
                 (r'(\s)(\w+)\.find_many\(', r'\1await \2.find_many('),
                 (r'(\s)(\w+)\.find_one_and_update\(', r'\1await \2.find_one_and_update('),
 
-                # update operations
+                # 更新操作
                 (r'(\s)(\w+)\.update_one\(', r'\1await \2.update_one('),
                 (r'(\s)(\w+)\.update_many\(', r'\1await \2.update_many('),
 
-                # delete operations
+                # 删除操作
                 (r'(\s)(\w+)\.delete_one\(', r'\1await \2.delete_one('),
                 (r'(\s)(\w+)\.delete_many\(', r'\1await \2.delete_many('),
 
-                # insert operations
+                # 插入操作
                 (r'(\s)(\w+)\.insert_one\(', r'\1await \2.insert_one('),
                 (r'(\s)(\w+)\.insert_many\(', r'\1await \2.insert_many('),
 
-                # count/aggregate operations
+                # 计数/聚合操作
                 (r'(\s)(\w+)\.count_documents\(', r'\1await \2.count_documents('),
                 (r'(\s)(\w+)\.aggregate\(', r'\1await \2.aggregate('),
                 (r'(\s)(\w+)\.distinct\(', r'\1await \2.distinct('),
             ]
 
             for old_pattern, new_pattern in patterns:
-                # Double await check
+                # 双重 await 检查
                 matches = list(re.finditer(old_pattern, content))
-                for match in reversed(matches):  # পিছন থেকে শুরু করলে index গড়াবড়া হবে না
+                for match in reversed(matches):  # 从后往前匹配，避免索引偏移
                     full_match = match.group(0)
                     if 'await await' not in full_match:
                         content = content[:match.start()] + re.sub(
@@ -66,7 +66,7 @@ def setup_fix_handler(app: Client):
                         ) + content[match.end():]
                         replaced_count += 1
 
-            # Double await remove করুন
+            # 移除双重 await
             while 'await await' in content:
                 content = content.replace('await await ', 'await ')
 
@@ -103,7 +103,7 @@ def setup_fix_handler(app: Client):
             parse_mode=ParseMode.MARKDOWN
         )
 
-        # ফাইল লিস্ট যা ফিক্স করা দরকার
+        # 需要修复的文件列表
         files_to_fix = [
             "plugins/autolink.py",
             "plugins/pvt.py",
@@ -129,7 +129,7 @@ def setup_fix_handler(app: Client):
         error_files = []
         total_replaced = 0
 
-        # প্রতিটি ফাইল ফিক্স করুন
+        # 逐个修复每个文件
         for filepath in files_to_fix:
             if not os.path.exists(filepath):
                 skipped_files.append(f"⏭️ `{filepath}` - পাওয়া যায়নি")
@@ -145,7 +145,7 @@ def setup_fix_handler(app: Client):
             else:
                 error_files.append(f"⚠️ `{filepath}` - ত্রুটি")
 
-        # ফলাফল তৈরি করুন
+        # 生成结果
         result_text = "**✅ Async/Await ফিক্সিং সম্পন্ন!**\n\n"
         result_text += "**━━━━━━━━━━━━━━━━━━━━━━━━**\n\n"
 
@@ -157,7 +157,7 @@ def setup_fix_handler(app: Client):
 
         if skipped_files:
             result_text += "**⏭️  স্কিপ করা ফাইল:**\n"
-            for item in skipped_files[:5]:  # শুধু প্রথম ৫টা দেখান
+            for item in skipped_files[:5]:  # 只显示前5个
                 result_text += f"{item}\n"
             if len(skipped_files) > 5:
                 result_text += f"... এবং {len(skipped_files) - 5} টি আরও\n"
@@ -185,14 +185,14 @@ def setup_fix_handler(app: Client):
         else:
             result_text += "**ℹ️ সব ফাইল ইতিমধ্যে ফিক্স করা আছে!** ✨"
 
-        # স্ট্যাটাস মেসেজ আপডেট করুন
+        # 更新状态消息
         try:
             await status_msg.edit_text(result_text, parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
             LOGGER.error(f"Failed to update status message: {e}")
             await message.reply_text(result_text, parse_mode=ParseMode.MARKDOWN)
 
-        # লগ করুন
+        # 记录日志
         LOGGER.info(
             f"[FIX_ASYNC] সম্পন্ন - Fixed: {len(fixed_files)}, "
             f"Skipped: {len(skipped_files)}, Errors: {len(error_files)}, "
@@ -238,7 +238,7 @@ def setup_fix_handler(app: Client):
             with open(filepath, 'r') as f:
                 content = f.read()
 
-            # check করুন await ছাড়া find_one আছে কিনা
+            # 检查是否存在没有 await 的 find_one 调用
             unfixed_pattern = r'(\s)([a-z_]+)\.find_one\(\{'
             matches = re.findall(unfixed_pattern, content)
 

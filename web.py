@@ -5,10 +5,10 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# Render free tier: PORT env variable ব্যবহার করো
+# Render 免费层：使用 PORT 环境变量
 PORT = int(os.environ.get("PORT", 8000))
 
-# Uptime tracking
+# 运行时间跟踪
 _start_time = time.time()
 
 
@@ -37,11 +37,11 @@ def run():
 
 
 def _keep_alive():
-    """Render free tier spin-down এড়াতে self-ping"""
+    """Render 免费层避免休眠的自我 ping"""
     import urllib.request
     url = f"http://0.0.0.0:{PORT}/health"
     while True:
-        time.sleep(300)  # প্রতি ৫ মিনিটে
+        time.sleep(300)  # 每 5 分钟
         try:
             urllib.request.urlopen(url, timeout=10)
         except Exception:
@@ -49,13 +49,13 @@ def _keep_alive():
 
 
 if __name__ == "__main__":
-    # ১. ওয়েব সার্ভার ব্যাকগ্রাউন্ডে চালু করা হচ্ছে
+    # 1. 在后台启动 Web 服务器
     t = threading.Thread(target=run, daemon=True)
     t.start()
 
-    # ২. Keep-alive thread (Render free tier spin-down এড়াতে)
+    # 2. 保活线程（避免 Render 免费层休眠）
     ka = threading.Thread(target=_keep_alive, daemon=True)
     ka.start()
 
-    # ৩. এরপর আপনার মেইন বট বা start.sh রান করা হচ্ছে
+    # 3. 然后运行主机器人或 start.sh
     os.system("bash start.sh")

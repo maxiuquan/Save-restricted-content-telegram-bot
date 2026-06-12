@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 from config import DEVELOPER_USER_ID, COMMAND_PREFIX
 from utils import LOGGER
 
-# Helper function to convert speed to human-readable format
+# 将网速转换为人类可读格式的辅助函数
 def speed_convert(size: float, is_mbps: bool = False) -> str:
     if is_mbps:
         return f"{size:.2f} Mbps"
@@ -22,7 +22,7 @@ def speed_convert(size: float, is_mbps: bool = False) -> str:
         n += 1
     return f"{size:.2f} {power_labels[n]}bps"
 
-# Helper function to convert bytes to human-readable file size
+# 将字节数转换为人类可读文件大小的辅助函数
 def get_readable_file_size(size_in_bytes: int) -> str:
     if size_in_bytes < 1024:
         return f"{size_in_bytes} B"
@@ -34,10 +34,10 @@ def get_readable_file_size(size_in_bytes: int) -> str:
         n += 1
     return f"{size_in_bytes:.2f} {power_labels[n]}"
 
-# Function to perform speed test
+# 执行网速测试的函数
 def run_speedtest():
     try:
-        # Use speedtest-cli for detailed JSON output
+        # 使用 speedtest-cli 获取详细的 JSON 输出
         result = subprocess.run(["speedtest-cli", "--secure", "--json"], capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception("Speedtest failed.")
@@ -47,9 +47,9 @@ def run_speedtest():
         LOGGER.error(f"Speedtest error: {e}")
         return {"error": str(e)}
 
-# Async function to handle speed test logic
+# 异步处理网速测试逻辑的函数
 async def run_speedtest_task(client: Client, chat_id: int, status_message: Message):
-    # Run speed test in background thread
+    # 在子线程中运行网速测试
     with ThreadPoolExecutor() as pool:
         try:
             result = await asyncio.get_running_loop().run_in_executor(pool, run_speedtest)
@@ -84,7 +84,7 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
             )
         return
 
-    # Format the results with project-themed design
+    # 使用项目主题样式格式化结果
     response_text = (
         "**✘《 下载器速度测试 ↯ 》**\n"
         "**✘━━━━━━━━━━━━━━━━━━━━━━━↯**\n"
@@ -112,12 +112,12 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
         ""
     )
 
-    # Create inline keyboard with Updates Channel button
+    # 创建包含更新频道按钮的内联键盘
     keyboard = InlineKeyboardMarkup([
     
     ])
 
-    # Delete the status message
+    # 删除状态消息
     try:
         await status_message.delete()
     except FloodWait as e:
@@ -125,7 +125,7 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
         await asyncio.sleep(e.value + 5)
         await status_message.delete()
 
-    # Send the final result
+    # 发送最终结果
     try:
         await client.send_message(
             chat_id=chat_id,
@@ -143,7 +143,8 @@ async def run_speedtest_task(client: Client, chat_id: int, status_message: Messa
             reply_markup=keyboard
         )
 
-# Handler for speed test command
+# 网速测试命令的处理函数
+
 async def speedtest_handler(client: Client, message: Message):
     user_id = message.from_user.id
     LOGGER.info(f"/speedtest command from user {user_id}")
@@ -166,7 +167,7 @@ async def speedtest_handler(client: Client, message: Message):
             )
         return
 
-    # Send initial status message
+    # 发送初始状态消息
     try:
         status_message = await client.send_message(
             chat_id=message.chat.id,
@@ -182,10 +183,50 @@ async def speedtest_handler(client: Client, message: Message):
             parse_mode=ParseMode.MARKDOWN
         )
 
-    # Schedule the speed test task
+    # 调度网速测试任务
+    asyncio.create_task(run_speedtest_task(client, message.chat.id, status_message))
+async def speedtest_handler(client: Client, message: Message):
+    user_id = message.from_user.id
+    LOGGER.info(f"/speedtest command from user {user_id}")
+
+    if user_id != DEVELOPER_USER_ID:
+        LOGGER.info("User is not developer, sending restricted message")
+        try:
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="**❌ 仅限管理员操作 ↯**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except FloodWait as e:
+            LOGGER.warning(f"FloodWait during unauthorized message: waiting {e.value + 5} seconds")
+            await asyncio.sleep(e.value + 5)
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="**❌ 仅限管理员操作 ↯**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        return
+
+    # 发送初始状态消息
+    try:
+        status_message = await client.send_message(
+            chat_id=message.chat.id,
+            text="**✘ 正在运行速度测试，请稍候 ↯**",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except FloodWait as e:
+        LOGGER.warning(f"FloodWait during status message: waiting {e.value + 5} seconds")
+        await asyncio.sleep(e.value + 5)
+        status_message = await client.send_message(
+            chat_id=message.chat.id,
+            text="**✘ 正在运行速度测试，请稍候 ↯**",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    # 调度网速测试任务
     asyncio.create_task(run_speedtest_task(client, message.chat.id, status_message))
 
-# Setup function to add the speed test handler
+# 添加网速测试处理函数的设置函数
 def setup_speed_handler(app: Client):
     app.add_handler(MessageHandler(
         speedtest_handler,

@@ -1,9 +1,9 @@
-# Fixed: JSON persistence, proper cancel, improved progress tracking
-# Fixed: All DB calls now use Motor async (await)
-# ✅ FIXED: in_memory=True + no_updates=True → sqlite3 + TCPTransport error fix
-# ✅ FIXED: AuthKeyUnregistered → session auto-remove + user notify
-# ✅ FIXED: safe_stop_client → OSError ignore
-# ✅ OPTIMIZED: Non-blocking progress + global semaphores + responsive UI
+# 修复：JSON 持久化、正确取消、改进进度追踪
+# 修复：所有数据库调用现在使用 Motor 异步 (await)
+# ✅ 已修复：in_memory=True + no_updates=True → sqlite3 + TCPTransport 错误修复
+# ✅ 已修复：AuthKeyUnregistered → 会话自动移除 + 用户通知
+# ✅ 已修复：safe_stop_client → OSError 忽略
+# ✅ 已优化：非阻塞进度 + 全局信号量 + 响应式 UI
 
 import os
 import re
@@ -50,23 +50,23 @@ from core import (
     user_activity_collection,
 )
 
-# ── Persistence file ──────────────────────────────────────────────────────
+# ── 状态持久化文件 ───────────────────────────────────────────────────────
 BATCH_STATE_FILE = "batch_state.json"
 
-# ── In-memory state ───────────────────────────────────────────────────────
+# ── 内存状态 ────────────────────────────────────────────────────────────
 batch_data: dict = {}
 
-# ── Active download cancel flags ─────────────────────────────────────────
+# ── 活跃下载取消标志 ─────────────────────────────────────────────────
 cancel_flags: dict = {}
 
-# ── Link pattern ──────────────────────────────────────────────────────────
+# ── 链接匹配模式 ──────────────────────────────────────────────────────────
 TELEGRAM_LINK_PATTERN = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/(?:c/)?([a-zA-Z0-9_]+|\d+)/(\d+)(?:/\d+)?"
 )
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# PERSISTENCE HELPERS
+# 持久化辅助函数
 # ═════════════════════════════════════════════════════════════════════════
 
 def _load_state() -> dict:
@@ -77,7 +77,7 @@ def _load_state() -> dict:
             data = json.load(f)
         return {int(k): v for k, v in data.items()}
     except Exception as e:
-        LOGGER.error(f"[BatchPersist] Failed to load state: {e}")
+        LOGGER.error(f"[批量持久化] 加载状态失败: {e}")
         return {}
 
 
@@ -86,7 +86,7 @@ def _save_state():
         with open(BATCH_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in batch_data.items()}, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        LOGGER.error(f"[BatchPersist] Failed to save state: {e}")
+        LOGGER.error(f"[批量持久化] 保存状态失败: {e}")
 
 
 def _set_state(chat_id: int, data: dict):
@@ -131,7 +131,7 @@ def _progress_text(done: int, total: int, success: int, fail: int, start_ts: flo
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# PLAN CHECK
+# 套餐检查
 # ═════════════════════════════════════════════════════════════════════════
 
 async def is_premium_user(user_id: int) -> bool:
@@ -144,7 +144,7 @@ async def is_premium_user(user_id: int) -> bool:
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# SHARED BATCH START
+# 共享批量启动
 # ═════════════════════════════════════════════════════════════════════════
 
 async def handle_batch_start(client: Client, message: Message):
@@ -182,7 +182,7 @@ async def handle_batch_start(client: Client, message: Message):
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# MAIN SETUP
+# 主配置
 # ═════════════════════════════════════════════════════════════════════════
 
 def setup_pbatch_handler(app: Client):
@@ -190,7 +190,7 @@ def setup_pbatch_handler(app: Client):
     global batch_data
     batch_data = _load_state()
     if batch_data:
-        LOGGER.info(f"[BatchPersist] Loaded {len(batch_data)} pending batch state(s) from disk.")
+            LOGGER.info(f"[批量持久化] 从磁盘加载了 {len(batch_data)} 个待处理的批量状态。")
 
     async def get_batch_limits(user_id: int) -> tuple:
         current_time = datetime.utcnow()
@@ -293,7 +293,7 @@ def setup_pbatch_handler(app: Client):
             await handle_batch_start(client, message)
 
     # ────────────────────────────────────────────────────────────────────
-    # Text handler
+    # 文本处理器
     # ────────────────────────────────────────────────────────────────────
 
     @app.on_message(
@@ -369,7 +369,7 @@ def setup_pbatch_handler(app: Client):
             )
 
     # ────────────────────────────────────────────────────────────────────
-    # Callback handler
+    # 回调处理器
     # ────────────────────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^batch_(confirm|cancel|session_select)_(-?\d+)$"))
@@ -486,7 +486,7 @@ def setup_pbatch_handler(app: Client):
         await callback_query.answer()
 
     # ────────────────────────────────────────────────────────────────────
-    # Internal: URL detect & route
+    # 内部：URL 检测与路由
     # ────────────────────────────────────────────────────────────────────
 
     async def _handle_url_input(
@@ -597,8 +597,7 @@ def setup_pbatch_handler(app: Client):
         )
 
     # ────────────────────────────────────────────────────────────────────
-    # Public batch download
-    # ────────────────────────────────────────────────────────────────────
+    # ── 公开批量下载 ────────────────────────────────────────────────────────────
 
     async def _run_public_batch(client: Client, status_message: Message, state: dict):
         user_id = state["user_id"]
@@ -655,12 +654,6 @@ def setup_pbatch_handler(app: Client):
 
         if missing_count > 0:
             LOGGER.info(f"[PublicBatch] {missing_count}/{count} messages not found in channel (deleted)")
-
-        await daily_limit.update_one(
-            {"user_id": user_id},
-            {"$inc": {"total_downloads": success_count}},
-            upsert=True,
-        )
 
         if not all_messages:
             try:
@@ -932,7 +925,7 @@ def setup_pbatch_handler(app: Client):
         _del_state(chat_id)
 
     # ────────────────────────────────────────────────────────────────────
-    # Private batch download
+    # 私密批量下载
     # ────────────────────────────────────────────────────────────────────
 
     async def _run_private_batch(bot: Client, status_message: Message, state: dict):
@@ -1181,7 +1174,7 @@ def setup_pbatch_handler(app: Client):
                         )
 
                         try:
-                            # ✅ Use global download semaphore to prevent overload
+                            # ✅ 使用全局下载信号量防止过载
                             async with GLOBAL_DOWNLOAD_SEMAPHORE:
                                 media_path = await chat_message.download(
                                     progress=_file_progress_cb,

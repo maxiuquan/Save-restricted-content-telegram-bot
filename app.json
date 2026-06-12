@@ -43,7 +43,8 @@
       "description": "Command prefixes for bot commands (e.g., !|.|^|/)",
       "value": "!|.|#|,|/",
       "required": true
-    },
+    }
+  },
   "buildpacks": [
     {
       "url": "heroku/python"

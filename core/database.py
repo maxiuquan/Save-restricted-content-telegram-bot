@@ -1,6 +1,6 @@
-# Unified async Motor-based database module.
-# FIX: Bot startup-এ automatic duplicate cleanup + premium_users rebuild
-# ✅ FIXED: Connection timeout + retry logic
+# 统一的异步 Motor 数据库模块。
+# 修复：Bot 启动时自动重复清理 + premium_users 重建
+# ✅ 已修复：连接超时 + 重试逻辑
 
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,11 +10,11 @@ from config import MONGO_URL
 
 LOGGER.info("Initialising async Motor database clients...")
 
-# ── Connection timeout configuration ─────────────────────────────────────
-# Timeout constants (in milliseconds)
-CONNECT_TIMEOUT_MS = 10000      # 10 seconds
-SOCKET_TIMEOUT_MS = 10000       # 10 seconds
-HEARTBEAT_FREQUENCY_MS = 10000  # 10 seconds
+# ── 连接超时配置 ─────────────────────────────────────────────────────────
+# 超时常量（毫秒）
+CONNECT_TIMEOUT_MS = 10000      # 10 秒
+SOCKET_TIMEOUT_MS = 10000       # 10 秒
+HEARTBEAT_FREQUENCY_MS = 10000  # 10 秒
 
 try:
     _main_client = AsyncIOMotorClient(
@@ -22,7 +22,7 @@ try:
         connectTimeoutMS=CONNECT_TIMEOUT_MS,
         socketTimeoutMS=SOCKET_TIMEOUT_MS,
         heartbeatFrequencyMS=HEARTBEAT_FREQUENCY_MS,
-        serverSelectionTimeoutMS=5000,  # 5 second server selection timeout
+        serverSelectionTimeoutMS=5000,  # 5 秒服务器选择超时
         retryWrites=True,
         maxPoolSize=50,
         minPoolSize=10,
@@ -32,10 +32,10 @@ except Exception as exc:
     LOGGER.error(f"Failed to create Motor client: {exc}")
     raise
 
-# বাকি সব কিছু একই থাকবে...
+# 其余一切保持不变...
 _main_db = _main_client["ItsSmartTool"]
 
-# ── COLLECTION EXPORTS ────────────────────────────────────────────────────
+# ── 集合导出 ────────────────────────────────────────────────────────────
 prem_plan1             = _main_db["prem_plan1"]
 prem_plan2             = _main_db["prem_plan2"]
 prem_plan3             = _main_db["prem_plan3"]
@@ -49,7 +49,7 @@ user_activity_collection = _main_db["user_activity"]
 referrals              = _main_db["referrals"]
 
 
-# ── INDEX HELPERS ─────────────────────────────────────────────────────────
+# ── 索引辅助函数 ─────────────────────────────────────────────────────────
 
 async def _create_ttl_index(collection, field: str = "expiry_date"):
     try:
@@ -83,7 +83,7 @@ async def _create_supporting_indexes():
                 [("last_active", ASCENDING)], name="last_active_1"
             )
 
-        # Referral indexes for efficient lookups
+        # 推荐索引，用于高效查询
         ref_info = await referrals.index_information()
         if "referrer_id_1" not in ref_info:
             await referrals.create_index(
@@ -104,16 +104,16 @@ async def _create_supporting_indexes():
 
 async def _cleanup_premium_duplicates():
     """
-    Bot startup-এ একবার চলে।
-    1. Expired entries মুছে দেয়।
-    2. Duplicate user_id entries ঠিক করে।
-    3. premium_users collection fresh rebuild করে।
-    ✅ FIXED: Better error handling
+    Bot 启动时运行一次。
+    1. 删除过期条目。
+    2. 修复重复的 user_id 条目。
+    3. 重新构建 premium_users 集合。
+    ✅ 修复：更好的错误处理
     """
     now = datetime.utcnow()
     plan_map = [("prem_plan1", prem_plan1), ("prem_plan2", prem_plan2), ("prem_plan3", prem_plan3)]
 
-    # Step 1: Expired entries মুছে দাও
+    # 第 1 步：删除过期条目
     for name, col in plan_map:
         try:
             result = await col.delete_many({"expiry_date": {"$lte": now}})
@@ -122,7 +122,7 @@ async def _cleanup_premium_duplicates():
         except Exception as e:
             LOGGER.warning(f"[Cleanup] {name} expired cleanup failed: {e}")
 
-    # Step 2: Duplicate user_id entries ঠিক করো
+    # 第 2 步：修复重复的 user_id 条目
     for name, col in plan_map:
         try:
             all_docs = await col.find(
@@ -155,7 +155,7 @@ async def _cleanup_premium_duplicates():
         except Exception as e:
             LOGGER.warning(f"[Cleanup] {name} duplicate cleanup failed: {e}")
 
-    # Step 3: premium_users fresh rebuild
+    # 第 3 步：重建 premium_users
     try:
         await premium_users.delete_many({})
         rebuilt = 0
@@ -173,7 +173,7 @@ async def _cleanup_premium_duplicates():
     except Exception as e:
         LOGGER.warning(f"[Cleanup] premium_users rebuild failed: {e}")
 
-    # Step 4: Final count log
+    # 第 4 步：最终计数日志
     try:
         p1_ids = set()
         p2_ids = set()
@@ -196,7 +196,7 @@ async def _cleanup_premium_duplicates():
         LOGGER.warning(f"[Cleanup] final count failed: {e}")
 
 
-# ── MAIN INIT ─────────────────────────────────────────────────────────────
+# ── 主初始化 ─────────────────────────────────────────────────────────────
 
 async def init_db():
     """Initialize database with indexes and cleanup."""

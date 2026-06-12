@@ -1,17 +1,17 @@
 #
-# plugins/tgdl.py — Telegram File Downloader
+# plugins/tgdl.py — Telegram 文件下载器
 #
-# Handles:
-#   • /tgdl — reply to any Telegram file/document/video/audio to download + re-upload
-#   • Useful for: leeching files from restricted channels through a user session
-#   • Supports all Telegram media types
+# 功能：
+#   • /tgdl — 回复任何 Telegram 文件/文档/视频/音频以下载并重新上传
+#   • 用途：通过用户会话从受限频道抓取文件
+#   • 支持所有 Telegram 媒体类型
 #
-# ✅ Real-time progress bar
-# ✅ Premium / free file-size check
-# ✅ Custom thumbnail support
-# ✅ Auto media type detection (video / audio / document)
-# ✅ Log to group
-# ✅ OPTIMIZED: Non-blocking progress + global semaphores + responsive UI
+# ✅ 实时进度条
+# ✅ 付费/免费文件大小检查
+# ✅ 自定义缩略图支持
+# ✅ 自动媒体类型检测（视频/音频/文档）
+# ✅ 记录到群组
+# ✅ 优化：非阻塞进度 + 全局信号量 + 响应式 UI
 
 import os
 import asyncio
@@ -38,19 +38,19 @@ from utils.helper import (
 from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONSTANTS
+# 常量
 # ─────────────────────────────────────────────────────────────────────────────
 
 MAX_FILE_SIZE   = 2 * 1024 ** 3    # 2 GB
 FREE_FILE_LIMIT = 500 * 1024 ** 2  # 500 MB
 DOWNLOAD_DIR    = "tgdl_downloads"
-PROGRESS_DELAY  = 2.5              # ✅ Reduced from 3s for smoother updates
+PROGRESS_DELAY  = 2.5              # ✅ 从 3s 降低以获得更平滑的更新
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -63,7 +63,7 @@ async def _is_premium(user_id: int) -> bool:
 
 
 def _get_media_obj(message: Message):
-    """Return (media_object, media_type_str) from a Pyrogram Message."""
+    """从 Pyrogram Message 中返回 (media_object, media_type_str)。"""
     if message.document:
         return message.document, "document"
     if message.video:
@@ -89,7 +89,7 @@ def _progress_bar(pct: float, length: int = 20) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD HELPER
+# 上传辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _upload_file(
@@ -102,7 +102,7 @@ async def _upload_file(
     start_ts: float,
     thumbnail_path: str | None = None,
 ):
-    """Upload a file back to Telegram with live progress."""
+    """将文件上传回 Telegram 并显示实时进度。"""
     file_size = os.path.getsize(file_path)
     last_edit = [0.0]
     start_up  = [time()]
@@ -133,10 +133,10 @@ async def _upload_file(
     audio_exts = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aac"}
     ext        = os.path.splitext(file_path)[1].lower()
 
-    # ✅ Use global upload semaphore to prevent MTProto flood and keep bot responsive
+    # ✅ 使用全局上传信号量防止 MTProto 洪水并保持机器人响应能力
     async with GLOBAL_UPLOAD_SEMAPHORE:
         try:
-            # Function to send media with FloodWait retry logic
+            # 带有 FloodWait 重试逻辑的发送媒体函数
             async def send_with_retry(send_func):
                 max_retries = 3
                 retry_count = 0
@@ -153,13 +153,13 @@ async def _upload_file(
                         try:
                             await safe_edit_progress(
                                 status_msg,
-                                f"**⏳ Telegram requires waiting {wait_time} seconds...**\n"
-                                f"__(Retry {retry_count}/{max_retries})__",
+                                f"**⏳ Telegram 需要等待 {wait_time} 秒...**\n"
+                                f"__(重试 {retry_count}/{max_retries})__",
                             )
                         except Exception:
                             pass
                         await asyncio.sleep(wait_time)
-                # Final attempt without retry
+                # 最后一次尝试，不进行重试
                 return await send_func()
 
             if media_type == "video" or ext in video_exts:
@@ -206,7 +206,7 @@ async def _upload_file(
                 await send_with_retry(send_photo)
 
             else:
-                # Default: send as document
+                # 默认：以文件形式发送
                 async def send_document():
                     return await client.send_document(
                         chat_id=chat_id,
@@ -239,7 +239,7 @@ async def _upload_file(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN PIPELINE
+# 主流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _process_tg_download(
@@ -249,7 +249,7 @@ async def _process_tg_download(
     status_msg: Message,
     is_premium: bool,
 ):
-    """Download a Telegram file and re-upload it to the chat."""
+    """下载 Telegram 文件并重新上传到聊天中。"""
     user_id = message.from_user.id
     chat_id = message.chat.id
 
@@ -261,7 +261,7 @@ async def _process_tg_download(
         )
         return
 
-    # ── File size check ───────────────────────────────────────────────────────
+    # ── 文件大小检查 ───────────────────────────────────────────────────────
     file_size   = getattr(media_obj, "file_size", 0) or 0
     max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
@@ -275,7 +275,7 @@ async def _process_tg_download(
         )
         return
 
-    # ── Download ──────────────────────────────────────────────────────────────
+    # ── 下载 ──────────────────────────────────────────────────────────────
     user_dir = os.path.join(DOWNLOAD_DIR, str(user_id))
     os.makedirs(user_dir, exist_ok=True)
 
@@ -305,7 +305,7 @@ async def _process_tg_download(
             pass
 
     try:
-        # ✅ Use global download semaphore to prevent overload
+        # ✅ 使用全局下载信号量以防止过载
         async with GLOBAL_DOWNLOAD_SEMAPHORE:
             file_path = await source_msg.download(
                 file_name=user_dir + "/",
@@ -326,13 +326,13 @@ async def _process_tg_download(
         )
         return
 
-    # ── Upload ────────────────────────────────────────────────────────────────
+    # ── 上传 ────────────────────────────────────────────────────────────────
     await safe_edit_progress(
         status_msg,
         "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
     )
 
-    # Fetch user's custom thumbnail
+    # 获取用户的自定义缩略图
     thumbnail_path = None
     try:
         user_data = await user_activity_collection.find_one({"user_id": user_id})
@@ -354,7 +354,7 @@ async def _process_tg_download(
             caption, status_msg, start_ts, thumbnail_path
         )
 
-        # Log
+        # 记录
         if LOG_GROUP_ID:
             try:
                 await log_file_to_group(
@@ -382,7 +382,7 @@ async def _process_tg_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SETUP
+# 注册处理函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_tgdl_handler(app: Client):
@@ -394,7 +394,7 @@ def setup_tgdl_handler(app: Client):
     async def tgdl_command(client: Client, message: Message):
         user_id = message.from_user.id
 
-        # Must reply to a message containing a file
+        # 必须回复包含文件的消息
         if not message.reply_to_message:
             await message.reply_text(
                 "**📥 Telegram File Downloader**\n"

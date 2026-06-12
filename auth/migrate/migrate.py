@@ -1,7 +1,7 @@
 #
 # auth/migrate/migrate.py
-# Developer Telegram থেকে /migrate command দিয়ে
-# সব database ItsSmartTool-এ merge করতে পারবে।
+# 开发者可通过 Telegram 上的 /migrate 命令
+# 将所有数据库数据合并到 ItsSmartTool 中。
 
 import asyncio
 from datetime import datetime
@@ -15,7 +15,7 @@ from utils import LOGGER
 def setup_migrate_handler(app: Client):
 
     async def do_migration(client: Client, status_msg, mongo_uri: str):
-        """সব database থেকে ItsSmartTool-এ data merge করো।"""
+        """将所有数据库中的数据合并到 ItsSmartTool 中。"""
 
         mc = AsyncIOMotorClient(mongo_uri)
         target = mc["ItsSmartTool"]
@@ -28,7 +28,7 @@ def setup_migrate_handler(app: Client):
         target_sessions      = target["user_sessions"]
         target_activity      = target["user_activity"]
 
-        # ── সব database scan করো ──────────────────────────────────────────
+        # ── 扫描所有数据库 ──────────────────────────────────────────
         db_names = await mc.list_database_names()
         skip_dbs = {"admin", "local", "config", "ItsSmartTool"}
 
@@ -57,7 +57,7 @@ def setup_migrate_handler(app: Client):
                 col_lower = col_name.lower()
                 m = s = 0
 
-                # ── Session collection ────────────────────────────────────
+                # ── 会话集合 ────────────────────────────────────
                 if "session" in col_lower:
                     async for doc in src_col.find({}):
                         uid = _find_uid(doc)
@@ -79,7 +79,7 @@ def setup_migrate_handler(app: Client):
                             await target_sessions.insert_one({**doc, "user_id": uid})
                             m += 1
 
-                # ── Premium / Plan collection ─────────────────────────────
+                # ── 高级会员 / 计划集合 ─────────────────────────────
                 elif "premium" in col_lower or "plan" in col_lower:
                     if "plan1" in col_lower:
                         tgt = target_prem_plan1
@@ -107,7 +107,7 @@ def setup_migrate_handler(app: Client):
                             await tgt.insert_one({**doc, "user_id": uid})
                             m += 1
 
-                # ── Activity collection ───────────────────────────────────
+                # ── 活动集合 ───────────────────────────────────
                 elif "activity" in col_lower:
                     async for doc in src_col.find({}):
                         uid = _find_uid(doc)
@@ -120,7 +120,7 @@ def setup_migrate_handler(app: Client):
                         else:
                             s += 1
 
-                # ── Users / Total users collection ────────────────────────
+                # ── 用户 / 总用户集合 ────────────────────────
                 elif any(x in col_lower for x in ["user", "member"]):
                     async for doc in src_col.find({}):
                         uid = _find_uid(doc)
@@ -148,7 +148,7 @@ def setup_migrate_handler(app: Client):
                 total_migrated += m
                 total_skipped  += s
 
-        # ── Final counts ──────────────────────────────────────────────────
+        # ── 最终计数 ──────────────────────────────────────────────────
         counts = {}
         for col_name in ["total_users", "premium_users", "prem_plan1", "prem_plan2", "prem_plan3", "user_sessions", "user_activity"]:
             counts[col_name] = await target[col_name].count_documents({})
@@ -158,7 +158,7 @@ def setup_migrate_handler(app: Client):
 
 
     def _find_uid(doc: dict):
-        """Document থেকে valid user_id বের করো।"""
+                """从文档中提取有效的 user_id。"""
         for field in ["user_id", "user", "id"]:
             val = doc.get(field)
             if isinstance(val, int) and val > 100000:
@@ -183,7 +183,7 @@ def setup_migrate_handler(app: Client):
                 client, status, MONGO_URL
             )
 
-            # ── Result message ────────────────────────────────────────────
+            # ── 结果消息 ────────────────────────────────────────────
             count_text = "\n".join(
                 f"  `{k}`: **{v}**" for k, v in counts.items()
             )
@@ -199,7 +199,7 @@ def setup_migrate_handler(app: Client):
 
             await status.edit_text(result_text, parse_mode=ParseMode.MARKDOWN)
 
-            # ── Log file পাঠাও ───────────────────────────────────────────
+            # ── 发送日志文件 ───────────────────────────────────────────
             log_text = "\n".join(logs)
             if len(log_text) > 3000:
                 log_text = log_text[-3000:]

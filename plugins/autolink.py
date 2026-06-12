@@ -1,8 +1,8 @@
-# ✅ FIXED: in_memory=True + no_updates=True → sqlite3 + OSError fix
-# ✅ FIXED: AUTH_KEY_UNREGISTERED → session auto-remove + user notify
-# ✅ FIXED: safe_stop_client → no TCPTransport error
-# ✅ FIXED: edit_text after error → try-except wrap
-# ✅ FIXED: Video aspect ratio (squished) → width/height/duration metadata preserved
+# ✅ 已修复：in_memory=True + no_updates=True → sqlite3 + OSError 修复
+# ✅ 已修复：AUTH_KEY_UNREGISTERED → 会话自动删除 + 用户通知
+# ✅ 已修复：safe_stop_client → 无 TCPTransport 错误
+# ✅ 已修复：错误后 edit_text → try-except 包裹
+# ✅ 已修复：视频宽高比（压扁）→ 保留 width/height/duration 元数据
 
 import os
 import re
@@ -50,12 +50,12 @@ TELEGRAM_LINK_PATTERN = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/(?:c/)?([a-zA-Z0-9_]+|\d+)/(\d+)(?:/\d+)?"
 )
 
-COOLDOWN_SECONDS = 300  # 5 minutes
-DB_TIMEOUT = 5.0        # Database operation timeout
+COOLDOWN_SECONDS = 300  # 5 分钟
+DB_TIMEOUT = 5.0        # 数据库操作超时
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HELPERS
+# 辅助函数
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def check_and_set_cooldown(user_id: int) -> int:
@@ -94,9 +94,9 @@ def is_private_link(url: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ✅ NEW HELPER: ভিডিও মেটাডেটা নিরাপদে extract করার ফাংশন
-# এটি width, height, duration সঠিকভাবে বের করে
-# squished ভিডিওর মূল সমাধান এখানে
+# ✅ 新辅助函数：安全提取视频元数据的函数
+# 正确提取 width, height, duration
+# 压扁视频的核心解决方案在此
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_video_metadata(chat_message) -> dict:
@@ -115,13 +115,13 @@ def extract_video_metadata(chat_message) -> dict:
 
     video = chat_message.video
     if video:
-        # ✅ সরাসরি video object থেকে নাও
+        # ✅ 直接从 video 对象获取
         metadata["width"]    = getattr(video, "width",    0) or 0
         metadata["height"]   = getattr(video, "height",   0) or 0
         metadata["duration"] = getattr(video, "duration", 0) or 0
 
     elif chat_message.document:
-        # document হিসেবে আসা video-র জন্য
+        # 以 document 形式出现的视频
         doc = chat_message.document
         metadata["width"]    = getattr(doc, "width",    0) or 0
         metadata["height"]   = getattr(doc, "height",   0) or 0
@@ -143,7 +143,7 @@ def extract_video_metadata(chat_message) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ✅ FIX: On AUTH_KEY_UNREGISTERED, remove expired session from MongoDB
+# ✅ 修复：遇到 AUTH_KEY_UNREGISTERED 时，从 MongoDB 删除过期会话
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _handle_auth_key_unregistered(user_id: int, session_id: str, bot, message):
@@ -183,7 +183,7 @@ async def _handle_auth_key_unregistered(user_id: int, session_id: str, bot, mess
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN SETUP
+# 主设置
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_autolink_handler(app: Client):
@@ -243,7 +243,7 @@ def setup_autolink_handler(app: Client):
             LOGGER.error(f"[UserClient] Error getting user client: {e}")
             return None
 
-    # ── PATH 2: USER SESSION FALLBACK FOR PUBLIC PROTECTED CONTENT ────────────
+    # ── 路径 2：公共受保护内容的用户会话回退 ────────────
 
     async def _public_fallback_via_user_session(
         bot: Client,
@@ -451,7 +451,7 @@ def setup_autolink_handler(app: Client):
                     "document"
                 )
 
-                # ✅ FIX: video metadata extract করো — squish ঠিক করার মূল জায়গা
+                # ✅ 修复：提取视频元数据 — 修复压扁问题的关键位置
                 video_metadata = {}
                 if media_type == "video":
                     video_metadata = extract_video_metadata(chat_message)
@@ -473,7 +473,7 @@ def setup_autolink_handler(app: Client):
                         progress_message=processing_msg,
                         start_time=start_time,
                         thumbnail_path=thumbnail_path,
-                        # ✅ FIX: metadata পাস করো যাতে aspect ratio ঠিক থাকে
+                        # ✅ 修复：传递元数据以保持宽高比正确
                         width=video_metadata.get("width", 0),
                         height=video_metadata.get("height", 0),
                         duration=video_metadata.get("duration", 0),
@@ -558,7 +558,7 @@ def setup_autolink_handler(app: Client):
         finally:
             await safe_stop_client(user_client)
 
-    # ── PATH 1 + PATH 2: PUBLIC LINK HANDLER ─────────────────────────────────
+    # ── 路径 1 + 路径 2：公共链接处理器 ─────────────────────────────────
 
     async def handle_public_link(client: Client, message: Message, url: str):
         user_id    = message.from_user.id
@@ -724,7 +724,7 @@ def setup_autolink_handler(app: Client):
                     return
 
             elif source_message.video:
-                # ✅ FIX: source video থেকে সঠিক metadata নাও
+                # ✅ 修复：从源视频获取正确的元数据
                 video_meta = extract_video_metadata(source_message)
 
                 try:
@@ -737,17 +737,17 @@ def setup_autolink_handler(app: Client):
                     thumbnail_file_id = None
 
                 try:
-                    # ✅ FIX: width, height, duration পাস করো
+                    # ✅ 修复：传递 width, height, duration
                     sent = await client.send_video(
                         chat_id=chat_id,
                         video=source_message.video.file_id,
                         caption=source_message.caption or "",
                         thumb=thumbnail_file_id if thumbnail_file_id else None,
-                        # ✅ এই তিনটি parameter না দিলে ভিডিও squished হয়
+                        # ✅ 这三个参数不传会导致视频被压扁
                         width=video_meta["width"],
                         height=video_meta["height"],
                         duration=video_meta["duration"],
-                        supports_streaming=True,  # ✅ streaming support চালু রাখো
+                        supports_streaming=True,  # ✅ 保持流式支持
                     )
                     if sent is not None:
                         sent_file_id      = source_message.video.file_id
@@ -758,7 +758,7 @@ def setup_autolink_handler(app: Client):
 
                 except FileReferenceExpired:
                     try:
-                        # ✅ FIX: retry তেও metadata পাস করো
+                        # ✅ 修复：重试时也传递元数据
                         sent = await client.send_video(
                             chat_id=chat_id,
                             video=source_message.video.file_id,
@@ -910,7 +910,7 @@ def setup_autolink_handler(app: Client):
             ack_msg, user, is_premium
         )
 
-    # ── PRIVATE LINK HANDLER ──────────────────────────────────────────────────
+    # ── 私有链接处理器 ──────────────────────────────────────────────────
 
     async def handle_private_link(client: Client, message: Message, url: str):
         user_id    = message.from_user.id
@@ -1147,7 +1147,7 @@ def setup_autolink_handler(app: Client):
                     "document"
                 )
 
-                # ✅ FIX: private link ভিডিওর জন্যও metadata extract করো
+                # ✅ 修复：私有链接视频也需要提取元数据
                 video_metadata = {}
                 if media_type == "video":
                     video_metadata = extract_video_metadata(chat_message)
@@ -1169,7 +1169,7 @@ def setup_autolink_handler(app: Client):
                         progress_message=processing_msg,
                         start_time=start_time,
                         thumbnail_path=thumbnail_path,
-                        # ✅ FIX: metadata পাস করো যাতে aspect ratio ঠিক থাকে
+                        # ✅ 修复：传递元数据以保持宽高比正确
                         width=video_metadata.get("width", 0),
                         height=video_metadata.get("height", 0),
                         duration=video_metadata.get("duration", 0),
@@ -1268,7 +1268,7 @@ def setup_autolink_handler(app: Client):
         finally:
             await safe_stop_client(user_client)
 
-    # ── CALLBACKS ─────────────────────────────────────────────────────────────
+    # ── 回调 ─────────────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^auto_pvt_(select_|cancel)"))
     async def auto_pvt_callback(client, callback_query):
@@ -1322,7 +1322,7 @@ def setup_autolink_handler(app: Client):
                 pass
             await process_private_download(client, callback_query.message, session_id, url)
 
-    # ── LINK DETECTOR ─────────────────────────────────────────────────────────
+    # ── 链接检测器 ─────────────────────────────────────────────────────────
 
     @app.on_message(
         filters.text &

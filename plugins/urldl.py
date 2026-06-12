@@ -1,6 +1,6 @@
 # plugins/urldl.py
-# External URL → Direct Telegram Upload (URLUploader integration)
-# গুরুত্বপূর্ণ: t.me লিংক autolink.py handle করবে, বাকি সব external URL urldl.py handle করবে — কোনো conflict নেই।
+# 外部 URL → 直接 Telegram 上传（URLUploader 集成）
+# 重要：t.me 链接由 autolink.py 处理，其余所有外部 URL 由 urldl.py 处理 — 不会产生冲突。
 
 import os
 import re
@@ -21,7 +21,7 @@ from utils.helper import get_readable_file_size, get_readable_time, get_video_th
 from core import prem_plan1, prem_plan2, prem_plan3, daily_limit, user_activity_collection
 
 # ─────────────────────────────────────────────────────────────────
-# CONFIG
+# 配置
 # ─────────────────────────────────────────────────────────────────
 
 DOWNLOAD_DIR     = "url_downloads"
@@ -33,19 +33,19 @@ DB_TIMEOUT       = 5.0
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# URL Regex — http/https যেকোনো সরাসরি লিংক
+# URL 正则表达式 — 匹配 http/https 任意直接链接
 URL_REGEX = re.compile(
     r'https?://[^\s<>"{}|\\^`\[\]]+'
 )
 
-# In-memory stores
+# 内存存储
 _pending_downloads: dict = {}   # unique_id → {url, filename}
-_pending_renames: dict   = {}   # user_id → url (rename mode)
-_active_downloads: set   = set() # user_id → download চলছে
+_pending_renames: dict   = {}   # user_id → url (重命名模式)
+_active_downloads: set   = set() # user_id → 正在下载
 
 
 # ─────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -96,7 +96,7 @@ def _progress_bar(pct: float, length: int = 20) -> str:
 
 
 async def _get_file_info(url: str) -> tuple[int, str]:
-    """Returns (file_size, filename)."""
+    """返回 (文件大小, 文件名)。"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.head(
@@ -105,7 +105,7 @@ async def _get_file_info(url: str) -> tuple[int, str]:
             ) as resp:
                 size = int(resp.headers.get("Content-Length", 0))
 
-                # Content-Disposition থেকে filename
+                # 从 Content-Disposition 获取文件名
                 cd = resp.headers.get("Content-Disposition", "")
                 fn_match = re.findall(r'filename=["\']?([^"\';\n]+)', cd)
                 if fn_match:
@@ -127,7 +127,7 @@ async def _stream_download(
     display_name: str,
     max_size: int,
 ) -> bool:
-    """aiohttp দিয়ে streaming download, real-time progress।"""
+    """通过 aiohttp 流式下载，实时显示进度。"""
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) "
@@ -135,8 +135,8 @@ async def _stream_download(
         )
     }
     try:
-        connector = aiohttp.TCPConnector(ssl=False)
-        timeout   = aiohttp.ClientTimeout(total=None, connect=30, sock_read=60)
+        connector = aiohttp.TCPConnector(ssl=True)
+        timeout   = aiohttp.ClientTimeout(total=600, connect=30, sock_read=60)
 
         async with aiohttp.ClientSession(
             connector=connector, timeout=timeout
@@ -233,7 +233,7 @@ async def _upload_to_telegram(
     start_ts: float,
     thumbnail_path: str | None = None,
 ):
-    """Pyrogram MTProto দিয়ে upload — 2GB পর্যন্ত সাপোর্ট।"""
+    """通过 Pyrogram MTProto 上传 — 支持最大 2GB。"""
     file_size = os.path.getsize(file_path)
     ext       = os.path.splitext(file_path)[1].lower()
     last_edit = [0.0]
@@ -309,7 +309,7 @@ async def _upload_to_telegram(
 
 
 # ─────────────────────────────────────────────────────────────────
-# CORE PIPELINE
+# 核心流程
 # ─────────────────────────────────────────────────────────────────
 
 async def _process_url_download(
@@ -415,7 +415,7 @@ async def _process_url_download(
 
 
 # ─────────────────────────────────────────────────────────────────
-# SETUP
+# 注册
 # ─────────────────────────────────────────────────────────────────
 
 def setup_urldl_handler(app: Client):
@@ -432,12 +432,12 @@ def setup_urldl_handler(app: Client):
     )
     async def url_auto_detect(client: Client, message: Message):
         """
-        Non-Telegram URL auto-detect।
-        t.me লিংক autolink.py handle করবে, এখানে নয়।
+        非 Telegram URL 自动检测。
+        t.me 链接由 autolink.py 处理，此处不处理。
         """
         user_id = message.from_user.id
 
-        # pbatch session চেক
+        # 检查 pbatch 会话
         import sys
         _pbatch = sys.modules.get("plugins.pbatch")
         if _pbatch:
@@ -471,12 +471,12 @@ def setup_urldl_handler(app: Client):
             )
             return
 
-        # File info fetch
+        # 文件大小获取
         file_size, filename = await _get_file_info(url)
         max_size = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
         if file_size == 0:
-            # Size পাওয়া যায়নি — warn করে তবু allow
+            # 无法获取大小 — 发出警告但仍允许下载
             size_display = "大小未知"
         else:
             size_display = get_readable_file_size(file_size)
@@ -519,7 +519,7 @@ def setup_urldl_handler(app: Client):
         (filters.private | filters.group)
     )
     async def urldl_command(client: Client, message: Message):
-        """/urldl <URL> — সরাসরি command দিয়ে download।"""
+        """/urldl <URL> — 直接通过命令下载。"""
         if len(message.command) < 2:
             await message.reply_text(
                 "**📥 链接下载**\n\n"
@@ -671,7 +671,7 @@ def setup_urldl_handler(app: Client):
         old_name   = rename_info["filename"]
         unique_id  = rename_info["unique_id"]
 
-        # Extension সংরক্ষণ
+        # Extension 保留
         _, ext = os.path.splitext(old_name)
         new_filename = f"{new_name}{ext}" if ext else new_name
 

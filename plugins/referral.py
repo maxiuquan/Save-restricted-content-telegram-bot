@@ -1,13 +1,13 @@
 #
-# plugins/referral.py — Advanced Referral System v3.1
+# plugins/referral.py — 高级推荐系统 v3.1
 #
-# FIXED BUGS v3.1:
-#   ✅ CRITICAL: _give_premium_reward এখন full traceback সহ error log করে
-#   ✅ CRITICAL: asyncio.wait_for timeout সব DB operation-এ
-#   ✅ CRITICAL: retry logic (3 attempts) for transient AutoReconnect/NetworkTimeout
-#   ✅ NEW: /refmark command — admin manually milestone mark করতে পারবে
-#   ✅ NEW: /refgive এখন actual exception type দেখায়
-#   ✅ FIX: DuplicateKeyError handle করা হয়েছে (insert_one fallback to update)
+# v3.1 已修复错误：
+#   ✅ 关键修复：_give_premium_reward 现在记录完整 traceback 错误日志
+#   ✅ 关键修复：所有数据库操作均使用 asyncio.wait_for 超时
+#   ✅ 关键修复：针对 AutoReconnect/NetworkTimeout 瞬态错误的重试逻辑（3次尝试）
+#   ✅ 新增：/refmark 命令 — 管理员可手动标记里程碑
+#   ✅ 新增：/refgive 现在显示实际异常类型
+#   ✅ 修复：已处理 DuplicateKeyError（insert_one 回退到 update）
 
 import asyncio
 import traceback
@@ -28,7 +28,7 @@ from utils import LOGGER
 from core.database import referrals, prem_plan1, premium_users, total_users
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RACE CONDITION PREVENTION
+# 竞态条件防护
 # ─────────────────────────────────────────────────────────────────────────────
 _reward_locks: dict[int, asyncio.Lock] = {}
 
@@ -40,7 +40,7 @@ def _get_user_lock(user_id: int) -> asyncio.Lock:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MILESTONE CONFIG
+# 里程碑配置
 # ─────────────────────────────────────────────────────────────────────────────
 
 MILESTONE_REWARDS = {
@@ -58,14 +58,14 @@ STREAK_WEEKLY_MIN = 3
 STREAK_BONUS_DAYS = 5
 MILESTONE_NEAR_THRESHOLD = 2
 
-# DB timeout
+# 数据库超时
 _DB_TIMEOUT = 15.0
-# Max retry attempts for transient errors
+# 瞬态错误的最大重试次数
 _MAX_RETRIES = 3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DB HELPERS
+# 数据库辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _count_referrals(user_id: int) -> int:
@@ -158,11 +158,11 @@ async def _get_referral_stats(user_id: int) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ FIXED: _give_premium_reward
-# - Full traceback logging
-# - asyncio.wait_for timeouts on every DB op
-# - Retry logic (3x) for transient errors (AutoReconnect, NetworkTimeout)
-# - DuplicateKeyError fallback (insert → update)
+# ✅ 已修复：_give_premium_reward
+# - 完整 traceback 日志记录
+# - 每个数据库操作均使用 asyncio.wait_for 超时
+# - 针对瞬态错误的重试逻辑（3次）（AutoReconnect、NetworkTimeout）
+# - DuplicateKeyError 回退（insert → update）
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _give_premium_reward(
@@ -201,10 +201,10 @@ async def _give_premium_reward(
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(1.5 * attempt)
             except DuplicateKeyError as dke:
-                # Duplicate key — raise immediately, no retry
+                # 重复键 — 立即抛出，不重试
                 raise dke
             except Exception as e:
-                # Non-transient — raise immediately
+                # 非瞬态错误 — 立即抛出
                 raise e
         raise RuntimeError(f"[Referral] {op_name} failed after {_MAX_RETRIES} attempts: {last_err}")
 
@@ -213,7 +213,7 @@ async def _give_premium_reward(
 
         LOGGER.info(f"[Referral] _give_premium_reward START: user={user_id}, days={days}, reason={reason}")
 
-        # ── Step 1: Check existing plan ───────────────────────────────────
+        # ── 步骤 1：检查现有套餐 ───────────────────────────────
         try:
             existing = await _with_retry(
                 lambda: prem_plan1.find_one({"user_id": user_id}),
@@ -227,11 +227,11 @@ async def _give_premium_reward(
             )
             return False
 
-        # ── Step 2: Insert/Update/Extend ──────────────────────────────────
+        # ── 步骤 2：插入/更新/延长 ──────────────────────────────────
         if existing:
             ex_expiry = existing.get("expiry_date")
             if isinstance(ex_expiry, datetime) and ex_expiry > datetime.utcnow():
-                # Active plan → extend
+                # 有效套餐 → 延长
                 new_expiry = ex_expiry + timedelta(days=days)
                 try:
                     await _with_retry(
@@ -260,7 +260,7 @@ async def _give_premium_reward(
                 LOGGER.info(f"[Referral] ✅ Reward EXTENDED: user={user_id} +{days}d → expiry={new_expiry.strftime('%Y-%m-%d')}")
 
             else:
-                # Expired plan → replace
+                # 已过期套餐 → 替换
                 plan_doc = _build_plan_doc(user_id, expiry_date)
                 try:
                     await _with_retry(
@@ -286,7 +286,7 @@ async def _give_premium_reward(
                 LOGGER.info(f"[Referral] ✅ Reward REPLACED: user={user_id} {days}d expiry={expiry_date.strftime('%Y-%m-%d')}")
 
         else:
-            # No plan → insert new
+            # 无套餐 → 插入新套餐
             plan_doc = _build_plan_doc(user_id, expiry_date)
             try:
                 from pymongo.errors import DuplicateKeyError
@@ -296,7 +296,7 @@ async def _give_premium_reward(
                         "prem_plan1.insert_one"
                     )
                 except DuplicateKeyError:
-                    # Race condition: another insert sneaked in → update instead
+                    # 竞态条件：其他插入抢先执行 → 改为更新
                     LOGGER.warning(f"[Referral] DuplicateKeyError on insert for user={user_id} — falling back to update_one")
                     await _with_retry(
                         lambda: prem_plan1.update_one(
@@ -325,7 +325,7 @@ async def _give_premium_reward(
                 return False
             LOGGER.info(f"[Referral] ✅ Reward NEW: user={user_id} {days}d expiry={expiry_date.strftime('%Y-%m-%d')}")
 
-        # ── Step 3: Notify user (non-critical) ────────────────────────────
+        # ── 步骤 3：通知用户（非关键操作）───────────────────────────
         try:
             await client.send_message(
                 chat_id=user_id,
@@ -370,7 +370,7 @@ def _build_plan_doc(user_id: int, expiry_date: datetime) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ FIXED: _check_and_reward_milestones
+# ✅ 已修复：_check_and_reward_milestones
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _check_and_reward_milestones(
@@ -399,7 +399,7 @@ async def _check_and_reward_milestones(
 
                     reason = f"🏅 {milestone} 推荐里程碑"
 
-                    # Give premium FIRST, mark AFTER (bug fix)
+                    # 先授予高级会员，后标记（错误修复）
                     success = await _give_premium_reward(
                         client, referrer_id, reward_days, reason
                     )
@@ -442,7 +442,7 @@ async def _check_and_reward_milestones(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STREAK BONUS
+# 连续推荐奖励
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _check_streak_bonus(client: Client, referrer_id: int):
@@ -521,7 +521,7 @@ async def _check_streak_bonus(client: Client, referrer_id: int):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NEAR MILESTONE NOTIFICATION
+# 接近里程碑通知
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _maybe_notify_near_milestone(
@@ -552,7 +552,7 @@ async def _maybe_notify_near_milestone(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROCESS REFERRAL
+# 处理推荐
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def process_referral(
@@ -665,7 +665,7 @@ async def process_referral(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UI BUILDERS
+# UI 构建器
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def get_referral_text(client: Client, user_id: int) -> str:
@@ -826,7 +826,7 @@ async def get_leaderboard_text() -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SETUP
+# 注册处理器
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_referral_handler(app: Client):
@@ -862,7 +862,7 @@ def setup_referral_handler(app: Client):
         )
         LOGGER.info(f"[/referral] from user {user_id}")
 
-    # ── Callback handler ──────────────────────────────────────────────────
+    # ── 回调处理 ──────────────────────────────────────────────────
 
     @app.on_callback_query(
         filters.regex(r"^ref_(refresh|leaderboard|mylist)$")
@@ -950,7 +950,7 @@ def setup_referral_handler(app: Client):
                 pass
             await cq.answer("✅ Stats refreshed!")
 
-    # ── Admin: /refcheck ──────────────────────────────────────────────────
+    # ── 管理员：/refcheck ──────────────────────────────────────────────────
 
     @app.on_message(
         filters.command("refcheck", prefixes=COMMAND_PREFIX)
@@ -1020,7 +1020,7 @@ def setup_referral_handler(app: Client):
             parse_mode=ParseMode.MARKDOWN,
         )
 
-    # ── Admin: /refgive (IMPROVED) ────────────────────────────────────────
+    # ── 管理员：/refgive（已改进）────────────────────────────────────
 
     @app.on_message(
         filters.command("refgive", prefixes=COMMAND_PREFIX)
@@ -1139,8 +1139,8 @@ def setup_referral_handler(app: Client):
             except Exception:
                 pass
 
-    # ── NEW: Admin: /refmark <user_id> ───────────────────────────────────
-    # Use this after manually granting premium via /add to mark milestones
+    # ── 新增：管理员：/refmark <用户ID> ───────────────────────────
+    # 通过 /add 手动授予会员后使用此命令标记里程碑
 
     @app.on_message(
         filters.command("refmark", prefixes=COMMAND_PREFIX)
@@ -1217,7 +1217,7 @@ def setup_referral_handler(app: Client):
             parse_mode=ParseMode.MARKDOWN,
         )
 
-    # ── Admin: /refstats ──────────────────────────────────────────────────
+    # ── 管理员：/refstats ──────────────────────────────────────────────────
 
     @app.on_message(
         filters.command("refstats", prefixes=COMMAND_PREFIX)
@@ -1308,7 +1308,7 @@ def setup_referral_handler(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-    # ── Admin: /reflist ───────────────────────────────────────────────────
+    # ── 管理员：/reflist ───────────────────────────────────────────────────
 
     @app.on_message(
         filters.command("reflist", prefixes=COMMAND_PREFIX)
@@ -1371,7 +1371,7 @@ def setup_referral_handler(app: Client):
 
         await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
-    # ── Register /referral command ────────────────────────────────────────
+    # ── 注册 /referral 命令 ────────────────────────────────────────
 
     app.add_handler(
         MessageHandler(

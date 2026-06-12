@@ -6,7 +6,7 @@ from pyrogram.types import (
 )
 
 # ══════════════════════════════════════════════════
-# MAIN REPLY KEYBOARD — Always visible at the bottom
+# 主回复键盘 — 始终显示在底部
 # ══════════════════════════════════════════════════
 
 def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
@@ -27,7 +27,7 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 
 
 # ══════════════════════════════════════════════════
-# Mapping: button label → command/action key
+# 映射：按钮标签 → 命令/操作键
 # ══════════════════════════════════════════════════
 
 BUTTON_COMMAND_MAP: dict[str, str] = {
@@ -51,7 +51,7 @@ BUTTON_COMMAND_MAP: dict[str, str] = {
 
 
 # ══════════════════════════════════════════════════
-# START / HOME — Inline Keyboard
+# 开始 / 主页 — 内联键盘
 # ══════════════════════════════════════════════════
 
 def get_start_inline() -> InlineKeyboardMarkup:
@@ -80,7 +80,7 @@ def get_start_inline() -> InlineKeyboardMarkup:
 
 
 # ══════════════════════════════════════════════════
-# THUMBNAIL MENU
+# 缩略图菜单
 # ══════════════════════════════════════════════════
 
 def get_thumb_menu() -> InlineKeyboardMarkup:
@@ -97,7 +97,7 @@ def get_thumb_menu() -> InlineKeyboardMarkup:
 
 
 # ══════════════════════════════════════════════════
-# LOGIN MENU
+# 登录菜单
 # ══════════════════════════════════════════════════
 
 def get_login_menu() -> InlineKeyboardMarkup:
@@ -111,7 +111,7 @@ def get_login_menu() -> InlineKeyboardMarkup:
 
 
 # ══════════════════════════════════════════════════
-# BACK helpers
+# 返回辅助函数
 # ══════════════════════════════════════════════════
 
 def back_to_home() -> InlineKeyboardMarkup:
@@ -120,7 +120,7 @@ def back_to_home() -> InlineKeyboardMarkup:
     ])
 
 
-# Legacy aliases
+# 旧版别名
 def get_download_menu() -> InlineKeyboardMarkup:
     return get_start_inline()
 

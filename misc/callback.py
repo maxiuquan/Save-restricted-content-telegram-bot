@@ -11,7 +11,7 @@ from .keyboards import (
 )
 
 # ══════════════════════════════════════════════════
-# MESSAGE TEMPLATES
+# 消息模板
 # ══════════════════════════════════════════════════
 
 HOME_TEXT = """🚀 **RestrictedContentDL 机器人**
@@ -147,7 +147,7 @@ __你套餐的剩余天数将转给对方。__
 
 
 # ══════════════════════════════════════════════════
-# MAIN CALLBACK HANDLER
+# 主回调处理器
 # ══════════════════════════════════════════════════
 
 async def handle_callback_query(client: Client, callback_query: CallbackQuery):
@@ -158,7 +158,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
 
     LOGGER.info(f"Callback: {data} from user {user_id}")
 
-    # ── FORCE SUBSCRIBE CHECK ────────────────────
+    # ── 强制订阅检查 ────────────────────────────
     from utils.force_sub import check_force_sub, CHECK_SUB_CALLBACK_DATA
     if data == CHECK_SUB_CALLBACK_DATA:
         is_member = await check_force_sub(client, user_id, refresh=True)
@@ -178,22 +178,22 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             )
         return
 
-    # ── HOME ──────────────────────────────────────
+    # ── 主页 ──────────────────────────────────────
     if data in ("menu_home", "main_menu", "menu_back"):
         await _edit(client, chat_id, message_id, HOME_TEXT, get_start_inline())
         return await callback_query.answer("🏠 主菜单")
 
-    # ── AUTO LINK GUIDE ───────────────────────────
+    # ── 单链接下载指南 ────────────────────────────
     if data in ("menu_autolink", "menu_dl"):
         await _edit(client, chat_id, message_id, AUTOLINK_GUIDE_TEXT, back_to_home())
         return await callback_query.answer("🔗 单链接下载")
 
-    # ── AUTO BATCH GUIDE ──────────────────────────
+    # ── 批量下载指南 ─────────────────────────────
     if data in ("menu_autobatch", "menu_batch"):
         await _edit(client, chat_id, message_id, AUTOBATCH_GUIDE_TEXT, back_to_home())
         return await callback_query.answer("📦 批量下载")
 
-    # ── PLANS ─────────────────────────────────────
+    # ── 套餐 ──────────────────────────────────────
     if data == "menu_plans":
         from plugins.plan import PLAN_OPTIONS_TEXT
         plan_buttons = InlineKeyboardMarkup([
@@ -207,12 +207,12 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         await _edit(client, chat_id, message_id, PLAN_OPTIONS_TEXT, plan_buttons)
         return await callback_query.answer("⭐ 套餐")
 
-    # ── PROFILE ───────────────────────────────────
+    # ── 个人中心 ──────────────────────────────────
     if data == "menu_profile":
         await _edit(client, chat_id, message_id, PROFILE_TEXT, back_to_home())
         return await callback_query.answer("👤 个人中心")
 
-    # ── THUMBNAIL MENU ────────────────────────────
+    # ── 缩略图菜单 ────────────────────────────────
     if data == "menu_thumb":
         await _edit(client, chat_id, message_id, THUMB_MENU_TEXT, get_thumb_menu())
         return await callback_query.answer("🖼 缩略图")
@@ -229,7 +229,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         await _edit(client, chat_id, message_id, ACTION_RMTHUMB_TEXT, back_to_home())
         return await callback_query.answer("🗑 删除缩略图")
 
-    # ── LOGIN MENU ────────────────────────────────
+    # ── 登录菜单 ──────────────────────────────────
     if data == "menu_login":
         await _edit(client, chat_id, message_id, LOGIN_MENU_TEXT, get_login_menu())
         return await callback_query.answer("🔐 登录 / 退出")
@@ -242,19 +242,19 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         await _edit(client, chat_id, message_id, ACTION_LOGOUT_TEXT, back_to_home())
         return await callback_query.answer("🚪 退出登录")
 
-    # ── TRANSFER ─────────────────────────────────
+    # ── 转让 ─────────────────────────────────────
     if data == "menu_transfer":
         await _edit(client, chat_id, message_id, TRANSFER_TEXT, back_to_home())
         return await callback_query.answer("🔄 转让高级会员")
 
-    # ── REFERRAL ─────────────────────────────────
+    # ── 推荐 ─────────────────────────────────────
     if data == "menu_referral":
         from plugins.referral import get_referral_text
         referral_text = await get_referral_text(client, user_id)
         await _edit(client, chat_id, message_id, referral_text, back_to_home())
         return await callback_query.answer("🔗 推荐")
 
-    # ── SETTINGS ──────────────────────────────────
+    # ── 设置 ──────────────────────────────────────
     if data == "menu_settings":
         from plugins.settings import _settings_text, _settings_keyboard
         try:
@@ -271,7 +271,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             LOGGER.error(f"menu_settings edit error: {e}")
         return await callback_query.answer("⚙️ 设置")
 
-    # ── HELP ──────────────────────────────────────
+    # ── 帮助 ──────────────────────────────────────
     if data == "menu_help":
         await _edit(
             client, chat_id, message_id, HELP_TEXT, back_to_home(),
@@ -279,7 +279,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         )
         return await callback_query.answer("❓ 帮助")
 
-    # ── CLOSE ─────────────────────────────────────
+    # ── 关闭 ─────────────────────────────────────
     if data in ("menu_close", "close_doc$", "close_logs$"):
         await callback_query.message.delete()
         return await callback_query.answer("✅ 已关闭")
@@ -288,7 +288,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
 
 
 # ══════════════════════════════════════════════════
-# HELPER: edit message safely
+# 辅助函数：安全地编辑消息
 # ══════════════════════════════════════════════════
 
 async def _edit(client, chat_id, message_id, text, markup, parse_mode=ParseMode.MARKDOWN):

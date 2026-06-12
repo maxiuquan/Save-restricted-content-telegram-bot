@@ -1,15 +1,15 @@
 #
-# plugins/jddl.py — JDownloader Downloader
+# plugins/jddl.py — JDownloader 下载器
 #
-# Handles:
-#   • /jd <URL>  — Any JDownloader-supported link
+# 处理:
+#   • /jd <URL>  — 任意 JDownloader 支持的链接
 #
-# ✅ Real-time download progress
-# ✅ Premium / free file size check
-# ✅ Supports any site JDownloader supports (1000+ sites)
-# ✅ Auto upload to Telegram after download
-# ✅ Cancel button support
-# ✅ Cleanup after operation
+# ✅ 实时下载进度
+# ✅ 高级用户/免费用户文件大小检查
+# ✅ 支持 JDownloader 支持的任何站点（1000+ 站点）
+# ✅ 下载完成后自动上传到 Telegram
+# ✅ 支持取消按钮
+# ✅ 操作后清理
 
 import os
 import shutil
@@ -34,7 +34,7 @@ from core import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG  (set these in your .env or config.py)
+# 配置（在 .env 或 config.py 中设置这些值）
 # ─────────────────────────────────────────────────────────────────────────────
 
 JD_HOST     = os.environ.get("JD_HOST",     "http://127.0.0.1:3128")
@@ -51,7 +51,7 @@ _cancel_flags: dict = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JDownloader My.JD Local API CLIENT  (uses the local REST API on port 3128)
+# JDownloader My.JD 本地 API 客户端（使用端口 3128 上的本地 REST API）
 # ─────────────────────────────────────────────────────────────────────────────
 
 class JDClient:
@@ -151,7 +151,7 @@ jd = JDClient()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -180,7 +180,7 @@ def _find_downloaded_file(save_path: str) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD HELPER
+# 上传辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _upload_to_telegram(
@@ -251,7 +251,7 @@ async def _upload_to_telegram(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE PIPELINE
+# 核心流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_jd_download(
@@ -269,7 +269,7 @@ async def _run_jd_download(
     pkg_ids   = []
 
     try:
-        # ── Clear linkgrabber & add link ──────────────────────────────────
+        # ── 清空链接抓取器并添加链接 ──────────────────────────────────────
         await jd.clear_linkgrabber()
         await jd.add_links(url, save_path)
 
@@ -278,13 +278,13 @@ async def _run_jd_download(
             parse_mode=ParseMode.MARKDOWN,
         )
 
-        # ── Wait for grabber to collect ───────────────────────────────────
+        # ── 等待抓取器收集 ───────────────────────────────────────
         for _ in range(30):
             await asyncio.sleep(1)
             if not await jd.is_collecting():
                 break
 
-        # ── Get grabber packages ──────────────────────────────────────────
+        # ── 获取抓取器包 ──────────────────────────────────────────────
         packages = await jd.get_grabber_packages()
         if not packages:
             await status_msg.edit_text(
@@ -297,7 +297,7 @@ async def _run_jd_download(
         pkg_ids = [p["uuid"] for p in packages]
         total   = sum(p.get("bytesTotal", 0) for p in packages)
 
-        # ── Size check ────────────────────────────────────────────────────
+        # ── 大小检查 ────────────────────────────────────────────────────────
         max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
         if total > max_allowed and total > 0:
             await status_msg.edit_text(
@@ -318,12 +318,12 @@ async def _run_jd_download(
             parse_mode=ParseMode.MARKDOWN,
         )
 
-        # ── Move to download list & start ─────────────────────────────────
+        # ── 移到下载列表并开始 ─────────────────────────────────────
         await jd.move_to_downloadlist(pkg_ids)
         await asyncio.sleep(1)
         await jd.start_downloads()
 
-        # ── Monitor download ──────────────────────────────────────────────
+        # ── 监控下载 ──────────────────────────────────────────────────
         deadline     = time() + MAX_WAIT_SECS
         dl_pkg_ids   = []
         finished_ids = set()
@@ -343,7 +343,7 @@ async def _run_jd_download(
                 return
 
             dl_packages = await jd.get_download_packages()
-            # Filter to our packages by matching save path prefix
+            # 通过匹配保存路径前缀来过滤出我们的包
             our_packages = [
                 p for p in dl_packages
                 if p.get("saveTo", "").startswith(save_path)
@@ -353,7 +353,7 @@ async def _run_jd_download(
                 dl_pkg_ids = [p["uuid"] for p in our_packages]
 
             if not our_packages and dl_pkg_ids:
-                # All finished & removed by JD itself
+                # 所有已完成且由 JD 自行移除
                 break
 
             total_loaded = sum(p.get("bytesLoaded", 0) for p in our_packages)
@@ -363,7 +363,7 @@ async def _run_jd_download(
             pct          = (total_loaded / total_size * 100) if total_size > 0 else 0
             elapsed      = time() - start_ts
 
-            # Check if all finished
+            # 检查是否全部完成
             all_finished = all(p.get("finished", False) for p in our_packages)
             if all_finished and our_packages:
                 break
@@ -403,7 +403,7 @@ async def _run_jd_download(
                 pass
             return
 
-        # ── Locate file ───────────────────────────────────────────────────
+        # ── 定位文件 ───────────────────────────────────────────────────────
         await status_msg.edit_text(
             "✅ **下载 সম্পন্ন!**\n\n📤 上传 করা হচ্ছে...",
             parse_mode=ParseMode.MARKDOWN,
@@ -417,7 +417,7 @@ async def _run_jd_download(
             )
             return
 
-        # ── Thumbnail ─────────────────────────────────────────────────────
+        # ── 缩略图 ─────────────────────────────────────────────────────────
         thumbnail_path = None
         try:
             user_data = await user_activity_collection.find_one({"user_id": user_id})
@@ -427,7 +427,7 @@ async def _run_jd_download(
         except Exception:
             thumbnail_path = None
 
-        # ── Upload ────────────────────────────────────────────────────────
+        # ── 上传 ────────────────────────────────────────────────────────────
         file_sz = os.path.getsize(upload_path)
         caption = (
             f"📄 **{os.path.basename(upload_path)}**\n"
@@ -454,7 +454,7 @@ async def _run_jd_download(
         except Exception as upload_err:
             LOGGER.error(f"[JDDl] Upload failed: {upload_err}")
 
-        # ── Cleanup ───────────────────────────────────────────────────────
+        # ── 清理 ───────────────────────────────────────────────────────────
         if dl_pkg_ids:
             await jd.remove_packages(dl_pkg_ids, delete_files=True)
 
@@ -477,7 +477,7 @@ async def _run_jd_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMMAND HANDLER SETUP
+# 命令处理器注册
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_jddl_handler(app: Client):
@@ -493,7 +493,7 @@ def setup_jddl_handler(app: Client):
         parts = message.text.split(None, 1)
         url   = parts[1].strip() if len(parts) > 1 else ""
 
-        # Also accept reply text
+        # 也接受回复文本
         if not url and message.reply_to_message:
             url = (message.reply_to_message.text or "").strip()
 
@@ -530,7 +530,7 @@ def setup_jddl_handler(app: Client):
             )
         )
 
-    # ── Cancel callback ────────────────────────────────────────────────────
+    # ── 取消回调 ────────────────────────────────────────────────────────
     @app.on_callback_query(filters.regex(r"^jd_cancel_(\d+)$"))
     async def jd_cancel_callback(client, callback_query):
         user_id = int(callback_query.data.split("_")[-1])

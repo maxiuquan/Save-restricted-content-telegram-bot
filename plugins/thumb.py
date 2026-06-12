@@ -1,4 +1,4 @@
-# UPDATED: Conversation flow + Auto photo detection for /setthumb
+# 已更新：对话流程 + 自动检测 /setthumb 的照片
 
 import os
 import asyncio
@@ -15,11 +15,11 @@ from config import COMMAND_PREFIX
 from utils import LOGGER
 from core import user_activity_collection
 
-# ── In-memory state: users waiting for a photo after /setthumb ──────
+# ── 内存状态：/setthumb 后等待照片的用户 ──────────
 # { user_id: {"chat_id": int, "expires_at": float} }
 _waiting_for_photo: dict = {}
 
-# Session expiry: 5 minutes
+# 会话过期时间：5 分钟
 SESSION_EXPIRY = 300
 
 
@@ -72,19 +72,19 @@ async def _save_thumbnail(client: Client, message: Message, photo, user_id: int)
 def setup_thumb_handler(app: Client):
 
     # ════════════════════════════════════════════════════════════════
-    # /setthumb — two paths:
-    #   Path A: reply-to-photo (old way, still supported)
-    #   Path B: conversation mode — start waiting for a photo
+    # /setthumb — 两种方式：
+    #   方式 A：回复照片（旧方式，仍然支持）
+    #   方式 B：对话模式 — 开始等待照片
     # ════════════════════════════════════════════════════════════════
 
     async def setthumb_command(client: Client, message: Message):
         user_id = message.from_user.id
 
-        # ── Path A: user replied with /setthumb ──────────────────────
+        # ── 路径 A：用户回复 /setthumb ──────────────────────────
         if message.reply_to_message and message.reply_to_message.photo:
             photo = message.reply_to_message.photo
             success = await _save_thumbnail(client, message, photo, user_id)
-            _clear_waiting(user_id)  # close active session if there was one
+            _clear_waiting(user_id)  # 关闭之前的活跃会话（如果有的话）
 
             if success:
                 await message.reply_text(
@@ -102,7 +102,7 @@ def setup_thumb_handler(app: Client):
                 )
             return
 
-        # ── Path B: start conversation mode ──────────────────────
+        # ── 路径 B：启动对话模式 ──────────────────────────
         _set_waiting(user_id, message.chat.id)
 
         await message.reply_text(
@@ -118,9 +118,9 @@ def setup_thumb_handler(app: Client):
         )
 
     # ════════════════════════════════════════════════════════════════
-    # Photo listener — does two things:
-    #   1. If conversation mode is active -> set directly
-    #   2. For any photo -> show "Set as thumbnail?" buttons
+    # 照片监听器 — 做两件事：
+    #   1. 如果对话模式激活 -> 直接设置
+    #   2. 对于任意照片 -> 显示"设为缩略图？"按钮
     # ════════════════════════════════════════════════════════════════
 
     @app.on_message(
@@ -134,7 +134,7 @@ def setup_thumb_handler(app: Client):
         user_id = message.from_user.id
         photo   = message.photo
 
-        # ── Mode 1: conversation active — set directly ──────────────
+        # ── 模式 1：对话进行中 — 直接设置 ──────────────────
         if _is_waiting(user_id):
             _clear_waiting(user_id)
             processing = await message.reply_text(
@@ -156,8 +156,8 @@ def setup_thumb_handler(app: Client):
                 )
             return
 
-        # ── Mode 2: any photo — show "Set as thumbnail?" prompt ──────
-        # (private chat only, to avoid group spam)
+        # ── 模式 2：任意照片 — 显示"设为缩略图？"提示 ──────────
+        # （仅私聊，避免群组刷屏）
         if message.chat.type.name == "PRIVATE":
             await message.reply_text(
                 "⚡ **将此照片设为缩略图？**\n\n"
@@ -178,7 +178,7 @@ def setup_thumb_handler(app: Client):
             )
 
     # ════════════════════════════════════════════════════════════════
-    # Callback handler
+    # 回调处理器
     # ════════════════════════════════════════════════════════════════
 
     @app.on_callback_query(
@@ -188,7 +188,7 @@ def setup_thumb_handler(app: Client):
         data    = cq.data
         user_id = cq.from_user.id
 
-        # ── cancel ────────────────────────────────────────────────────
+        # ── 取消 ────────────────────────────────────────────────────────
         if data in ("thumb_cancel", "thumb_skip"):
             _clear_waiting(user_id)
             try:
@@ -200,7 +200,7 @@ def setup_thumb_handler(app: Client):
             )
             return
 
-        # ── set photo ──────────────────────────────────────────────
+        # ── 设置照片 ──────────────────────────────────────────────────
         if data.startswith("thumb_set_"):
             file_id = data[len("thumb_set_"):]
 
@@ -317,7 +317,7 @@ def setup_thumb_handler(app: Client):
                 )
                 LOGGER.error(f"Error retrieving thumbnail for user {user_id}: {e}")
         else:
-            # File missing — clean DB entry
+            # 文件缺失 — 清理数据库条目
             await user_activity_collection.update_one(
                 {"user_id": user_id},
                 {"$unset": {"thumbnail_path": "", "thumbnail_file_id": ""}},
@@ -330,7 +330,7 @@ def setup_thumb_handler(app: Client):
             LOGGER.warning(f"Thumbnail file missing for user {user_id} at {thumb_path}")
 
     # ════════════════════════════════════════════════════════════════
-    # Register handlers
+    # 注册处理器
     # ════════════════════════════════════════════════════════════════
 
     app.add_handler(

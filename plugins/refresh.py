@@ -1,8 +1,8 @@
 #
-# plugins/refresh.py — /refresh command handler.
+# plugins/refresh.py — /refresh 命令处理器。
 #
-# Fetches the caller's latest profile from Telegram API and upserts it
-# into the database, then replies with a summary of the updated fields.
+# 从 Telegram API 获取调用者的最新个人资料并 upsert 到数据库中，
+# 然后回复更新字段的摘要。
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -19,7 +19,7 @@ def setup_refresh_handler(app: Client):
     async def refresh_command(client: Client, message: Message):
         user_id = message.from_user.id
 
-        # ── Fetch fresh user object from Telegram API ──────────────────────
+        # ── 从 Telegram API 获取最新的用户对象 ──────────────────────────
         try:
             user = await client.get_users(user_id)
         except Exception as exc:
@@ -32,7 +32,7 @@ def setup_refresh_handler(app: Client):
             )
             return
 
-        # ── Upsert into MongoDB ────────────────────────────────────────────
+        # ── 写入 MongoDB ────────────────────────────────────────────────
         try:
             doc = await upsert_user(user)
         except Exception as exc:
@@ -44,7 +44,7 @@ def setup_refresh_handler(app: Client):
             )
             return
 
-        # ── Build reply summary ────────────────────────────────────────────
+        # ── 构建回复摘要 ────────────────────────────────────────────────
         username_display = f"@{doc['username']}" if doc["username"] else "（无用户名）"
         premium_icon     = "✅" if doc["is_premium"]  else "❌"
         verified_icon    = "✅" if doc["is_verified"] else "❌"

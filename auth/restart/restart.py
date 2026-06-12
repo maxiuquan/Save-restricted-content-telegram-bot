@@ -10,12 +10,12 @@ from pyrogram.errors import FloodWait
 from config import DEVELOPER_USER_ID, COMMAND_PREFIX
 from utils import LOGGER
 
-# Setup logging
+# 配置日志记录
 logging.basicConfig(level=logging.INFO)
 logger = LOGGER
 
 def check_session_permissions(session_file: str) -> bool:
-    """Check if the session file is writable."""
+    """检查会话文件是否可写。"""
     if not os.path.exists(session_file):
         logger.warning(f"Session file {session_file} does not exist")
         return True
@@ -31,11 +31,11 @@ def check_session_permissions(session_file: str) -> bool:
     return True
 
 def setup_restart_handler(app: Client):
-    """Set up handlers for restart and stop commands."""
+    """设置重启和停止命令的处理函数。"""
 
     @app.on_message(filters.command(["restart", "reboot", "reload"], prefixes=COMMAND_PREFIX) & (filters.private | filters.group))
     async def restart(client: Client, message):
-        """Handle /restart, /reboot, /reload commands to restart the bot."""
+        """处理 /restart、/reboot、/reload 命令以重启机器人。"""
         user_id = message.from_user.id
         logger.info(f"/restart command from user {user_id}")
 
@@ -55,7 +55,7 @@ def setup_restart_handler(app: Client):
             )
 
         if user_id != DEVELOPER_USER_ID:
-            logger.info("User is not developer, sending restricted message")
+            logger.info("用户不是开发者，发送受限提示")
             try:
                 await client.edit_message_text(
                     chat_id=message.chat.id,
@@ -209,7 +209,7 @@ def setup_restart_handler(app: Client):
 
     @app.on_message(filters.command(["stop", "kill", "off"], prefixes=COMMAND_PREFIX) & (filters.private | filters.group))
     async def stop(client: Client, message):
-        """Handle /stop, /kill, /off commands to stop the bot."""
+        """处理 /stop、/kill、/off 命令以停止机器人。"""
         user_id = message.from_user.id
         logger.info(f"/stop command from user {user_id}")
 

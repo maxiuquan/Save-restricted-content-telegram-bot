@@ -1,4 +1,4 @@
-# UPDATED: New button labels, English UI, fixed italic markdown, new thumb flow
+# 更新：新按钮标签、英文界面、修复斜体markdown、新缩略图流程
 
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -10,7 +10,7 @@ from utils import LOGGER
 
 
 def setup_button_router(app: Client):
-    """Register the catch-all text handler that routes Reply Keyboard presses."""
+    """注册捕获所有文本处理函数，用于路由回复键盘按钮的点击。"""
 
     _button_labels = set(BUTTON_COMMAND_MAP.keys())
 
@@ -104,7 +104,7 @@ def setup_button_router(app: Client):
             f"label='{label}' → command='{command}'"
         )
 
-        # ── autolink / setthumb / transfer / ytdl ──────────────────────────
+        # ── 单链接下载 / 设置缩略图 / 转让 / 网站视频下载 ──────────────────
         if command in ("autolink", "setthumb", "transfer", "ytdl"):
             hint = _hints.get(command, "Send a link to use this feature.")
             if command == "autolink":
@@ -114,19 +114,19 @@ def setup_button_router(app: Client):
                 await message.reply_text(hint, parse_mode=ParseMode.MARKDOWN)
             return
 
-        # ── referral ────────────────────────────────────────────────────────
+        # ── 推荐 ────────────────────────────────────────────────────────────
         if command == "referral":
             from plugins.referral import get_referral_text
             referral_text = await get_referral_text(client, message.from_user.id)
             await message.reply_text(referral_text, parse_mode=ParseMode.MARKDOWN)
             return
 
-        # ── autobatch ────────────────────────────────────────────────────────
+        # ── 批量下载 ────────────────────────────────────────────────────────
         if command == "autobatch":
             await handle_batch_start(client, message)
             return
 
-        # ── settings ────────────────────────────────────────────────────────
+        # ── 设置 ────────────────────────────────────────────────────────────
         if command == "settings":
             from plugins.settings import _settings_text, _settings_keyboard
             text = await _settings_text(message.from_user.id)
@@ -137,7 +137,7 @@ def setup_button_router(app: Client):
             )
             return
 
-        # ── start / back ────────────────────────────────────────────────────
+        # ── 开始 / 返回 ──────────────────────────────────────────────────────
         if command == "start":
             user_fullname = (
                 f"{message.from_user.first_name} "
@@ -150,7 +150,7 @@ def setup_button_router(app: Client):
                 disable_web_page_preview=True,
             )
 
-        # ── help ─────────────────────────────────────────────────────────────
+        # ── 帮助 ─────────────────────────────────────────────────────────────
         elif command == "help":
             await message.reply_text(
                 "**❓ 帮助菜单**\n"
@@ -176,7 +176,7 @@ def setup_button_router(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-        # ── plans / buy ───────────────────────────────────────────────────────
+        # ── 套餐 / 购买 ───────────────────────────────────────────────────────
         elif command == "plans":
             from plugins.plan import PLAN_OPTIONS_TEXT
             await message.reply_text(
@@ -185,7 +185,7 @@ def setup_button_router(app: Client):
                 reply_markup=_plan_buttons(),
             )
 
-        # ── profile & info ─────────────────────────────────────────────────────
+        # ── 个人中心 & 信息 ───────────────────────────────────────────────────
         elif command == "profile_info":
             from core import prem_plan1, prem_plan2, prem_plan3, user_sessions, daily_limit
             from datetime import datetime, timezone, timedelta
@@ -261,7 +261,7 @@ def setup_button_router(app: Client):
                 parse_mode=ParseMode.HTML,
             )
 
-        # ── getthumb ───────────────────────────────────────────────────────────
+        # ── 查看缩略图 ────────────────────────────────────────────────────────
         elif command == "getthumb":
             import os
             from core import user_activity_collection
@@ -288,7 +288,7 @@ def setup_button_router(app: Client):
                     parse_mode=ParseMode.MARKDOWN,
                 )
 
-        # ── rmthumb ────────────────────────────────────────────────────────────
+        # ── 删除缩略图 ────────────────────────────────────────────────────────
         elif command == "rmthumb":
             import os
             from core import user_activity_collection
@@ -313,7 +313,7 @@ def setup_button_router(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-        # ── login ──────────────────────────────────────────────────────────────
+        # ── 登录 ──────────────────────────────────────────────────────────────
         elif command == "login":
             await message.reply_text(
                 "🔐 **请输入 `/login` 连接你的 Telegram 账户。**\n\n"
@@ -321,7 +321,7 @@ def setup_button_router(app: Client):
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-        # ── logout ─────────────────────────────────────────────────────────────
+        # ── 退出登录 ───────────────────────────────────────────────────────────
         elif command == "logout":
             await message.reply_text(
                 "🚪 **请输入 `/logout` 移除已保存的会话。**",

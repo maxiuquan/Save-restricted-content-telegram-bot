@@ -1,10 +1,10 @@
 #
-# plugins/directdl.py  ─  File Hosting Sites Downloader (Enhanced v2.0)
+# plugins/directdl.py  ─  文件托管站点下载器（增强版 v2.0）
 #
-# /ddl <URL>              ─ Download from any supported hosting site
-# /ddl <URL>::<password>  ─ Password-protected links
+# /ddl <URL>              ─ 从任何支持的托管站点下载
+# /ddl <URL>::<password>  ─ 密码保护的链接
 #
-# Supported (via utils/direct_links.py):
+# 支持的平台（通过 utils/direct_links.py）：
 #   MediaFire (files + folders), GoFile, TeraBox, Pixeldrain, 1Fichier,
 #   StreamTape, WeTransfer, SwissTransfer, qiwi.gg, mp4upload,
 #   BuzzHeavier, Send.cm, LinkBox, Doodstream family, Racaty,
@@ -38,7 +38,7 @@ from utils.helper import get_readable_file_size, get_readable_time, get_video_th
 from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG
+# 配置
 # ─────────────────────────────────────────────────────────────────────────────
 
 DOWNLOAD_DIR      = os.path.join(tempfile.gettempdir(), "directdl_downloads")
@@ -51,17 +51,17 @@ RETRY_DELAY       = 5                   # seconds between retries
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Thread pool for synchronous direct_links.py functions
+# 线程池，用于执行 direct_links.py 中的同步函数
 _THREAD_POOL = ThreadPoolExecutor(max_workers=4)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BOT VERSION INFO
+# 机器人版本信息
 # ─────────────────────────────────────────────────────────────────────────────
 
 BOT_VERSION   = "2.0.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SUPPORTED SITES DISPLAY TEXT
+# 支持的网站显示文本
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUPPORTED_SITES_TEXT = """
@@ -145,11 +145,11 @@ SUPPORTED_SITES_TEXT = """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
-    """Check if user has any active premium plan."""
+    """检查用户是否拥有任何有效的高级会员计划。"""
     now = datetime.utcnow()
     for col in [prem_plan1, prem_plan2, prem_plan3]:
         doc = await col.find_one({"user_id": user_id})
@@ -159,7 +159,7 @@ async def _is_premium(user_id: int) -> bool:
 
 
 def _progress_bar(pct: float, length: int = 18) -> str:
-    """Return a styled Unicode progress bar."""
+    """返回格式化的 Unicode 进度条字符串。"""
     filled = int(length * pct / 100)
     bar    = "█" * filled + "░" * (length - filled)
     return bar
@@ -167,9 +167,9 @@ def _progress_bar(pct: float, length: int = 18) -> str:
 
 def _normalize_url(url: str) -> str:
     """
-    Fix double-encoded URLs before resolving.
-    Example: %25E0%25B8%25AD  →  %E0%B8%AD  (MediaFire Thai filename fix)
-    Password part (::pass) is safely preserved.
+    在解析前修复双重编码的 URL。
+    示例：%25E0%25B8%25AD  →  %E0%B8%AD（MediaFire 泰语文件名修复）
+    密码部分（::pass）安全保留。
     """
     if "::" in url:
         url_part, sep, password = url.partition("::")
@@ -184,8 +184,8 @@ def _normalize_url(url: str) -> str:
 
 def _parse_headers(raw) -> dict:
     """
-    Convert header data from direct_links.py into an aiohttp-compatible dict.
-    Accepts: str | list | dict
+    将 direct_links.py 中的头部数据转换为 aiohttp 兼容的字典。
+    接受：str | list | dict
     """
     if not raw:
         return {}
@@ -204,26 +204,26 @@ def _parse_headers(raw) -> dict:
 
 
 async def _resolve_link_async(url: str):
-    """Run generate_direct_link() in a thread so it won't block the event loop."""
+    """在线程中执行 generate_direct_link()，避免阻塞事件循环。"""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_THREAD_POOL, generate_direct_link, url)
 
 
 def _safe_filename(name: str) -> str:
-    """Sanitize filename for safe disk usage."""
+    """清理文件名，确保磁盘使用安全。"""
     keep = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.()"
     return "".join(c if c in keep else "_" for c in name).strip() or "file"
 
 
 def _guess_filename_from_url(url: str) -> str:
-    """Extract and sanitize filename from a direct URL."""
+    """从直接 URL 中提取并清理文件名。"""
     path = urlparse(url).path
     name = unquote(os.path.basename(path))
     return _safe_filename(name) if name else "downloaded_file"
 
 
 def _get_file_type_icon(filename: str) -> str:
-    """Return a relevant emoji for the file type."""
+    """返回与文件类型相关的 emoji 图标。"""
     ext = os.path.splitext(filename)[1].lower()
     icons = {
         # Video
@@ -254,7 +254,7 @@ def _get_file_type_icon(filename: str) -> str:
 
 
 def _get_domain(url: str) -> str:
-    """Extract clean domain name from URL."""
+    """从 URL 中提取干净的域名。"""
     try:
         parsed = urlparse(url)
         domain = parsed.netloc.replace("www.", "")
@@ -264,7 +264,7 @@ def _get_domain(url: str) -> str:
 
 
 async def _get_user_thumbnail(user_id: int) -> Optional[str]:
-    """Return the stored thumbnail path for a user, or None."""
+    """返回用户的存储缩略图路径，若无则返回 None。"""
     try:
         doc = await user_activity_collection.find_one({"user_id": user_id})
         if doc:
@@ -277,7 +277,7 @@ async def _get_user_thumbnail(user_id: int) -> Optional[str]:
 
 
 async def _log_activity(user_id: int, url: str, file_size: int, status: str) -> None:
-    """Log download activity to DB."""
+    """将下载活动记录到数据库。"""
     try:
         await user_activity_collection.update_one(
             {"user_id": user_id},
@@ -299,7 +299,7 @@ async def _log_activity(user_id: int, url: str, file_size: int, status: str) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DOWNLOAD  (streaming + retry + speed smoothing)
+# 下载（流式 + 重试 + 速度平滑处理）
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _stream_download(
@@ -312,9 +312,9 @@ async def _stream_download(
     attempt: int = 1,
 ) -> bool:
     """
-    Stream-download *url* to *dest_path* in chunks.
-    Auto-retries up to MAX_RETRIES on transient failures.
-    Returns True on success, False on failure.
+    分块流式下载 *url* 到 *dest_path*。
+    在临时故障时自动重试最多 MAX_RETRIES 次。
+    成功返回 True，失败返回 False。
     """
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
@@ -332,8 +332,8 @@ async def _stream_download(
     file_icon = _get_file_type_icon(display_name)
 
     try:
-        connector = aiohttp.TCPConnector(ssl=False, limit=10)
-        timeout   = aiohttp.ClientTimeout(total=None, connect=30, sock_read=120)
+        connector = aiohttp.TCPConnector(ssl=True, limit=10)
+        timeout   = aiohttp.ClientTimeout(total=600, connect=30, sock_read=120)
 
         async with aiohttp.ClientSession(
             connector=connector, timeout=timeout
@@ -342,7 +342,7 @@ async def _stream_download(
                 url, headers=base_headers, allow_redirects=True
             ) as resp:
 
-                # ── HTTP error check ──────────────────────────────────────────
+                # ── HTTP 错误检查 ──────────────────────────────────────────
                 if resp.status not in (200, 206):
                     if resp.status in (429, 503) and attempt <= MAX_RETRIES:
                         await status_msg.edit_text(
@@ -365,10 +365,10 @@ async def _stream_download(
 
                 total = int(resp.headers.get("Content-Length", 0))
 
-                # ── Content-Type display ──────────────────────────────────────
+                # ── Content-Type 显示 ──────────────────────────────────────
                 content_type = resp.headers.get("Content-Type", "未知").split(";")[0]
 
-                # ── Size guard ────────────────────────────────────────────────
+                # ── 大小限制检查 ───────────────────────────────────────────────
                 if total > 0 and total > max_size:
                     await status_msg.edit_text(
                         f"❌ **文件超过大小限制！**\n\n"
@@ -384,7 +384,7 @@ async def _stream_download(
                 start_ts   = time()
                 last_edit  = 0.0
 
-                # Speed smoothing: keep last N speed samples
+                # 速度平滑处理：保留最近 N 个速度样本
                 speed_samples: list[float] = []
 
                 with open(dest_path, "wb") as fh:
@@ -397,7 +397,7 @@ async def _stream_download(
                         now     = time()
                         elapsed = now - start_ts
 
-                        # Smooth speed calculation
+                        # 平滑速度计算
                         if elapsed > 0:
                             current_speed = downloaded / elapsed
                             speed_samples.append(current_speed)
@@ -423,7 +423,7 @@ async def _stream_download(
                                 else f"`{get_readable_file_size(downloaded)}`"
                             )
 
-                            # Dynamic percentage display
+                            # 动态百分比显示
                             pct_text = f" {pct:.1f}%" if total > 0 else " --.--%"
 
                             try:
@@ -487,7 +487,7 @@ async def _stream_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD  (Pyrogram MTProto with live progress)
+# 上传（通过 Pyrogram MTProto 实时显示进度）
 # ─────────────────────────────────────────────────────────────────────────────
 
 _VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v", ".ts"}
@@ -505,8 +505,8 @@ async def _upload_to_telegram(
     thumbnail_path: Optional[str] = None,
 ) -> None:
     """
-    Upload *file_path* to Telegram (up to 2 GB via MTProto).
-    Shows live upload progress bar in *status_msg*.
+    上传 *file_path* 到 Telegram（通过 MTProto 最大 2 GB）。
+    在 *status_msg* 中显示实时上传进度条。
     """
     file_size = os.path.getsize(file_path)
     ext       = os.path.splitext(file_path)[1].lower()
@@ -599,7 +599,7 @@ async def _upload_to_telegram(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SINGLE-FILE PIPELINE
+# 单文件流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _download_single(
@@ -614,7 +614,7 @@ async def _download_single(
     original_url: str,
     thumbnail_path: Optional[str],
 ) -> None:
-    """Download one file and upload it to Telegram."""
+    """下载单个文件并上传到 Telegram。"""
     chat_id   = message.chat.id
     user_id   = message.from_user.id
     file_name = _guess_filename_from_url(direct_url)
@@ -671,7 +671,7 @@ async def _download_single(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FOLDER / MULTI-FILE PIPELINE
+# 文件夹 / 多文件流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _download_folder(
@@ -844,7 +844,7 @@ async def _download_folder(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN PIPELINE
+# 主流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _process_ddl(
@@ -959,7 +959,7 @@ async def _process_ddl(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMMAND HANDLER SETUP
+# 命令处理器设置
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_directdl_handler(app: Client) -> None:

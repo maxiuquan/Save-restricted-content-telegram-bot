@@ -1,7 +1,7 @@
 #
 # plugins/aria2dl.py — Aria2c Downloader (Azure Safe — Pyrogram MTProto Upload)
 #
-# Commands:
+# 命令：
 #   /dl  <URL / magnet link>       → Direct link or magnet download
 #   /dl  (reply to .torrent file)  → Torrent file download
 #   /mirror <same as /dl>          → Alias command
@@ -53,7 +53,7 @@ from utils.helper import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG
+# 配置
 # ─────────────────────────────────────────────────────────────────────────────
 
 DOWNLOAD_DIR    = os.path.join(tempfile.gettempdir(), "aria2dl_downloads")
@@ -66,11 +66,11 @@ DB_TIMEOUT      = 5.0                 # Max seconds for DB response
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Cancel events — { message_id: asyncio.Event }
+# 取消事件 — { message_id: asyncio.Event }
 _cancel_events: Dict[int, asyncio.Event] = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FILE TYPE CONSTANTS
+# 文件类型常量
 # ─────────────────────────────────────────────────────────────────────────────
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v"}
@@ -78,10 +78,10 @@ AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aac"}
 SKIP_EXTS  = {".aria2", ".torrent"}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ARIA2C STDOUT PARSER
+# ARIA2C 标准输出解析器
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Matches: [#a1b2c3 10MiB/100MiB(10%) CN:16 DL:5.0MiB ETA:18s]
+# 匹配格式：[#a1b2c3 10MiB/100MiB(10%) CN:16 DL:5.0MiB ETA:18s]
 _PROGRESS_RE = re.compile(
     r"\[.*?"
     r"(?P<done>[0-9.]+[KMGT]?i?B)/"
@@ -122,7 +122,7 @@ def _size_to_bytes(size_str: str) -> int:
         return 0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PREMIUM / COOLDOWN / LOG HELPERS
+# 高级 / 冷却 / 日志辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -230,7 +230,7 @@ async def _log_to_group(
         LOGGER.warning(f"[Aria2DL] Log failed: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UI HELPERS
+# UI 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _progress_bar(pct: float, length: int = 20) -> str:
@@ -264,7 +264,7 @@ async def _safe_edit(msg: Message, text: str, markup=None):
         pass
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PRE-CHECK HTTP SIZE — Avoid downloading >limit files
+# HTTP 大小预检 — 避免下载超限文件
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _check_http_size(url: str, max_allowed: int) -> Optional[str]:
@@ -296,7 +296,7 @@ async def _check_http_size(url: str, max_allowed: int) -> Optional[str]:
     return None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TELEGRAM UPLOAD — Pyrogram MTProto (supports full 2 GB)
+# Telegram 上传 — Pyrogram MTProto（支持完整 2 GB）
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _upload_file(
@@ -405,7 +405,7 @@ async def _upload_file(
     return file_size
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE DOWNLOAD + UPLOAD PIPELINE
+# 核心下载 + 上传流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_download(
@@ -791,7 +791,7 @@ async def _run_download(
                 pass
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HANDLER REGISTRATION
+# 处理器注册
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_aria2dl_handler(app: Client):

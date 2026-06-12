@@ -1,19 +1,19 @@
 #
-# plugins/qbtdl.py — qBittorrent Downloader Plugin
+# plugins/qbtdl.py — qBittorrent 下载插件
 #
-# Commands:
-#   /qbt <magnet link>        → Download via magnet link
-#   /qbt <torrent file URL>   → Download via torrent URL
-#   /qbt (reply to .torrent)  → Download via .torrent file
+# 命令：
+#   /qbt <磁力链接>        → 通过磁力链接下载
+#   /qbt <种子文件 URL>   → 通过种子文件 URL 下载
+#   /qbt (回复 .torrent 文件)  → 通过 .torrent 文件下载
 #
-# Features:
-#   ✅ Real-time progress bar (download + seeding)
-#   ✅ Premium / free user file size check
-#   ✅ Auto file detection & Telegram upload after download
-#   ✅ Cancel button support
-#   ✅ Full cleanup after every operation
-#   ✅ FloodWait safe progress updates
-#   ✅ Persistent aiohttp session (no memory leaks)
+# 功能：
+#   ✅ 实时进度条（下载 + 做种）
+#   ✅ 高级用户/免费用户文件大小检查
+#   ✅ 下载完成后自动检测文件并上传到 Telegram
+#   ✅ 支持取消按钮
+#   ✅ 每次操作后完整清理
+#   ✅ 安全的 FloodWait 进度更新
+#   ✅ 持久的 aiohttp 会话（无内存泄漏）
 
 import asyncio
 import base64
@@ -43,30 +43,30 @@ from utils import LOGGER, log_file_to_group
 from utils.helper import get_readable_file_size, get_readable_time, get_video_thumbnail
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG — Set these in your .env or config.py
+# 配置 — 在 .env 或 config.py 中设置这些值
 # ─────────────────────────────────────────────────────────────────────────────
 
 QBT_URL      = os.environ.get("QBT_URL",      "http://localhost:8090")
 QBT_USERNAME = os.environ.get("QBT_USERNAME", "mltb")
-QBT_PASSWORD = os.environ.get("QBT_PASSWORD", "mltbmltb")
+QBT_PASSWORD = os.environ.get("QBT_PASSWORD")
 
 DOWNLOAD_DIR    = os.path.join(tempfile.gettempdir(), "qbtdl_downloads")
-PROGRESS_DELAY  = 4        # Seconds between progress message edits
-POLL_INTERVAL   = 3        # Seconds between qBittorrent status polls
-MAX_WAIT_SECS   = 3600 * 6 # Max 6 hours wait time
-MAX_FILE_SIZE   = 2  * 1024 ** 3   # 2 GB  — Premium users
-FREE_FILE_LIMIT = 500 * 1024 ** 2  # 500 MB — Free users
+PROGRESS_DELAY  = 4        # 进度消息编辑之间的秒数
+POLL_INTERVAL   = 3        # qBittorrent 状态轮询之间的秒数
+MAX_WAIT_SECS   = 3600 * 6 # 最长等待时间 6 小时
+MAX_FILE_SIZE   = 2  * 1024 ** 3   # 2 GB — 高级用户
+FREE_FILE_LIMIT = 500 * 1024 ** 2  # 500 MB — 免费用户
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Active cancel flags — { torrent_hash: True }
+# 活跃取消标志 — { torrent_hash: True }
 _cancel_flags: dict = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# qBittorrent Web API CLIENT
-# Uses a single persistent session to avoid memory leaks.
-# Auto re-login if cookie expires.
+# qBittorrent Web API 客户端
+# 使用单个持久化会话来避免内存泄漏。
+# 如果 cookie 过期则自动重新登录。
 # ─────────────────────────────────────────────────────────────────────────────
 
 class QBittorrentClient:
@@ -91,7 +91,7 @@ class QBittorrentClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._logged_in = False
 
-    # ── Internal: get or create session ──────────────────────────────────────
+    # ── 内部：获取或创建会话 ──────────────────────────────────────────
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Return existing session or create a new one."""
@@ -103,7 +103,7 @@ class QBittorrentClient:
             self._logged_in = False
         return self._session
 
-    # ── Login ─────────────────────────────────────────────────────────────────
+    # ── 登录 ─────────────────────────────────────────────────────────────
 
     async def login(self) -> bool:
         """Log in to qBittorrent WebUI. Returns True on success."""
@@ -122,14 +122,14 @@ class QBittorrentClient:
         except Exception as e:
             raise RuntimeError(f"Cannot connect to qBittorrent: {e}") from e
 
-    # ── Ensure logged in ──────────────────────────────────────────────────────
+    # ── 确保已登录 ──────────────────────────────────────────────────────────
 
     async def _ensure_login(self):
         """Log in only if not already logged in."""
         if not self._logged_in:
             await self.login()
 
-    # ── Generic request ───────────────────────────────────────────────────────
+    # ── 通用请求 ───────────────────────────────────────────────────────────
 
     async def _request(self, method: str, endpoint: str, **kwargs) -> aiohttp.ClientResponse:
         """
@@ -145,7 +145,7 @@ class QBittorrentClient:
             else:
                 resp = await session.get(url, **kwargs)
 
-            # If forbidden, try re-login once
+            # 如果是 403 禁止访问，尝试重新登录一次
             if resp.status == 403:
                 self._logged_in = False
                 await self.login()
@@ -163,7 +163,7 @@ class QBittorrentClient:
                 "请确保 qBittorrent 正在运行。"
             )
 
-    # ── Close session ─────────────────────────────────────────────────────────
+    # ── 关闭会话 ─────────────────────────────────────────────────────────────
 
     async def close(self):
         """Close the aiohttp session cleanly."""
@@ -172,7 +172,7 @@ class QBittorrentClient:
         self._session = None
         self._logged_in = False
 
-    # ── Add magnet link ───────────────────────────────────────────────────────
+    # ── 添加磁力链接 ───────────────────────────────────────────────────────
 
     async def add_magnet(self, magnet: str, save_path: str) -> str:
         """
@@ -183,17 +183,17 @@ class QBittorrentClient:
             "POST", "torrents/add",
             data={"urls": magnet, "savepath": save_path, "autoTMM": "false"},
         )
-        # Extract hash from magnet URI
+        # 从磁力链接 URI 中提取哈希
         match = re.search(r"xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})", magnet)
         if match:
             raw = match.group(1)
             if len(raw) == 32:
-                # Base32 → hex conversion
+                # Base32 → 十六进制转换
                 raw = base64.b32decode(raw.upper()).hex()
             return raw.lower()
         return ""
 
-    # ── Add torrent file ──────────────────────────────────────────────────────
+    # ── 添加种子文件 ──────────────────────────────────────────────────────────
 
     async def add_torrent_file(self, file_path: str, save_path: str) -> str:
         """
@@ -214,7 +214,7 @@ class QBittorrentClient:
 
         await self._request("POST", "torrents/add", data=form)
 
-        # Wait a moment then fetch the newest torrent
+        # 等待片刻，然后获取最新的种子
         await asyncio.sleep(1.5)
         resp = await self._request("GET", "torrents/info", params={"sort": "added_on", "reverse": "true"})
         torrents = await resp.json()
@@ -222,13 +222,13 @@ class QBittorrentClient:
             return torrents[0]["hash"].lower()
         return ""
 
-    # ── Add torrent URL ───────────────────────────────────────────────────────
+    # ── 添加种子 URL ───────────────────────────────────────────────────────────
 
     async def add_torrent_url(self, url: str, save_path: str) -> str:
         """Add a torrent via a direct URL (treated same as magnet)."""
         return await self.add_magnet(url, save_path)
 
-    # ── Get torrent info ──────────────────────────────────────────────────────
+    # ── 获取种子信息 ──────────────────────────────────────────────────────────
 
     async def get_torrent_info(self, torrent_hash: str) -> Optional[dict]:
         """Return torrent info dict, or None if not found."""
@@ -239,7 +239,7 @@ class QBittorrentClient:
         data = await resp.json()
         return data[0] if data else None
 
-    # ── Get torrent files ─────────────────────────────────────────────────────
+    # ── 获取种子文件列表 ─────────────────────────────────────────────────────────
 
     async def get_torrent_files(self, torrent_hash: str) -> list:
         """Return a list of files inside the torrent."""
@@ -249,7 +249,7 @@ class QBittorrentClient:
         )
         return await resp.json()
 
-    # ── Remove torrent ────────────────────────────────────────────────────────
+    # ── 移除种子 ────────────────────────────────────────────────────────────
 
     async def remove_torrent(self, torrent_hash: str, delete_files: bool = True):
         """Remove a torrent from qBittorrent (and optionally delete files)."""
@@ -261,19 +261,19 @@ class QBittorrentClient:
             },
         )
 
-    # ── Pause torrent ─────────────────────────────────────────────────────────
+    # ── 暂停种子 ─────────────────────────────────────────────────────────────
 
     async def pause_torrent(self, torrent_hash: str):
         """Pause a torrent."""
         await self._request("POST", "torrents/pause", data={"hashes": torrent_hash})
 
 
-# Single global client instance
+# 全局唯一的客户端实例
 qbt = QBittorrentClient()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPER FUNCTIONS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -332,7 +332,7 @@ def _find_largest_file(save_path: str, files_info: list) -> Optional[str]:
     if best_path:
         return best_path
 
-    # Fallback: walk the directory
+    # 回退方案：遍历目录
     all_files = []
     for root, _, fnames in os.walk(save_path):
         for fname in fnames:
@@ -355,7 +355,7 @@ async def _safe_edit(msg: Message, text: str, markup=None):
             disable_web_page_preview=True,
         )
     except MessageNotModified:
-        pass  # Text was already the same — no problem
+        pass  # 文本内容相同 — 没有问题
     except FloodWait as fw:
         await asyncio.sleep(fw.value + 1)
         try:
@@ -372,7 +372,7 @@ async def _safe_edit(msg: Message, text: str, markup=None):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD TO TELEGRAM
+# 上传到 Telegram
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _upload_to_telegram(
@@ -395,7 +395,7 @@ async def _upload_to_telegram(
 
     async def _progress(current: int, total: int):
         now = time()
-        # Only update every PROGRESS_DELAY seconds (unless it's the final chunk)
+        # 每隔 PROGRESS_DELAY 秒更新一次（除非是最后一块）
         if now - last_edit[0] < PROGRESS_DELAY and current < total:
             return
         elapsed = now - upload_start[0]
@@ -420,7 +420,7 @@ async def _upload_to_telegram(
 
     try:
         if ext in VIDEO_EXTS:
-            # Try to generate thumbnail if not provided
+            # 如果没有提供缩略图，则尝试生成
             thumb = thumbnail_path
             if not thumb:
                 try:
@@ -438,7 +438,7 @@ async def _upload_to_telegram(
                 progress=_progress,
             )
 
-            # Clean up auto-generated thumbnail
+            # 清理自动生成的缩略图
             if thumb and thumb != thumbnail_path and os.path.exists(thumb):
                 os.remove(thumb)
 
@@ -461,7 +461,7 @@ async def _upload_to_telegram(
                 progress=_progress,
             )
 
-        # ── Success message ───────────────────────────────────────────────
+        # ── 成功消息 ───────────────────────────────────────────────────
         elapsed = get_readable_time(int(time() - start_ts))
         await _safe_edit(
             status_msg,
@@ -476,7 +476,7 @@ async def _upload_to_telegram(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE DOWNLOAD + UPLOAD PIPELINE
+# 核心下载 + 上传流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_qbt_download(
@@ -503,7 +503,7 @@ async def _run_qbt_download(
     max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
     try:
-        # ── Step 1: Wait for hash to appear (max 15 seconds) ─────────────────
+        # ── 第 1 步：等待哈希出现（最多 15 秒）────────────────────
         if not torrent_hash:
             for _ in range(15):
                 await asyncio.sleep(1)
@@ -525,10 +525,10 @@ async def _run_qbt_download(
 
         deadline = time() + MAX_WAIT_SECS
 
-        # ── Step 2: Poll loop ─────────────────────────────────────────────────
+        # ── 第 2 步：轮询循环 ─────────────────────────────────────────────────
         while time() < deadline:
 
-            # Check cancel flag
+            # 检查取消标志
             if _cancel_flags.get(torrent_hash):
                 _cancel_flags.pop(torrent_hash, None)
                 await qbt.remove_torrent(torrent_hash)
@@ -548,7 +548,7 @@ async def _run_qbt_download(
             eta_secs = info.get("eta", 0)
             pct      = progress * 100
 
-            # ── File size check ───────────────────────────────────────────
+            # ── 文件大小检查 ───────────────────────────────────────────────
             if size > 0 and size > max_allowed:
                 await qbt.remove_torrent(torrent_hash)
                 upgrade_hint = "\n\n💎 升级到高级会员：/plans" if not is_premium else ""
@@ -561,7 +561,7 @@ async def _run_qbt_download(
                 )
                 return
 
-            # ── Progress update ───────────────────────────────────────────
+            # ── 进度更新 ───────────────────────────────────────────────
             if time() - last_edit_ts >= PROGRESS_DELAY:
                 bar        = _progress_bar(pct)
                 state_text = _state_label(state)
@@ -588,9 +588,9 @@ async def _run_qbt_download(
                 )
                 last_edit_ts = time()
 
-            # ── Check if download is complete ─────────────────────────────
+            # ── 检查下载是否完成 ─────────────────────────────────
             if state in ("uploading", "stalledUP", "forcedUP", "pausedUP", "queuedUP"):
-                break  # Download done — move to upload step
+                break  # 下载完成 — 进入上传阶段
 
             elif state == "error":
                 err_msg = info.get("comment", "未知错误")
@@ -604,7 +604,7 @@ async def _run_qbt_download(
             await asyncio.sleep(POLL_INTERVAL)
 
         else:
-            # Loop ended without break → timeout
+            # 循环结束但未 break → 超时
             await qbt.remove_torrent(torrent_hash)
             await _safe_edit(
                 status_msg,
@@ -612,7 +612,7 @@ async def _run_qbt_download(
             )
             return
 
-        # ── Step 3: Find the downloaded file ─────────────────────────────────
+        # ── 第 3 步：查找下载的文件 ─────────────────────────────────────
         await _safe_edit(
             status_msg,
             "✅ **下载完成！**\n\n📤 准备上传...",
@@ -632,7 +632,7 @@ async def _run_qbt_download(
             await qbt.remove_torrent(torrent_hash)
             return
 
-        # ── Step 4: Get user thumbnail (if saved) ─────────────────────────────
+        # ── 第 4 步：获取用户缩略图（如果已保存）────────────────────────────────
         thumbnail_path: Optional[str] = None
         try:
             user_data = await user_activity_collection.find_one({"user_id": user_id})
@@ -643,7 +643,7 @@ async def _run_qbt_download(
         except Exception:
             pass
 
-        # ── Step 5: Check final file size before upload ───────────────────────
+        # ── 第 5 步：上传前检查最终文件大小 ───────────────────────────
         file_sz = os.path.getsize(upload_path)
         if file_sz > max_allowed:
             upgrade_hint = "\n\n💎 升级到高级会员：/plans" if not is_premium else ""
@@ -656,7 +656,7 @@ async def _run_qbt_download(
             await qbt.remove_torrent(torrent_hash)
             return
 
-        # ── Step 6: Upload to Telegram ────────────────────────────────────────
+# ── 第 6 步：上传到 Telegram ────────────────────────────────────────
         name    = os.path.basename(upload_path)
         caption = (
             f"📄 **{name}**\n"
@@ -677,7 +677,7 @@ async def _run_qbt_download(
             )
             return
 
-        # ── Step 7: Log to group (if configured) ─────────────────────────────
+# ── 第 7 步：记录到日志群组（如果已配置）─────────────────────────────
         if LOG_GROUP_ID:
             try:
                 await log_file_to_group(
@@ -694,7 +694,7 @@ async def _run_qbt_download(
             except Exception as log_err:
                 LOGGER.warning(f"[QBTDl] Log to group failed: {log_err}")
 
-        # ── Remove torrent (keep files until upload is done) ──────────────────
+# ── 移除种子（上传完成前保留文件）──────────────────────────────────
         await qbt.remove_torrent(torrent_hash, delete_files=True)
 
     except Exception as e:
@@ -709,7 +709,7 @@ async def _run_qbt_download(
             pass
 
     finally:
-        # Always clean up cancel flag and temp folder
+        # 始终清理取消标志和临时文件夹
         _cancel_flags.pop(torrent_hash, None)
         user_dir = os.path.join(DOWNLOAD_DIR, str(user_id))
         if os.path.isdir(user_dir):
@@ -717,7 +717,7 @@ async def _run_qbt_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COMMAND HANDLER REGISTRATION
+# 命令处理器注册
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_qbtdl_handler(app: Client):
@@ -735,12 +735,12 @@ def setup_qbtdl_handler(app: Client):
         source_label = ""
         args_text    = ""
 
-        # ── Figure out what the user sent ─────────────────────────────────────
+        # ── 判断用户发送了什么 ─────────────────────────────────────────
         #
-        # Priority order:
-        #   1. Reply to a .torrent file attachment
-        #   2. Reply to a message that contains a magnet/URL text
-        #   3. Arguments after the command (e.g. /qbt magnet:?xt=...)
+        # 优先级顺序：
+        #   1. 回复一个 .torrent 文件附件
+        #   2. 回复包含磁力链接/URL 的消息文本
+        #   3. 命令后的参数（例如 /qbt magnet:?xt=...）
 
         if message.reply_to_message:
             doc = message.reply_to_message.document
@@ -750,29 +750,29 @@ def setup_qbtdl_handler(app: Client):
                 doc.mime_type == "application/x-bittorrent"
                 or (doc.file_name or "").endswith(".torrent")
             ):
-                # Case 1: replied to a .torrent file
+                # 情况 1：回复了一个 .torrent 文件
                 dl_msg = await message.reply_text(
                     "⬇️ **下载 .torrent 文件中...**",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 torrent_file_path = await message.reply_to_message.download()
                 source_label      = doc.file_name or "torrent file"
-                # Delete the interim message — we'll reuse it below
+                # 删除临时消息 — 我们会在下面复用它
                 try:
                     await dl_msg.delete()
                 except Exception:
                     pass
 
             elif replied_text:
-                # Case 2: replied to a message with magnet/URL text
+# 情况 2：回复了包含磁力链接/URL 的消息文本
                 args_text = replied_text
 
         if not torrent_file_path and not args_text:
-            # Case 3: arguments after the command
+            # 情况 3：命令后的参数
             parts = message.text.split(None, 1)
             args_text = parts[1].strip() if len(parts) > 1 else ""
 
-        # ── Show help if no input was given ───────────────────────────────────
+        # ── 如果没有提供输入则显示帮助 ───────────────────────────────────
         if not torrent_file_path and not args_text:
             await message.reply_text(
                 "🌊 **qBittorrent 下载**\n"
@@ -793,21 +793,21 @@ def setup_qbtdl_handler(app: Client):
         if not source_label and args_text:
             source_label = args_text[:80]
 
-        # ── Status message ────────────────────────────────────────────────────
+        # ── 状态消息 ────────────────────────────────────────────────────
         status_msg = await message.reply_text(
             "🔄 **正在添加到 qBittorrent...**",
             parse_mode=ParseMode.MARKDOWN,
         )
 
-        # ── Create user temp folder ───────────────────────────────────────────
+        # ── 创建用户临时文件夹 ───────────────────────────────────────────
         user_dir = os.path.join(DOWNLOAD_DIR, str(user_id))
         os.makedirs(user_dir, exist_ok=True)
 
         try:
-            # ── Add to qBittorrent ────────────────────────────────────────────
+            # ── 添加到 qBittorrent ────────────────────────────────────────────
             if torrent_file_path:
                 torrent_hash = await qbt.add_torrent_file(torrent_file_path, user_dir)
-                # Remove the local .torrent file after adding
+                # 添加后删除本地 .torrent 文件
                 try:
                     os.remove(torrent_file_path)
                 except Exception:
@@ -819,7 +819,7 @@ def setup_qbtdl_handler(app: Client):
             else:
                 torrent_hash = await qbt.add_torrent_url(args_text, user_dir)
 
-            # ── Confirm torrent was added ─────────────────────────────────────
+            # ── 确认种子已添加 ─────────────────────────────────────────
             short_hash = (torrent_hash[:16] + "...") if torrent_hash else "detecting..."
             await _safe_edit(
                 status_msg,
@@ -831,7 +831,7 @@ def setup_qbtdl_handler(app: Client):
 
             LOGGER.info(f"[QBTDl] User {user_id} added torrent — hash={torrent_hash[:12] if torrent_hash else 'unknown'}")
 
-            # ── Start download pipeline in background ─────────────────────────
+            # ── 在后台启动下载流程 ─────────────────────────────
             asyncio.create_task(
                 _run_qbt_download(
                     client, message, torrent_hash,
@@ -845,22 +845,22 @@ def setup_qbtdl_handler(app: Client):
                 status_msg,
                 f"❌ **无法添加种子！**\n\n`{str(e)[:300]}`",
             )
-            # Clean up downloaded .torrent file if it exists
+            # 如果存在则清理下载的 .torrent 文件
             if torrent_file_path and os.path.exists(torrent_file_path):
                 try:
                     os.remove(torrent_file_path)
                 except Exception:
                     pass
 
-    # ── Cancel button callback ────────────────────────────────────────────────
+    # ── 取消按钮回调 ────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^qbt_cancel_(.+)$"))
     async def qbt_cancel_callback(client: Client, callback_query):
         """Handle the Cancel button press."""
-        # Extract torrent hash from callback data
+        # 从回调数据中提取种子哈希
         torrent_hash = callback_query.data.split("_", 2)[-1]
 
-        # Set the cancel flag — the poll loop will pick it up
+        # 设置取消标志 — 轮询循环会检测到
         _cancel_flags[torrent_hash] = True
 
         await _safe_edit(

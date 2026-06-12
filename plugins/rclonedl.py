@@ -1,14 +1,14 @@
 #
-# plugins/rclonedl.py — Rclone Cloud Downloader
+# plugins/rclonedl.py — Rclone 云下载器
 #
-# Handles:
-#   • /rclone <remote:path>  — download from any rclone-supported cloud
+# 处理：
+#   • /rclone <remote:path>  — 从任何 rclone 支持的云端下载
 #
-# ✅ Rclone config auto-detection (owner + per-user mrcc:)
-# ✅ Real-time progress bar via rclone --progress parsing
-# ✅ Single file or entire folder (zip)
-# ✅ Premium / free size check
-# ✅ Upload to Telegram after download
+# ✅ Rclone 配置自动检测（所有者 + 每个用户的 mrcc:）
+# ✅ 通过解析 rclone --progress 实现实时进度条
+# ✅ 单文件或整个文件夹（压缩包）
+# ✅ 高级会员 / 免费大小检查
+# ✅ 下载后上传到 Telegram
 
 import os
 import re
@@ -30,7 +30,7 @@ from utils.helper import get_readable_file_size, get_readable_time, get_video_th
 from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG
+# 配置
 # ─────────────────────────────────────────────────────────────────────────────
 
 OWNER_RCLONE_CONF = "rclone.conf"
@@ -43,7 +43,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# 辅助函数
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _is_premium(user_id: int) -> bool:
@@ -223,7 +223,7 @@ async def _upload_to_tg(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CORE PIPELINE
+# 核心流程
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_rclone_download(
@@ -237,7 +237,7 @@ async def _run_rclone_download(
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # ── Validate config ───────────────────────────────────────────────────────
+    # ── 验证配置 ───────────────────────────────────────────────────────
     if not os.path.exists(config_path):
         await status_msg.edit_text(
             f"❌ **Rclone config পাওয়া যায়নি:** `{config_path}`\n\n"
@@ -246,7 +246,7 @@ async def _run_rclone_download(
         )
         return
 
-    # ── Get remote size ───────────────────────────────────────────────────────
+    # ── 获取远程大小 ───────────────────────────────────────────────────────
     await status_msg.edit_text(
         "🔍 **Remote path যাচাই করা হচ্ছে...**",
         parse_mode=ParseMode.MARKDOWN,
@@ -266,12 +266,12 @@ async def _run_rclone_download(
 
     is_dir = await _is_remote_dir(config_path, remote_path)
 
-    # ── Prepare local destination ─────────────────────────────────────────────
+    # ── 准备本地目标路径 ─────────────────────────────────────────────
     name    = remote_path.rstrip("/").rsplit("/", 1)[-1] or "rclone_download"
     dest    = os.path.join(DOWNLOAD_DIR, str(user_id), name)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
 
-    # ── Build rclone command ──────────────────────────────────────────────────
+    # ── 构建 rclone 命令 ──────────────────────────────────────────────────
     cmd = [
         "rclone", "copy" if is_dir else "copyto",
         "--config",   config_path,
@@ -282,7 +282,7 @@ async def _run_rclone_download(
         dest if is_dir else dest,
     ]
 
-    # ── Run rclone subprocess ─────────────────────────────────────────────────
+    # ── 运行 rclone 子进程 ─────────────────────────────────────────────────
     start_ts    = time()
     last_edit   = 0.0
     last_info   = {}
@@ -400,7 +400,7 @@ async def _run_rclone_download(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SETUP
+# 设置
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_rclonedl_handler(app: Client):
