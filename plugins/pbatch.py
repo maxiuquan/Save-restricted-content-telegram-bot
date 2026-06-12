@@ -740,7 +740,23 @@ def setup_pbatch_handler(app: Client):
                             if _gm.audio: _attrs.append("audio")
                             if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
                             if _gm.text: _attrs.append("text")
-                            if not _attrs: _attrs.append("NONE")
+                            if _gm.sticker: _attrs.append("sticker")
+                            if not _attrs:
+                                # 深度诊断：遍历消息对象中所有与媒体相关的属性
+                                _deep = []
+                                for _attr in dir(_gm):
+                                    if _attr.startswith('_'):
+                                        continue
+                                    try:
+                                        _val = getattr(_gm, _attr, None)
+                                        if _val is not None and not callable(_val) and _attr not in ('client', 'chat', 'from_user', 'sender_chat', 'forward_from', 'forward_from_chat', 'reply_to_message', 'reactions', 'reply_markup', 'mentioned', 'scheduled', 'has_protected_content', 'outgoing', 'empty', 'service', 'media_group_id', 'date', 'edit_date', 'author_signature', 'views', 'forwards', 'link', 'id', 'caption', 'caption_entities', 'text', 'entities'):
+                                            _deep.append(f"{_attr}={type(_val).__name__}")
+                                    except:
+                                        pass
+                                if _deep:
+                                    _attrs.append(f"NONE[{','.join(_deep[:8])}]")
+                                else:
+                                    _attrs.append("NONE")
                             _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
                         LOGGER.info(f"[PublicBatch] MediaGroup {group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
                         group_size = sum(
@@ -1193,7 +1209,23 @@ def setup_pbatch_handler(app: Client):
                             if _gm.audio: _attrs.append("audio")
                             if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
                             if _gm.text: _attrs.append("text")
-                            if not _attrs: _attrs.append("NONE")
+                            if _gm.sticker: _attrs.append("sticker")
+                            if not _attrs:
+                                # 深度诊断：遍历消息对象中所有与媒体相关的属性
+                                _deep = []
+                                for _attr in dir(_gm):
+                                    if _attr.startswith('_'):
+                                        continue
+                                    try:
+                                        _val = getattr(_gm, _attr, None)
+                                        if _val is not None and not callable(_val) and _attr not in ('client', 'chat', 'from_user', 'sender_chat', 'forward_from', 'forward_from_chat', 'reply_to_message', 'reactions', 'reply_markup', 'mentioned', 'scheduled', 'has_protected_content', 'outgoing', 'empty', 'service', 'media_group_id', 'date', 'edit_date', 'author_signature', 'views', 'forwards', 'link', 'id', 'caption', 'caption_entities', 'text', 'entities'):
+                                            _deep.append(f"{_attr}={type(_val).__name__}")
+                                    except:
+                                        pass
+                                if _deep:
+                                    _attrs.append(f"NONE[{','.join(_deep[:8])}]")
+                                else:
+                                    _attrs.append("NONE")
                             _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
                         LOGGER.info(f"[PrivateBatch] MediaGroup {chat_message.media_group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
                         group_size = len([m for m in group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
