@@ -40,7 +40,7 @@ DEVELOPER_USER_ID: int = get_int("DEVELOPER_USER_ID")
 # ═══════════════════════════════════════════
 # 数据库配置
 # ═══════════════════════════════════════════
-MONGO_URL: str = get_str("MONGO_URL", "mongodb://localhost:27017")
+MONGO_URL: str = get_str("MONGO_URL")
 DATABASE_URL: str = get_str("DATABASE_URL") or MONGO_URL
 DB_URL: str = get_str("DB_URL") or MONGO_URL
 
