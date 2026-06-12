@@ -727,10 +727,11 @@ def setup_pbatch_handler(app: Client):
                         if group_id in processed_media_groups:
                             continue
 
+                        # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
+                        group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == group_id]
                         group_size = sum(
-                            1
-                            for msg in all_messages
-                            if msg and msg.media_group_id == group_id
+                            1 for m in group_messages
+                            if m.photo or m.video or m.animation or m.video_note or m.document or m.audio
                         )
 
                         now = time()
@@ -751,6 +752,7 @@ def setup_pbatch_handler(app: Client):
                             log_group_id=LOG_GROUP_ID,
                             log_user=log_user,
                             log_url=url,
+                            all_group_messages=group_messages,
                         )
                         processed_media_groups.add(group_id)
 
@@ -1151,13 +1153,16 @@ def setup_pbatch_handler(app: Client):
                         if chat_message.media_group_id in _processed_groups:
                             continue
                         _processed_groups.add(chat_message.media_group_id)
-                        media_group_msgs = await chat_message.get_media_group()
-                        group_size = len([m for m in media_group_msgs if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
+
+                        # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
+                        group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id]
+                        group_size = len([m for m in group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
                         _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
                             chat_message, bot, status_message,
                             user_client=user_client,
                             thumbnail_path=thumbnail_path,
+                            all_group_messages=group_messages,
                         )
                         if result:
                             success_count += group_size
