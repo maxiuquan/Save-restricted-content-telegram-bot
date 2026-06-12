@@ -735,6 +735,17 @@ async def processMediaGroup(
     thumbnail_path=None,
 ):
     media_group_messages = await chat_message.get_media_group()
+    # 如果 get_media_group() 只返回了 1 条消息但消息本身有 media_group_id，
+    # 说明 Pyrofork 的绑定方法可能有问题，改用 Client 级别方法重试
+    if len(media_group_messages) <= 1 and chat_message.media_group_id:
+        client = user_client or bot
+        try:
+            alt_messages = await client.get_media_group(chat_message.chat.id, chat_message.id)
+            if alt_messages and len(alt_messages) > len(media_group_messages):
+                LOGGER.info(f"[MediaGroup] Fallback: get_media_group() returned {len(media_group_messages)}, client.get_media_group() returned {len(alt_messages)}")
+                media_group_messages = alt_messages
+        except Exception as e:
+            LOGGER.debug(f"[MediaGroup] Client-level get_media_group fallback failed: {e}")
     total_media = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
     is_single = total_media == 1
     group_label = "文件" if is_single else "媒体组"
