@@ -729,6 +729,20 @@ def setup_pbatch_handler(app: Client):
 
                         # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
                         group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == group_id]
+                        # 诊断日志
+                        _diag_types = []
+                        for _gm in group_messages:
+                            _attrs = []
+                            if _gm.photo: _attrs.append("photo")
+                            if _gm.video: _attrs.append("video")
+                            if _gm.animation: _attrs.append("animation")
+                            if _gm.video_note: _attrs.append("video_note")
+                            if _gm.audio: _attrs.append("audio")
+                            if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
+                            if _gm.text: _attrs.append("text")
+                            if not _attrs: _attrs.append("NONE")
+                            _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
+                        LOGGER.info(f"[PublicBatch] MediaGroup {group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
                         group_size = sum(
                             1 for m in group_messages
                             if m.photo or m.video or m.animation or m.video_note or m.document or m.audio
@@ -1036,6 +1050,18 @@ def setup_pbatch_handler(app: Client):
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
 
+        # 诊断日志：统计 all_messages 中各类型消息数量
+        _diag_photo = sum(1 for m in all_messages if m and m.photo)
+        _diag_video = sum(1 for m in all_messages if m and m.video)
+        _diag_anim = sum(1 for m in all_messages if m and m.animation)
+        _diag_vn = sum(1 for m in all_messages if m and m.video_note)
+        _diag_doc = sum(1 for m in all_messages if m and m.document)
+        _diag_audio = sum(1 for m in all_messages if m and m.audio)
+        _diag_text = sum(1 for m in all_messages if m and m.text)
+        _diag_none = sum(1 for m in all_messages if not m)
+        _diag_nomedia = effective_total - _diag_photo - _diag_video - _diag_anim - _diag_vn - _diag_doc - _diag_audio - _diag_text - _diag_none
+        LOGGER.info(f"[PrivateBatch] all_messages 统计: total={effective_total} photo={_diag_photo} video={_diag_video} anim={_diag_anim} vnote={_diag_vn} doc={_diag_doc} audio={_diag_audio} text={_diag_text} None={_diag_none} other={_diag_nomedia}")
+
         if missing_count > 0:
             LOGGER.info(f"[PrivateBatch] {missing_count}/{count} messages not found in channel (deleted)")
 
@@ -1156,6 +1182,20 @@ def setup_pbatch_handler(app: Client):
 
                         # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
                         group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id]
+                        # 诊断日志：打印媒体组中每条消息的类型
+                        _diag_types = []
+                        for _gm in group_messages:
+                            _attrs = []
+                            if _gm.photo: _attrs.append("photo")
+                            if _gm.video: _attrs.append("video")
+                            if _gm.animation: _attrs.append("animation")
+                            if _gm.video_note: _attrs.append("video_note")
+                            if _gm.audio: _attrs.append("audio")
+                            if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
+                            if _gm.text: _attrs.append("text")
+                            if not _attrs: _attrs.append("NONE")
+                            _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
+                        LOGGER.info(f"[PrivateBatch] MediaGroup {chat_message.media_group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
                         group_size = len([m for m in group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
                         _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
