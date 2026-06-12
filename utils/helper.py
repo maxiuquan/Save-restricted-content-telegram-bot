@@ -10,7 +10,13 @@ import os
 from time import time
 from typing import Optional
 from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
-from pyrogram.errors import FloodWait, PeerStorageLimitReached
+from pyrogram.errors import FloodWait
+
+try:
+    from pyrogram.errors import PeerStorageLimitReached
+except ImportError:
+    # 旧版 Pyrogram 没有此异常，用 OSError 兜底
+    PeerStorageLimitReached = OSError
 from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
