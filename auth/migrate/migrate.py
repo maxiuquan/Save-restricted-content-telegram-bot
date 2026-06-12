@@ -158,7 +158,7 @@ def setup_migrate_handler(app: Client):
 
 
     def _find_uid(doc: dict):
-                """从文档中提取有效的 user_id。"""
+        """从文档中提取有效的 user_id。"""
         for field in ["user_id", "user", "id"]:
             val = doc.get(field)
             if isinstance(val, int) and val > 100000:
