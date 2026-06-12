@@ -749,6 +749,18 @@ async def processMediaGroup(
                     media_group_messages = alt_messages
             except Exception as e:
                 LOGGER.debug(f"[MediaGroup] Client-level get_media_group fallback failed: {e}")
+    # 对 media_group 中缺失媒体数据的消息（Pyrofork 的 get_messages 可能不加载视频媒体），单独重新获取
+    client = user_client or bot
+    for i, msg in enumerate(media_group_messages):
+        if not (msg.photo or msg.video or msg.animation or msg.video_note or msg.audio or msg.document):
+            if msg.media_group_id:
+                try:
+                    fresh = await client.get_messages(msg.chat.id, msg.id)
+                    if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.audio or fresh.document):
+                        LOGGER.info(f"[MediaGroup] Re-fetched msg {msg.id}: found media")
+                        media_group_messages[i] = fresh
+                except Exception as e:
+                    LOGGER.debug(f"[MediaGroup] Re-fetch failed for msg {msg.id}: {e}")
     total_media = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
     is_single = total_media == 1
     group_label = "文件" if is_single else "媒体组"
