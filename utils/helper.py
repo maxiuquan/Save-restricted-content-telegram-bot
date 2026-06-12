@@ -735,7 +735,7 @@ async def processMediaGroup(
     thumbnail_path=None,
 ):
     media_group_messages = await chat_message.get_media_group()
-    total_media = sum(1 for m in media_group_messages if m.video or m.audio or m.document or m.photo)
+    total_media = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
     is_single = total_media == 1
     group_label = "文件" if is_single else "媒体组"
     valid_media = []
@@ -747,19 +747,20 @@ async def processMediaGroup(
     )
 
     for msg in media_group_messages:
-        if msg.video or msg.audio or msg.document or msg.photo:
+        if msg.video or msg.animation or msg.video_note or msg.audio or msg.document or msg.photo:
             caption_text = await get_parsed_msg(
                 msg.caption or "", msg.caption_entities
             )
 
             try:
-                if msg.video:
+                if msg.video or msg.animation or msg.video_note:
+                    video_obj = msg.video or msg.animation or msg.video_note
                     valid_media.append(InputMediaVideo(
-                        media=msg.video.file_id,
+                        media=video_obj.file_id,
                         caption=caption_text,
-                        duration=msg.video.duration or 0,
-                        width=msg.video.width or 0,
-                        height=msg.video.height or 0,
+                        duration=getattr(video_obj, 'duration', 0) or 0,
+                        width=getattr(video_obj, 'width', 0) or 0,
+                        height=getattr(video_obj, 'height', 0) or 0,
                         supports_streaming=True,
                     ))
                 elif msg.audio:
@@ -836,13 +837,13 @@ async def processMediaGroup(
                 upload_target = "me" if user_client else message.chat.id
                 dl_success = 0
                 dl_fail_permanent = 0
-                total = sum(1 for m in media_group_messages if m.video or m.audio or m.document or m.photo)
+                total = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
 
                 # ── 第一阶段：下载所有项目 ──
                 downloaded_items = []  # 列表元素: (idx, dl_path, msg, caption_text)
 
                 for idx, msg in enumerate(media_group_messages, 1):
-                    if not (msg.video or msg.audio or msg.document or msg.photo):
+                    if not (msg.video or msg.animation or msg.video_note or msg.audio or msg.document or msg.photo):
                         continue
                     dl_path = None
                     try:
@@ -921,13 +922,14 @@ async def processMediaGroup(
                     for item_idx, item_path, item_msg, item_caption in downloaded_items:
                         try:
                             _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                            if item_msg.video:
+                            if item_msg.video or item_msg.animation or item_msg.video_note:
+                                video_obj = item_msg.video or item_msg.animation or item_msg.video_note
                                 batch_media.append(InputMediaVideo(
                                     media=item_path,
                                     caption=item_caption,
-                                    duration=item_msg.video.duration or 0,
-                                    width=item_msg.video.width or 0,
-                                    height=item_msg.video.height or 0,
+                                    duration=getattr(video_obj, 'duration', 0) or 0,
+                                    width=getattr(video_obj, 'width', 0) or 0,
+                                    height=getattr(video_obj, 'height', 0) or 0,
                                     supports_streaming=True,
                                     thumb=_thumb,
                                 ))

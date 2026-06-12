@@ -113,7 +113,7 @@ def extract_video_metadata(chat_message) -> dict:
         "duration": 0,
     }
 
-    video = chat_message.video
+    video = chat_message.video or chat_message.animation or chat_message.video_note
     if video:
         # ✅ 直接从 video 对象获取
         metadata["width"]    = getattr(video, "width",    0) or 0
@@ -381,10 +381,12 @@ def setup_autolink_handler(app: Client):
                     pass
                 return
 
-            if chat_message.document or chat_message.video or chat_message.audio:
+            if chat_message.document or chat_message.video or chat_message.animation or chat_message.video_note or chat_message.audio:
                 file_size = (
                     chat_message.document.file_size if chat_message.document else
-                    chat_message.video.file_size    if chat_message.video    else
+                    chat_message.video.file_size if chat_message.video else
+                    chat_message.animation.file_size if chat_message.animation else
+                    chat_message.video_note.file_size if chat_message.video_note else
                     chat_message.audio.file_size
                 )
                 is_premium = await is_premium_user(user_id)
@@ -446,7 +448,7 @@ def setup_autolink_handler(app: Client):
 
                 media_type = (
                     "photo"    if chat_message.photo    else
-                    "video"    if chat_message.video    else
+                    "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
                     "audio"    if chat_message.audio    else
                     "document"
                 )
@@ -723,7 +725,7 @@ def setup_autolink_handler(app: Client):
                         pass
                     return
 
-            elif source_message.video:
+            elif source_message.video or source_message.animation or source_message.video_note:
                 # ✅ 修复：从源视频获取正确的元数据
                 video_meta = extract_video_metadata(source_message)
 
@@ -740,7 +742,7 @@ def setup_autolink_handler(app: Client):
                     # ✅ 修复：传递 width, height, duration
                     sent = await client.send_video(
                         chat_id=chat_id,
-                        video=source_message.video.file_id,
+                        video=(source_message.video or source_message.animation or source_message.video_note).file_id,
                         caption=source_message.caption or "",
                         thumb=thumbnail_file_id if thumbnail_file_id else None,
                         # ✅ 这三个参数不传会导致视频被压扁
@@ -750,7 +752,7 @@ def setup_autolink_handler(app: Client):
                         supports_streaming=True,  # ✅ 保持流式支持
                     )
                     if sent is not None:
-                        sent_file_id      = source_message.video.file_id
+                        sent_file_id      = (source_message.video or source_message.animation or source_message.video_note).file_id
                         sent_media_type   = "video"
                         sent_successfully = True
                     else:
@@ -761,7 +763,7 @@ def setup_autolink_handler(app: Client):
                         # ✅ 修复：重试时也传递元数据
                         sent = await client.send_video(
                             chat_id=chat_id,
-                            video=source_message.video.file_id,
+                            video=(source_message.video or source_message.animation or source_message.video_note).file_id,
                             caption=source_message.caption or "",
                             width=video_meta["width"],
                             height=video_meta["height"],
@@ -769,7 +771,7 @@ def setup_autolink_handler(app: Client):
                             supports_streaming=True,
                         )
                         if sent is not None:
-                            sent_file_id      = source_message.video.file_id
+                            sent_file_id      = (source_message.video or source_message.animation or source_message.video_note).file_id
                             sent_media_type   = "video"
                             sent_successfully = True
                         else:
@@ -1080,10 +1082,12 @@ def setup_autolink_handler(app: Client):
                     pass
                 return
 
-            if chat_message.document or chat_message.video or chat_message.audio:
+            if chat_message.document or chat_message.video or chat_message.animation or chat_message.video_note or chat_message.audio:
                 file_size = (
                     chat_message.document.file_size if chat_message.document else
-                    chat_message.video.file_size    if chat_message.video    else
+                    chat_message.video.file_size if chat_message.video else
+                    chat_message.animation.file_size if chat_message.animation else
+                    chat_message.video_note.file_size if chat_message.video_note else
                     chat_message.audio.file_size
                 )
                 is_premium = await is_premium_user(user_id)
@@ -1142,7 +1146,7 @@ def setup_autolink_handler(app: Client):
 
                 media_type = (
                     "photo"    if chat_message.photo    else
-                    "video"    if chat_message.video    else
+                    "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
                     "audio"    if chat_message.audio    else
                     "document"
                 )

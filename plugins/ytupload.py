@@ -1252,7 +1252,7 @@ def setup_ytupload_handler(app: Client):
             )
             return
 
-        media = replied.video or replied.document or replied.animation
+        media = replied.video or replied.animation or replied.video_note or replied.document
         if not media:
             await message.reply_text(
                 "❌ **回复的消息中没有视频！**",

@@ -66,8 +66,8 @@ def _get_media_obj(message: Message):
     """从 Pyrogram Message 中返回 (media_object, media_type_str)。"""
     if message.document:
         return message.document, "document"
-    if message.video:
-        return message.video, "video"
+    if message.video or message.animation or message.video_note:
+        return (message.video or message.animation or message.video_note), "video"
     if message.audio:
         return message.audio, "audio"
     if message.voice:

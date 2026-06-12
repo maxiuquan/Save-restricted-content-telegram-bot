@@ -775,8 +775,8 @@ def setup_pbatch_handler(app: Client):
 
                     source_file_id = None
                     source_media_type = "document"
-                    if source_message.video:
-                        source_file_id = source_message.video.file_id
+                    if source_message.video or source_message.animation or source_message.video_note:
+                        source_file_id = (source_message.video or source_message.animation or source_message.video_note).file_id
                         source_media_type = "video"
                     elif source_message.photo:
                         source_file_id = source_message.photo.file_id
@@ -788,8 +788,8 @@ def setup_pbatch_handler(app: Client):
                         source_file_id = source_message.document.file_id
                         source_media_type = "document"
 
-                    if source_message.video:
-                        video    = source_message.video
+                    if source_message.video or source_message.animation or source_message.video_note:
+                        video    = source_message.video or source_message.animation or source_message.video_note
                         duration = video.duration or 0
                         width    = video.width or 1280
                         height   = video.height or 720
@@ -1128,10 +1128,12 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 try:
-                    if chat_message.document or chat_message.video or chat_message.audio:
+                    if chat_message.document or chat_message.video or chat_message.animation or chat_message.video_note or chat_message.audio:
                         file_size = (
                             chat_message.document.file_size if chat_message.document else
-                            chat_message.video.file_size   if chat_message.video   else
+                            chat_message.video.file_size if chat_message.video else
+                            chat_message.animation.file_size if chat_message.animation else
+                            chat_message.video_note.file_size if chat_message.video_note else
                             chat_message.audio.file_size
                         )
                         if not await fileSizeLimit(file_size, status_message, "download", True):
@@ -1150,7 +1152,7 @@ def setup_pbatch_handler(app: Client):
                             continue
                         _processed_groups.add(chat_message.media_group_id)
                         media_group_msgs = await chat_message.get_media_group()
-                        group_size = len([m for m in media_group_msgs if m.photo or m.video or m.document or m.audio])
+                        group_size = len([m for m in media_group_msgs if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
                         _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
                             chat_message, bot, status_message,
@@ -1197,7 +1199,7 @@ def setup_pbatch_handler(app: Client):
 
                         media_type = (
                             "photo"    if chat_message.photo    else
-                            "video"    if chat_message.video    else
+                            "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
                             "audio"    if chat_message.audio    else
                             "document"
                         )
@@ -1207,6 +1209,8 @@ def setup_pbatch_handler(app: Client):
                             _thumbs = None
                             if chat_message.video and chat_message.video.thumbs:
                                 _thumbs = chat_message.video.thumbs
+                            elif chat_message.animation and chat_message.animation.thumbs:
+                                _thumbs = chat_message.animation.thumbs
                             elif chat_message.document and chat_message.document.thumbs:
                                 _thumbs = chat_message.document.thumbs
                             if _thumbs:
@@ -1232,9 +1236,10 @@ def setup_pbatch_handler(app: Client):
                             else _orig_thumb
                         )
 
-                        _video_w = chat_message.video.width if chat_message.video else 0
-                        _video_h = chat_message.video.height if chat_message.video else 0
-                        _video_dur = chat_message.video.duration if chat_message.video else 0
+                        _video_obj = chat_message.video or chat_message.animation or chat_message.video_note
+                        _video_w = _video_obj.width if _video_obj else 0
+                        _video_h = _video_obj.height if _video_obj else 0
+                        _video_dur = _video_obj.duration if _video_obj else 0
 
                         _current_status = f"📤 上传 {idx}/{effective_total}"
                         _upload_done = False
