@@ -632,22 +632,24 @@ def setup_pbatch_handler(app: Client):
             LOGGER.warning(f"[PublicBatch] Could not fetch user {user_id} for logging: {e}")
             log_user = None
 
-        message_ids  = list(range(start_message_id, start_message_id + count))
         success_count = 0
         fail_count    = 0
         missing_count = 0
         processed_media_groups = set()
 
-        CHUNK = 200
         all_messages = []
-        for i in range(0, len(message_ids), CHUNK):
-            chunk_ids = message_ids[i:i + CHUNK]
-            try:
-                chunk_msgs = await client.get_messages(channel_username, chunk_ids)
-                all_messages.extend(chunk_msgs)
-            except Exception as e:
-                LOGGER.error(f"[PublicBatch] Fetch chunk failed: {e}")
-                fail_count += len(chunk_ids)
+        # 改用 get_chat_history 迭代器获取消息，避免 Pyrofork 的 get_messages 不加载视频媒体数据
+        try:
+            async for msg in client.get_chat_history(
+                chat_id=channel_username,
+                offset_id=start_message_id + count,
+                limit=count * 2,
+            ):
+                if start_message_id <= msg.id < start_message_id + count:
+                    all_messages.append(msg)
+        except Exception as e:
+            LOGGER.error(f"[PublicBatch] get_chat_history failed: {e}")
+        all_messages.reverse()  # get_chat_history 返回最新优先，反转为升序
 
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
@@ -1014,12 +1016,9 @@ def setup_pbatch_handler(app: Client):
             await safe_stop_client(user_client)
             return
 
-        message_ids = list(range(start_message_id, start_message_id + count))
-
         try:
-            total_chunks = (len(message_ids) + 199) // 200
             await status_message.edit_text(
-                f"**⏳ 正在获取消息...**\n共 `{len(message_ids)}` 条，分 `{total_chunks}` 批获取",
+                f"**⏳ 正在获取消息...**\n共 `{count}` 条",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
@@ -1046,22 +1045,19 @@ def setup_pbatch_handler(app: Client):
         except Exception as e:
             LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
 
-        CHUNK = 200
         all_messages = []
-        for i in range(0, len(message_ids), CHUNK):
-            chunk_ids = message_ids[i:i + CHUNK]
-            try:
-                chunk_msgs = await user_client.get_messages(
-                    chat_id=pvt_chat_id, message_ids=chunk_ids
-                )
-                if chunk_msgs:
-                    all_messages.extend(chunk_msgs)
-            except PeerIdInvalid:
-                LOGGER.warning(f"[PrivateBatch] PeerIdInvalid for chunk, skipping {len(chunk_ids)} msgs")
-                fail_count += len(chunk_ids)
-            except Exception as e:
-                LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
-                fail_count += len(chunk_ids)
+        # 改用 get_chat_history 迭代器获取消息，避免 Pyrofork 的 get_messages 不加载视频媒体数据
+        try:
+            async for msg in user_client.get_chat_history(
+                chat_id=pvt_chat_id,
+                offset_id=start_message_id + count,
+                limit=count * 2,
+            ):
+                if start_message_id <= msg.id < start_message_id + count:
+                    all_messages.append(msg)
+        except Exception as e:
+            LOGGER.error(f"[PrivateBatch] get_chat_history failed: {e}")
+        all_messages.reverse()  # get_chat_history 返回最新优先，反转为升序
 
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
