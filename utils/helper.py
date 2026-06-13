@@ -742,7 +742,29 @@ async def processMediaGroup(
     按 tawhid120 原版完全重写 — 直接下载文件后用文件路径上传，
     不依赖 msg.video / msg.photo 等 Pyrofork 媒体属性（Pyrofork 可能加载失败）。
     """
-    media_group_messages = await chat_message.get_media_group()
+    # 关键修复：不用 get_media_group()（内部调 get_messages，对 from_scheduled 消息不加载媒体）
+    # 改用 get_chat_history 获取附近消息，按 media_group_id 过滤
+    client = user_client or bot
+    media_group_id = chat_message.media_group_id
+
+    if media_group_id:
+        # 用 get_chat_history 获取消息 — 它能正确加载 from_scheduled 消息的媒体
+        media_group_messages = []
+        try:
+            async for msg in client.get_chat_history(
+                chat_id=chat_message.chat.id,
+                limit=20,
+                offset_id=chat_message.id + 10,
+            ):
+                if getattr(msg, 'media_group_id', None) == media_group_id:
+                    media_group_messages.append(msg)
+            media_group_messages.reverse()  # 按消息 ID 升序
+            LOGGER.info(f"[MediaGroup] get_chat_history 获取到 {len(media_group_messages)} 条同组消息")
+        except Exception as e:
+            LOGGER.warning(f"[MediaGroup] get_chat_history 失败: {e}，回退到 get_media_group")
+            media_group_messages = await chat_message.get_media_group()
+    else:
+        media_group_messages = [chat_message]
     valid_media  = []
     temp_paths   = []
     auto_thumbs  = []
