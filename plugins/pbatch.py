@@ -13,7 +13,7 @@ from time import time
 from datetime import datetime
 from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.enums import ParseMode, ChatType, MessageMediaType
+from pyrogram.enums import ParseMode, ChatType
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
@@ -637,19 +637,18 @@ def setup_pbatch_handler(app: Client):
         missing_count = 0
         processed_media_groups = set()
 
+        message_ids = list(range(start_message_id, start_message_id + count))
         all_messages = []
-        # 改用 get_chat_history 迭代器获取消息，避免 Pyrofork 的 get_messages 不加载视频媒体数据
-        try:
-            async for msg in client.get_chat_history(
-                chat_id=channel_username,
-                offset_id=start_message_id + count,
-                limit=count * 2,
-            ):
-                if start_message_id <= msg.id < start_message_id + count:
-                    all_messages.append(msg)
-        except Exception as e:
-            LOGGER.error(f"[PublicBatch] get_chat_history failed: {e}")
-        all_messages.reverse()  # get_chat_history 返回最新优先，反转为升序
+
+        CHUNK = 200
+        for i in range(0, len(message_ids), CHUNK):
+            chunk_ids = message_ids[i:i + CHUNK]
+            try:
+                chunk_msgs = await client.get_messages(channel_username, chunk_ids)
+                all_messages.extend(chunk_msgs)
+            except Exception as e:
+                LOGGER.error(f"[PublicBatch] Fetch chunk failed: {e}")
+                fail_count += len(chunk_ids)
 
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
@@ -729,42 +728,26 @@ def setup_pbatch_handler(app: Client):
                         if group_id in processed_media_groups:
                             continue
 
-                        # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
-                        group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == group_id]
-                        # 诊断日志：使用 MessageMediaType 枚举
-                        _diag_types = []
-                        for _gm in group_messages:
-                            _attrs = []
-                            _media = getattr(_gm, 'media', None)
-                            if _media == MessageMediaType.PHOTO: _attrs.append("photo")
-                            elif _media == MessageMediaType.VIDEO: _attrs.append("video")
-                            elif _media == MessageMediaType.ANIMATION: _attrs.append("animation")
-                            elif _media == MessageMediaType.VIDEO_NOTE: _attrs.append("video_note")
-                            elif _media == MessageMediaType.AUDIO: _attrs.append("audio")
-                            elif _media == MessageMediaType.DOCUMENT: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
-                            if _gm.text: _attrs.append("text")
-                            if _gm.sticker: _attrs.append("sticker")
-                            if not _attrs:
-                                _deep = []
-                                for _attr in dir(_gm):
-                                    if _attr.startswith('_'):
-                                        continue
-                                    try:
-                                        _val = getattr(_gm, _attr, None)
-                                        if _val is not None and not callable(_val) and _attr not in ('client', 'chat', 'from_user', 'sender_chat', 'forward_from', 'forward_from_chat', 'reply_to_message', 'reactions', 'reply_markup', 'mentioned', 'scheduled', 'has_protected_content', 'outgoing', 'empty', 'service', 'media_group_id', 'date', 'edit_date', 'author_signature', 'views', 'forwards', 'link', 'id', 'caption', 'caption_entities', 'text', 'entities'):
-                                            _deep.append(f"{_attr}={type(_val).__name__}")
-                                    except:
-                                        pass
-                                if _deep:
-                                    _attrs.append(f"NONE[{','.join(_deep[:8])}]")
-                                else:
-                                    _attrs.append("NONE")
-                            _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
-                        LOGGER.info(f"[PublicBatch] MediaGroup {group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
+                        # 从 all_messages 中统计媒体组大小
                         group_size = sum(
-                            1 for m in group_messages
-                            if getattr(m, 'media', None) in (MessageMediaType.PHOTO, MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.DOCUMENT, MessageMediaType.AUDIO)
+                            1 for m in all_messages
+                            if m and getattr(m, 'media_group_id', None) == group_id
                         )
+
+                        result = await processMediaGroup(
+                            source_message,
+                            client,
+                            status_message,
+                            log_group_id=LOG_GROUP_ID,
+                            log_user=log_user,
+                            log_url=url,
+                        )
+                        processed_media_groups.add(group_id)
+
+                        if result:
+                            success_count += group_size
+                        else:
+                            fail_count += group_size
 
                         now = time()
                         if idx % 2 == 0 or idx == 1 or (now - last_edit) >= 3:
@@ -784,7 +767,6 @@ def setup_pbatch_handler(app: Client):
                             log_group_id=LOG_GROUP_ID,
                             log_user=log_user,
                             log_url=url,
-                            all_group_messages=group_messages,
                         )
                         processed_media_groups.add(group_id)
 
@@ -807,37 +789,57 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(0.5)
                         continue
 
-                    # 参考 vasusen-code/SaveRestrictedContentBot：使用 MessageMediaType 枚举 + copy_message
-                    # copy_message 对公开频道最可靠，能处理所有媒体类型（照片/视频/文档/音频等）
+                    # 原版方式：send_video + copy_message
+                    source_file_id = None
                     source_media_type = "document"
-                    if source_message.media == MessageMediaType.VIDEO:
+                    if source_message.video:
+                        source_file_id = source_message.video.file_id
                         source_media_type = "video"
-                        source_file_id = source_message.video.file_id if source_message.video else None
-                    elif source_message.media == MessageMediaType.PHOTO:
+                    elif source_message.photo:
+                        source_file_id = source_message.photo.file_id
                         source_media_type = "photo"
-                        source_file_id = source_message.photo.file_id if source_message.photo else None
-                    elif source_message.media == MessageMediaType.AUDIO:
+                    elif source_message.audio:
+                        source_file_id = source_message.audio.file_id
                         source_media_type = "audio"
-                        source_file_id = source_message.audio.file_id if source_message.audio else None
-                    elif source_message.media == MessageMediaType.DOCUMENT:
+                    elif source_message.document:
+                        source_file_id = source_message.document.file_id
                         source_media_type = "document"
-                        source_file_id = source_message.document.file_id if source_message.document else None
-                    elif source_message.media == MessageMediaType.VIDEO_NOTE:
-                        source_media_type = "video"
-                        source_file_id = source_message.video_note.file_id if source_message.video_note else None
-                    elif source_message.media == MessageMediaType.ANIMATION:
-                        source_media_type = "video"
-                        source_file_id = source_message.animation.file_id if source_message.animation else None
-                    else:
-                        source_file_id = None
 
-                    # 统一使用 copy_message（参考 vasusen-code 项目做法）
-                    await client.copy_message(
-                        chat_id=chat_id,
-                        from_chat_id=channel_username,
-                        message_id=source_message.id,
-                    )
-                    success_count += 1
+                    if source_message.video:
+                        video = source_message.video
+                        duration = video.duration or 0
+                        width = video.width or 1280
+                        height = video.height or 720
+                        try:
+                            await client.send_video(
+                                chat_id=chat_id,
+                                video=video.file_id,
+                                caption=source_message.caption or "",
+                                duration=duration,
+                                width=width,
+                                height=height,
+                                thumb=thumbnail_file_id,
+                                supports_streaming=True,
+                                parse_mode=ParseMode.MARKDOWN if source_message.caption else None,
+                            )
+                        except Exception:
+                            await client.send_video(
+                                chat_id=chat_id,
+                                video=video.file_id,
+                                caption=source_message.caption or "",
+                                duration=duration,
+                                width=width,
+                                height=height,
+                                supports_streaming=True,
+                            )
+                        success_count += 1
+                    else:
+                        await client.copy_message(
+                            chat_id=chat_id,
+                            from_chat_id=channel_username,
+                            message_id=source_message.id,
+                        )
+                        success_count += 1
 
                     if LOG_GROUP_ID and log_user and source_file_id:
                         try:
@@ -1002,30 +1004,31 @@ def setup_pbatch_handler(app: Client):
         except Exception as e:
             LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
 
+        message_ids = list(range(start_message_id, start_message_id + count))
         all_messages = []
-        # 改用 get_chat_history 迭代器获取消息，避免 Pyrofork 的 get_messages 不加载视频媒体数据
-        try:
-            async for msg in user_client.get_chat_history(
-                chat_id=pvt_chat_id,
-                offset_id=start_message_id + count,
-                limit=count * 2,
-            ):
-                if start_message_id <= msg.id < start_message_id + count:
-                    all_messages.append(msg)
-        except Exception as e:
-            LOGGER.error(f"[PrivateBatch] get_chat_history failed: {e}")
-        all_messages.reverse()  # get_chat_history 返回最新优先，反转为升序
+
+        CHUNK = 200
+        for i in range(0, len(message_ids), CHUNK):
+            chunk_ids = message_ids[i:i + CHUNK]
+            try:
+                chunk_msgs = await user_client.get_messages(
+                    chat_id=pvt_chat_id, message_ids=chunk_ids
+                )
+                all_messages.extend(chunk_msgs)
+            except Exception as e:
+                LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
+                fail_count += len(chunk_ids)
 
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
 
-        # 诊断日志：统计 all_messages 中各类型消息数量（使用 MessageMediaType 枚举）
-        _diag_photo = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.PHOTO)
-        _diag_video = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.VIDEO)
-        _diag_anim = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.ANIMATION)
-        _diag_vn = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.VIDEO_NOTE)
-        _diag_doc = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.DOCUMENT)
-        _diag_audio = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.AUDIO)
+        # 诊断日志：统计 all_messages 中各类型消息数量
+        _diag_photo = sum(1 for m in all_messages if m and m.photo)
+        _diag_video = sum(1 for m in all_messages if m and m.video)
+        _diag_anim = sum(1 for m in all_messages if m and m.animation)
+        _diag_vn = sum(1 for m in all_messages if m and m.video_note)
+        _diag_doc = sum(1 for m in all_messages if m and m.document)
+        _diag_audio = sum(1 for m in all_messages if m and m.audio)
         _diag_text = sum(1 for m in all_messages if m and m.text)
         _diag_none = sum(1 for m in all_messages if not m)
         _diag_nomedia = effective_total - _diag_photo - _diag_video - _diag_anim - _diag_vn - _diag_doc - _diag_audio - _diag_text - _diag_none
@@ -1149,45 +1152,17 @@ def setup_pbatch_handler(app: Client):
                             continue
                         _processed_groups.add(chat_message.media_group_id)
 
-                        # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
-                        group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id]
-                        # 诊断日志：使用 MessageMediaType 枚举
-                        _diag_types = []
-                        for _gm in group_messages:
-                            _attrs = []
-                            _media = getattr(_gm, 'media', None)
-                            if _media == MessageMediaType.PHOTO: _attrs.append("photo")
-                            elif _media == MessageMediaType.VIDEO: _attrs.append("video")
-                            elif _media == MessageMediaType.ANIMATION: _attrs.append("animation")
-                            elif _media == MessageMediaType.VIDEO_NOTE: _attrs.append("video_note")
-                            elif _media == MessageMediaType.AUDIO: _attrs.append("audio")
-                            elif _media == MessageMediaType.DOCUMENT: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
-                            if _gm.text: _attrs.append("text")
-                            if _gm.sticker: _attrs.append("sticker")
-                            if not _attrs:
-                                _deep = []
-                                for _attr in dir(_gm):
-                                    if _attr.startswith('_'):
-                                        continue
-                                    try:
-                                        _val = getattr(_gm, _attr, None)
-                                        if _val is not None and not callable(_val) and _attr not in ('client', 'chat', 'from_user', 'sender_chat', 'forward_from', 'forward_from_chat', 'reply_to_message', 'reactions', 'reply_markup', 'mentioned', 'scheduled', 'has_protected_content', 'outgoing', 'empty', 'service', 'media_group_id', 'date', 'edit_date', 'author_signature', 'views', 'forwards', 'link', 'id', 'caption', 'caption_entities', 'text', 'entities'):
-                                            _deep.append(f"{_attr}={type(_val).__name__}")
-                                    except:
-                                        pass
-                                if _deep:
-                                    _attrs.append(f"NONE[{','.join(_deep[:8])}]")
-                                else:
-                                    _attrs.append("NONE")
-                            _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
-                        LOGGER.info(f"[PrivateBatch] MediaGroup {chat_message.media_group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
-                        group_size = len([m for m in group_messages if getattr(m, 'media', None) in (MessageMediaType.PHOTO, MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.DOCUMENT, MessageMediaType.AUDIO)])
+                        # 从 all_messages 统计该媒体组中包含实际媒体的消息数
+                        group_size = sum(
+                            1 for m in all_messages
+                            if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id
+                            and (m.photo or m.video or m.animation or m.video_note or m.document or m.audio)
+                        )
                         _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
                             chat_message, bot, status_message,
                             user_client=user_client,
                             thumbnail_path=thumbnail_path,
-                            all_group_messages=group_messages,
                         )
                         if result:
                             success_count += group_size
