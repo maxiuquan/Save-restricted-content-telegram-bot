@@ -986,8 +986,29 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
 
-        # 按原版：直接用 get_messages 获取消息，不做特殊重获取
-        # Pyrofork 会正常加载视频媒体数据
+        # 按原版：直接用 get_messages 获取消息
+        # 但需要先用 raw API 解析 channel peer（避免 Peer id invalid）
+        try:
+            _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
+            _r = await user_client.invoke(
+                raw.functions.channels.GetChannels(
+                    id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+                )
+            )
+            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
+                _peer = raw.types.InputPeerChannel(
+                    channel_id=_raw_channel_id,
+                    access_hash=_r.chats[0].access_hash
+                )
+                # 注入到 peer cache
+                if hasattr(user_client, 'peers_by_id'):
+                    user_client.peers_by_id[pvt_chat_id] = _peer
+                if hasattr(user_client, 'peers_by_username'):
+                    pass  # 用户名查找不影响
+                LOGGER.info(f"[PrivateBatch] Channel peer resolved and cached")
+        except Exception as e:
+            LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
+
         message_ids = list(range(start_message_id, start_message_id + count))
         all_messages = []
 
