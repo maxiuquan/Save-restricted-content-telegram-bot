@@ -1019,6 +1019,23 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
 
+        # ── 关键：Pyrofork 在某些情况下 get_messages 不加载视频媒体数据 ──
+        # 对所有缺少媒体的消息（特别是 from_scheduled=True 的）单独重新获取
+        _refetched = 0
+        for i, m in enumerate(all_messages):
+            if m and not m.media:
+                try:
+                    fresh = await user_client.get_messages(
+                        chat_id=pvt_chat_id, message_ids=m.id
+                    )
+                    if fresh and fresh.media:
+                        all_messages[i] = fresh
+                        _refetched += 1
+                except Exception:
+                    pass
+        if _refetched:
+            LOGGER.info(f"[PrivateBatch] Re-fetched {_refetched} messages with missing media")
+
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
 

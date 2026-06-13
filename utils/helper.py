@@ -365,8 +365,12 @@ def create_optimized_user_client(session_name: str, session_string: str):
         不启动 handle_updates() 协程。
         → 修复 OSError: TCPTransport 已关闭
 
-    ✅ workers=1:
-        适配 Render 免费版的友好内存占用。
+    ✅ max_concurrent_transmissions=2:
+        与 tawhid120 原版一致 — Pyrofork 在较低值时可能不加载视频媒体数据
+        → 修复私密批量下载视频失败的问题
+
+    ✅ workers=4:
+        与 tawhid120 原版一致 — 减少消息分发延迟
     """
     from pyrogram import Client as PyroClient
     return PyroClient(
@@ -374,8 +378,8 @@ def create_optimized_user_client(session_name: str, session_string: str):
         session_string=session_string,
         in_memory=True,
         no_updates=True,
-        workers=1,
-        max_concurrent_transmissions=1,
+        workers=4,
+        max_concurrent_transmissions=2,
     )
 
 
