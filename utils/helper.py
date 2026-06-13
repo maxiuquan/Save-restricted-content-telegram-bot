@@ -755,37 +755,79 @@ async def processMediaGroup(
     )
 
     for msg in media_group_messages:
-        if msg.photo or msg.video or msg.document or msg.audio:
-            media_path = None
-            try:
-                media_path = await msg.download(
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progressArgs(
-                        "📥 下载中", progress_message, start_time
-                    ),
-                )
-                temp_paths.append(media_path)
-                caption_text = await get_parsed_msg(
-                    msg.caption or "", msg.caption_entities
+        media_path = None
+        try:
+            # 关键修复：不检查 msg.photo/msg.video 等属性，
+            # 因为 Pyrofork 可能不加载这些属性但 msg.download() 仍能工作
+            # （download 内部用的是 raw MTProto 数据）
+            media_path = await msg.download(
+                progress=Leaves.progress_for_pyrogram,
+                progress_args=progressArgs(
+                    "📥 下载中", progress_message, start_time
+                ),
+            )
+            if not media_path or not os.path.exists(media_path):
+                continue
+
+            temp_paths.append(media_path)
+            caption_text = await get_parsed_msg(
+                msg.caption or "", msg.caption_entities
+            )
+
+            if msg.photo:
+                valid_media.append(
+                    InputMediaPhoto(media=media_path, caption=caption_text)
                 )
 
-                if msg.photo:
-                    valid_media.append(
-                        InputMediaPhoto(media=media_path, caption=caption_text)
+            elif msg.video:
+                duration, _, _ = await get_media_info(media_path)
+                vid_width, vid_height = await get_video_resolution(media_path)
+                LOGGER.info(
+                    f"[MediaGroup] 视频分辨率: "
+                    f"{vid_width}x{vid_height}, duration={duration}s"
+                )
+
+                thumb = await get_video_thumbnail(media_path, duration)
+                if thumb:
+                    auto_thumbs.append(thumb)
+
+                valid_media.append(InputMediaVideo(
+                    media=media_path,
+                    caption=caption_text,
+                    duration=duration or 0,
+                    width=vid_width,
+                    height=vid_height,
+                    thumb=thumb,
+                    supports_streaming=True,
+                ))
+
+            elif msg.document:
+                valid_media.append(
+                    InputMediaDocument(
+                        media=media_path, caption=caption_text
                     )
+                )
 
-                elif msg.video:
+            elif msg.audio:
+                duration, artist, title = await get_media_info(media_path)
+                valid_media.append(InputMediaAudio(
+                    media=media_path,
+                    caption=caption_text,
+                    duration=duration or 0,
+                    performer=artist,
+                    title=title,
+                ))
+
+            else:
+                # Pyrofork 没加载媒体属性，但下载成功了 → 用 ffprobe 检测文件类型
+                LOGGER.info(f"[MediaGroup] 消息 {msg.id} 无媒体属性但下载成功，检测文件类型: {media_path}")
+                _ext = os.path.splitext(media_path)[1].lower()
+                if _ext in ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.3gp'):
                     duration, _, _ = await get_media_info(media_path)
                     vid_width, vid_height = await get_video_resolution(media_path)
-                    LOGGER.info(
-                        f"[MediaGroup] 视频分辨率: "
-                        f"{vid_width}x{vid_height}, duration={duration}s"
-                    )
-
                     thumb = await get_video_thumbnail(media_path, duration)
                     if thumb:
                         auto_thumbs.append(thumb)
-
                     valid_media.append(InputMediaVideo(
                         media=media_path,
                         caption=caption_text,
@@ -795,15 +837,11 @@ async def processMediaGroup(
                         thumb=thumb,
                         supports_streaming=True,
                     ))
-
-                elif msg.document:
+                elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'):
                     valid_media.append(
-                        InputMediaDocument(
-                            media=media_path, caption=caption_text
-                        )
+                        InputMediaPhoto(media=media_path, caption=caption_text)
                     )
-
-                elif msg.audio:
+                elif _ext in ('.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac'):
                     duration, artist, title = await get_media_info(media_path)
                     valid_media.append(InputMediaAudio(
                         media=media_path,
@@ -812,12 +850,16 @@ async def processMediaGroup(
                         performer=artist,
                         title=title,
                     ))
+                else:
+                    valid_media.append(
+                        InputMediaDocument(media=media_path, caption=caption_text)
+                    )
 
-            except Exception as e:
-                LOGGER.info(f"下载媒体错误: {e}")
-                if media_path and os.path.exists(media_path):
-                    invalid_paths.append(media_path)
-                continue
+        except Exception as e:
+            LOGGER.info(f"下载媒体错误: {e}")
+            if media_path and os.path.exists(media_path):
+                invalid_paths.append(media_path)
+            continue
 
     LOGGER.info(f"有效媒体数量: {len(valid_media)}")
 
