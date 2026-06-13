@@ -738,108 +738,88 @@ async def processMediaGroup(
     log_url=None,
     thumbnail_path=None,
 ):
+    """
+    按 tawhid120 原版完全重写 — 直接下载文件后用文件路径上传，
+    不依赖 msg.video / msg.photo 等 Pyrofork 媒体属性（Pyrofork 可能加载失败）。
+    """
     media_group_messages = await chat_message.get_media_group()
-    # Pyrofork 的 get_media_group() 可能只返回第一条消息；强制再拉一次完整组
-    if chat_message.media_group_id and len(media_group_messages) <= 1:
-        client = user_client or bot
-        try:
-            # 用 raw API 获取整个媒体组
-            from pyrogram import raw
-            r = await client.invoke(
-                raw.functions.messages.GetHistory(
-                    peer=await client.resolve_peer(chat_message.chat.id),
-                    offset_id=chat_message.id + 100,
-                    offset_date=0,
-                    add_offset=-200,
-                    limit=200,
-                    max_id=0,
-                    min_id=0,
-                    hash=0,
-                )
-            )
-            if hasattr(r, 'messages'):
-                from pyrogram import types as pyro_types
-                _grp = [m for m in media_group_messages]
-                for raw_msg in r.messages:
-                    if not isinstance(raw_msg, raw.types.Message):
-                        continue
-                    if getattr(raw_msg, 'grouped_id', None) == chat_message.media_group_id:
-                        # 找到 Pyrofork 的 high-level Message
-                        if raw_msg.id in [m.id for m in media_group_messages]:
-                            continue
-                        try:
-                            pyro_msg = await client.get_messages(chat_message.chat.id, raw_msg.id)
-                            if pyro_msg:
-                                _grp.append(pyro_msg)
-                        except Exception:
-                            pass
-                if len(_grp) > len(media_group_messages):
-                    LOGGER.info(f"[MediaGroup] Raw API fallback: {len(media_group_messages)} → {len(_grp)} messages")
-                    media_group_messages = _grp
-        except Exception as e:
-            LOGGER.debug(f"[MediaGroup] Raw API fallback failed: {e}")
+    valid_media  = []
+    temp_paths   = []
+    auto_thumbs  = []
+    invalid_paths = []
 
-    # 重新拉取每条没有媒体属性的消息
-    client = user_client or bot
-    for i, m in enumerate(media_group_messages):
-        if m and not (m.photo or m.video or m.animation or m.video_note or m.document or m.audio):
-            try:
-                fresh = await client.get_messages(chat_message.chat.id, m.id)
-                if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
-                    LOGGER.info(f"[MediaGroup] Re-fetched msg {m.id}: got media attrs")
-                    media_group_messages[i] = fresh
-            except Exception as e:
-                LOGGER.debug(f"[MediaGroup] Re-fetch failed for msg {m.id}: {e}")
-
-    total_media = sum(1 for m in media_group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio)
-    is_single = total_media == 1
-    group_label = "文件" if is_single else "媒体组"
-    valid_media = []
-
-    start_time = time()
-    progress_message = await message.reply(f"**📥 处理{group_label}中...**")
+    start_time       = time()
+    progress_message = await message.reply("**📥 下载媒体组中...**")
     LOGGER.info(
-        f"Processing {'single media' if is_single else f'media group with {len(media_group_messages)} items'}..."
+        f"下载媒体组，共 {len(media_group_messages)} 项..."
     )
 
     for msg in media_group_messages:
         if msg.photo or msg.video or msg.document or msg.audio:
-            caption_text = await get_parsed_msg(
-                msg.caption or "", msg.caption_entities
-            )
-
+            media_path = None
             try:
-                if msg.video or msg.animation or msg.video_note:
-                    video_obj = msg.video or msg.animation or msg.video_note
+                media_path = await msg.download(
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progressArgs(
+                        "📥 下载中", progress_message, start_time
+                    ),
+                )
+                temp_paths.append(media_path)
+                caption_text = await get_parsed_msg(
+                    msg.caption or "", msg.caption_entities
+                )
+
+                if msg.photo:
+                    valid_media.append(
+                        InputMediaPhoto(media=media_path, caption=caption_text)
+                    )
+
+                elif msg.video:
+                    duration, _, _ = await get_media_info(media_path)
+                    vid_width, vid_height = await get_video_resolution(media_path)
+                    LOGGER.info(
+                        f"[MediaGroup] 视频分辨率: "
+                        f"{vid_width}x{vid_height}, duration={duration}s"
+                    )
+
+                    thumb = await get_video_thumbnail(media_path, duration)
+                    if thumb:
+                        auto_thumbs.append(thumb)
+
                     valid_media.append(InputMediaVideo(
-                        media=video_obj.file_id,
+                        media=media_path,
                         caption=caption_text,
-                        duration=getattr(video_obj, 'duration', 0) or 0,
-                        width=getattr(video_obj, 'width', 0) or 0,
-                        height=getattr(video_obj, 'height', 0) or 0,
+                        duration=duration or 0,
+                        width=vid_width,
+                        height=vid_height,
+                        thumb=thumb,
                         supports_streaming=True,
                     ))
-                elif msg.audio:
-                    valid_media.append(InputMediaAudio(
-                        media=msg.audio.file_id,
-                        caption=caption_text,
-                        duration=msg.audio.duration or 0,
-                        performer=msg.audio.performer or "",
-                        title=msg.audio.title or "",
-                    ))
+
                 elif msg.document:
                     valid_media.append(
-                        InputMediaDocument(media=msg.document.file_id, caption=caption_text)
+                        InputMediaDocument(
+                            media=media_path, caption=caption_text
+                        )
                     )
-                elif msg.photo:
-                    valid_media.append(
-                        InputMediaPhoto(media=msg.photo.file_id, caption=caption_text)
-                    )
+
+                elif msg.audio:
+                    duration, artist, title = await get_media_info(media_path)
+                    valid_media.append(InputMediaAudio(
+                        media=media_path,
+                        caption=caption_text,
+                        duration=duration or 0,
+                        performer=artist,
+                        title=title,
+                    ))
+
             except Exception as e:
-                LOGGER.warning(f"[MediaGroup] Skipping item (file_id error): {e}")
+                LOGGER.info(f"下载媒体错误: {e}")
+                if media_path and os.path.exists(media_path):
+                    invalid_paths.append(media_path)
                 continue
 
-    LOGGER.info(f"Valid media count: {len(valid_media)}")
+    LOGGER.info(f"有效媒体数量: {len(valid_media)}")
 
     if valid_media:
         upload_client = user_client if user_client else bot
@@ -855,7 +835,7 @@ async def processMediaGroup(
                 await bot.send_message(
                     chat_id=message.chat.id,
                     text=(
-                        f"**✅ {group_label}已成功发送到"
+                        "**✅ 媒体组已成功发送到"
                         "你的收藏夹！🚀**\n\n"
                         "📂 打开 **Telegram → 收藏夹** 查找"
                         "你的文件。"
@@ -865,7 +845,10 @@ async def processMediaGroup(
         except Exception as e:
             err_str = str(e).lower()
             if "topics" in err_str or "messages.init" in err_str:
-                LOGGER.info(f"[MediaGroup] Ignoring Pyrofork false error: {e}")
+                # Pyrofork false positive — ignore
+                LOGGER.info(
+                    f"[MediaGroup] 忽略 Pyrofork 误报: {e}"
+                )
                 try:
                     await progress_message.delete()
                 except Exception:
@@ -877,304 +860,7 @@ async def processMediaGroup(
                     )
                 return True
 
-            forwards_restricted = "forwards_restricted" in err_str or "chat_forwards_restricted" in err_str
-
-            if forwards_restricted:
-                LOGGER.info(f"[MediaGroup] Forwarding restricted, falling back to download+upload")
-                try:
-                    await safe_edit_progress(
-                        progress_message,
-                        "**📥 频道禁止转发，正在下载并重新上传...**",
-                    )
-                except Exception:
-                    pass  # 进度消息可能已被删除
-
-                upload_client = user_client if user_client else bot
-                upload_target = "me" if user_client else message.chat.id
-                dl_success = 0
-                dl_fail_permanent = 0
-                total = sum(1 for m in media_group_messages if m.photo or m.video or m.document or m.audio)
-
-                # ── 第一阶段：下载所有项目 ──
-                downloaded_items = []  # 列表元素: (idx, dl_path, msg, caption_text)
-
-                for idx, msg in enumerate(media_group_messages, 1):
-                    if not (msg.photo or msg.video or msg.document or msg.audio):
-                        continue
-                    dl_path = None
-                    try:
-                        caption_text = await get_parsed_msg(
-                            msg.caption or "", msg.caption_entities
-                        )
-
-                        await safe_edit_progress(
-                            progress_message,
-                            f"**📥 下载中 ({dl_success + dl_fail_permanent + 1}/{total})...**",
-                        )
-
-                        dl_start = time()
-                        download_ok = False
-                        for attempt in range(BATCH_MAX_RETRIES + 1):
-                            try:
-                                async with GLOBAL_DOWNLOAD_SEMAPHORE:
-                                    dl_path = await asyncio.wait_for(
-                                        msg.download(
-                                            progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("📥 下载中", progress_message, dl_start),
-                                        ),
-                                        timeout=BATCH_ITEM_TIMEOUT,
-                                    )
-                                if dl_path and os.path.exists(dl_path):
-                                    download_ok = True
-                                break
-                            except asyncio.TimeoutError:
-                                LOGGER.warning(f"[MediaGroup] Download timeout (attempt {attempt+1}/{BATCH_MAX_RETRIES+1}) for item {idx}")
-                                if dl_path:
-                                    try:
-                                        os.remove(dl_path)
-                                    except Exception as e:
-                                        LOGGER.debug(f"[Helper] Failed to remove temp file {dl_path}: {e}")
-                            except FloodWait as fw:
-                                LOGGER.warning(f"[MediaGroup] FloodWait {fw.value}s for item {idx}, waiting...")
-                                await asyncio.sleep(fw.value)
-                            except (OSError,) + ((PeerStorageLimitReached,) if PeerStorageLimitReached else ()) as e:
-                                LOGGER.error(f"[MediaGroup] Permanent download error for item {idx}: {e}")
-                                dl_path = None
-                                break
-                            except Exception as e:
-                                LOGGER.warning(f"[MediaGroup] Download error (attempt {attempt+1}/{BATCH_MAX_RETRIES+1}) for item {idx}: {e}")
-                                if dl_path:
-                                    try:
-                                        os.remove(dl_path)
-                                    except Exception as e2:
-                                        LOGGER.debug(f"[Helper] Failed to remove temp file {dl_path}: {e2}")
-                                dl_path = None
-
-                        if not download_ok or not dl_path:
-                            dl_fail_permanent += 1
-                            LOGGER.warning(f"[MediaGroup] Skipping item {idx} after all retries")
-                            continue
-
-                        downloaded_items.append((idx, dl_path, msg, caption_text))
-
-                    except Exception as dl_e:
-                        LOGGER.error(f"[MediaGroup] Unexpected error on item {idx}: {dl_e}")
-                        dl_fail_permanent += 1
-                        if dl_path:
-                            try:
-                                os.remove(dl_path)
-                            except Exception as e:
-                                LOGGER.debug(f"[Helper] Failed to remove temp file {dl_path}: {e}")
-
-                # ── 第二阶段：构建媒体列表并以媒体组形式发送 ──
-                await safe_edit_progress(
-                    progress_message,
-                    f"**📤 上传中 ({len(downloaded_items)}/{total})...**",
-                )
-
-                if downloaded_items:
-                    # 构建此批次的 InputMedia 列表
-                    batch_media = []
-                    for item_idx, item_path, item_msg, item_caption in downloaded_items:
-                        try:
-                            _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                            if item_msg.video or item_msg.animation or item_msg.video_note:
-                                video_obj = item_msg.video or item_msg.animation or item_msg.video_note
-                                batch_media.append(InputMediaVideo(
-                                    media=item_path,
-                                    caption=item_caption,
-                                    duration=getattr(video_obj, 'duration', 0) or 0,
-                                    width=getattr(video_obj, 'width', 0) or 0,
-                                    height=getattr(video_obj, 'height', 0) or 0,
-                                    supports_streaming=True,
-                                    thumb=_thumb,
-                                ))
-                            elif item_msg.audio:
-                                batch_media.append(InputMediaAudio(
-                                    media=item_path,
-                                    caption=item_caption,
-                                    duration=item_msg.audio.duration or 0,
-                                    thumb=_thumb,
-                                ))
-                            elif item_msg.document:
-                                batch_media.append(InputMediaDocument(
-                                    media=item_path,
-                                    caption=item_caption,
-                                    thumb=_thumb,
-                                ))
-                            elif item_msg.photo:
-                                batch_media.append(InputMediaPhoto(
-                                    media=item_path,
-                                    caption=item_caption,
-                                ))
-                        except Exception as e:
-                            LOGGER.warning(f"[MediaGroup] Failed to build InputMedia for item {item_idx}: {e}")
-
-                    # 每 10 个一组发送（Telegram API 限制）
-                    if batch_media:
-                        for i in range(0, len(batch_media), 10):
-                            batch = batch_media[i:i+10]
-                            try:
-                                await asyncio.wait_for(
-                                    upload_client.send_media_group(
-                                        chat_id=upload_target, media=batch
-                                    ),
-                                    timeout=BATCH_ITEM_TIMEOUT,
-                                )
-                                dl_success += len(batch)
-                            except asyncio.TimeoutError:
-                                LOGGER.error(f"[MediaGroup] Media group upload timeout for batch {i//10 + 1}")
-                                dl_fail_permanent += len(batch)
-                            except Exception as e:
-                                LOGGER.error(f"[MediaGroup] Media group upload failed for batch {i//10 + 1}: {e}")
-                                dl_fail_permanent += len(batch)
-
-                    # 清理已下载的文件
-                    for _, item_path, _, _ in downloaded_items:
-                        try:
-                            os.remove(item_path)
-                        except Exception as e:
-                            LOGGER.debug(f"[Helper] Failed to remove downloaded file {item_path}: {e}")
-
-                try:
-                    await progress_message.delete()
-                except Exception:
-                    pass  # 进度消息可能已被删除
-                if user_client:
-                    await bot.send_message(
-                        chat_id=message.chat.id,
-                        text=(
-                            f"**✅ {group_label}已发送到你的收藏夹！**\n"
-                            f"**✅ 成功：** `{dl_success}`"
-                            + (f"\n**❌ 失败：** `{dl_fail_permanent}`" if dl_fail_permanent > 0 else "")
-                        ),
-                    )
-                return True
-
-            LOGGER.info(f"[MediaGroup] send_media_group failed, copying individually: {e}")
-            try:
-                await safe_edit_progress(
-                    progress_message,
-                    f"**📤 正在逐个发送{group_label}...**",
-                )
-            except Exception:
-                pass  # 进度消息可能已被删除
-
-            sem = asyncio.Semaphore(3)
-            copy_tasks = []
-
-            async def _copy_one(item_idx, media_item):
-                async with sem:
-                    for attempt in range(BATCH_MAX_RETRIES + 1):
-                        try:
-                            if isinstance(media_item, InputMediaPhoto):
-                                await asyncio.wait_for(
-                                    upload_client.send_photo(
-                                        chat_id=upload_target,
-                                        photo=media_item.media,
-                                        caption=media_item.caption,
-                                    ),
-                                    timeout=BATCH_ITEM_TIMEOUT,
-                                )
-                            elif isinstance(media_item, InputMediaVideo):
-                                await asyncio.wait_for(
-                                    upload_client.send_video(
-                                        chat_id=upload_target,
-                                        video=media_item.media,
-                                        caption=media_item.caption,
-                                        duration=getattr(media_item, "duration", 0),
-                                        width=getattr(media_item, "width", 0),
-                                        height=getattr(media_item, "height", 0),
-                                        supports_streaming=True,
-                                    ),
-                                    timeout=BATCH_ITEM_TIMEOUT,
-                                )
-                            elif isinstance(media_item, InputMediaDocument):
-                                await asyncio.wait_for(
-                                    upload_client.send_document(
-                                        chat_id=upload_target,
-                                        document=media_item.media,
-                                        caption=media_item.caption,
-                                    ),
-                                    timeout=BATCH_ITEM_TIMEOUT,
-                                )
-                            elif isinstance(media_item, InputMediaAudio):
-                                await asyncio.wait_for(
-                                    upload_client.send_audio(
-                                        chat_id=upload_target,
-                                        audio=media_item.media,
-                                        caption=media_item.caption,
-                                        duration=getattr(media_item, "duration", 0),
-                                    ),
-                                    timeout=BATCH_ITEM_TIMEOUT,
-                                )
-                            return True
-                        except asyncio.TimeoutError:
-                            LOGGER.warning(f"[MediaGroup] Copy timeout (attempt {attempt+1}/{BATCH_MAX_RETRIES+1}) for item {item_idx}")
-                        except FloodWait as fw:
-                            LOGGER.warning(f"[MediaGroup] FloodWait {fw.value}s for copy item {item_idx}, waiting...")
-                            await asyncio.sleep(fw.value)
-                        except Exception as item_e:
-                            if attempt == BATCH_MAX_RETRIES:
-                                LOGGER.error(f"[MediaGroup] Copy permanently failed for item {item_idx}: {item_e}")
-                                return False
-                            LOGGER.warning(f"[MediaGroup] Copy error (attempt {attempt+1}/{BATCH_MAX_RETRIES+1}) for item {item_idx}: {item_e}")
-                            await asyncio.sleep(1)
-                    return False
-
-            for i, media_item in enumerate(valid_media, 1):
-                copy_tasks.append(_copy_one(i, media_item))
-
-            results = await asyncio.gather(*copy_tasks)
-            success_count = sum(1 for r in results if r)
-            fail_count = len(results) - success_count
-
-            try:
-                await progress_message.delete()
-            except Exception:
-                pass  # 进度消息可能已被删除
-            if user_client:
-                summary = (
-                    f"**✅ {group_label}已发送到你的收藏夹！**\n"
-                    f"**✅ 成功：** `{success_count}`"
-                )
-                if fail_count:
-                    summary += f"\n**❌ 失败：** `{fail_count}`"
-                await bot.send_message(
-                    chat_id=message.chat.id,
-                    text=summary,
-                )
-
-        if log_group_id and log_user:
-            from .tracker import log_file_to_group
-            for media_item in valid_media:
-                media_path_for_log = getattr(media_item, "media", None)
-                caption_for_log = getattr(media_item, "caption", "") or ""
-
-                if isinstance(media_item, InputMediaPhoto):
-                    media_type_for_log = "photo"
-                elif isinstance(media_item, InputMediaVideo):
-                    media_type_for_log = "video"
-                elif isinstance(media_item, InputMediaAudio):
-                    media_type_for_log = "audio"
-                else:
-                    media_type_for_log = "document"
-
-                if media_path_for_log and isinstance(media_path_for_log, str):
-                    try:
-                        await log_file_to_group(
-                            bot=bot,
-                            log_group_id=log_group_id,
-                            user=log_user,
-                            url=log_url or "",
-                            file_path=media_path_for_log,
-                            media_type=media_type_for_log,
-                            caption_original=caption_for_log,
-                        )
-                    except Exception as log_err:
-                        LOGGER.warning(f"[MediaGroup] Log error: {log_err}")
-
-        return True
+        # 错误处理结束
 
     await progress_message.delete()
     await message.reply(f"**❌ 未找到有效{group_label}。**")
