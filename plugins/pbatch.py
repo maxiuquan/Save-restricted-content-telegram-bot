@@ -1038,6 +1038,46 @@ def setup_pbatch_handler(app: Client):
                         LOGGER.info(f"[PrivateBatch] Re-fetched msg {m.id}: raw_media={type(raw_media).__name__} → loaded media")
                 except Exception as e:
                     LOGGER.debug(f"[PrivateBatch] Re-fetch failed for msg {m.id}: {e}")
+
+        # ── 第二层：用 raw API 强制获取包含 group_id 的所有消息 ──
+        # 处理 media_group_id 中其他没有媒体属性的消息（Pyrofork 解析失败）
+        try:
+            from pyrogram import raw as _raw
+            _r = await user_client.invoke(
+                _raw.functions.messages.GetHistory(
+                    peer=await user_client.resolve_peer(pvt_chat_id),
+                    offset_id=start_message_id + count,
+                    offset_date=0,
+                    add_offset=-count - 1,
+                    limit=count,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
+            _raw_msgs = getattr(_r, 'messages', None) or []
+            # 建立 id → raw message 映射
+            _raw_by_id = {rm.id: rm for rm in _raw_msgs if isinstance(rm, _raw.types.Message)}
+            # 对 all_messages 中没有媒体属性的，看 raw API 是否能拿到
+            for i, m in enumerate(all_messages):
+                if not m:
+                    continue
+                if m.photo or m.video or m.animation or m.video_note or m.document or m.audio:
+                    continue
+                rm = _raw_by_id.get(m.id)
+                if rm and getattr(rm, 'media', None) is not None:
+                    # 用 Pyrofork 重新解析这条消息
+                    try:
+                        fresh = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=m.id)
+                        if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
+                            all_messages[i] = fresh
+                            _refetched += 1
+                            LOGGER.info(f"[PrivateBatch] Raw API re-fetched msg {m.id}: raw_media={type(rm.media).__name__}")
+                    except Exception:
+                        pass
+        except Exception as e:
+            LOGGER.debug(f"[PrivateBatch] Raw API fetch failed: {e}")
+
         if _refetched:
             LOGGER.info(f"[PrivateBatch] Re-fetched {_refetched} messages with missing media")
 

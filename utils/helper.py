@@ -739,6 +739,58 @@ async def processMediaGroup(
     thumbnail_path=None,
 ):
     media_group_messages = await chat_message.get_media_group()
+    # Pyrofork 的 get_media_group() 可能只返回第一条消息；强制再拉一次完整组
+    if chat_message.media_group_id and len(media_group_messages) <= 1:
+        client = user_client or bot
+        try:
+            # 用 raw API 获取整个媒体组
+            from pyrogram import raw
+            r = await client.invoke(
+                raw.functions.messages.GetHistory(
+                    peer=await client.resolve_peer(chat_message.chat.id),
+                    offset_id=chat_message.id + 100,
+                    offset_date=0,
+                    add_offset=-200,
+                    limit=200,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
+            if hasattr(r, 'messages'):
+                from pyrogram import types as pyro_types
+                _grp = [m for m in media_group_messages]
+                for raw_msg in r.messages:
+                    if not isinstance(raw_msg, raw.types.Message):
+                        continue
+                    if getattr(raw_msg, 'grouped_id', None) == chat_message.media_group_id:
+                        # 找到 Pyrofork 的 high-level Message
+                        if raw_msg.id in [m.id for m in media_group_messages]:
+                            continue
+                        try:
+                            pyro_msg = await client.get_messages(chat_message.chat.id, raw_msg.id)
+                            if pyro_msg:
+                                _grp.append(pyro_msg)
+                        except Exception:
+                            pass
+                if len(_grp) > len(media_group_messages):
+                    LOGGER.info(f"[MediaGroup] Raw API fallback: {len(media_group_messages)} → {len(_grp)} messages")
+                    media_group_messages = _grp
+        except Exception as e:
+            LOGGER.debug(f"[MediaGroup] Raw API fallback failed: {e}")
+
+    # 重新拉取每条没有媒体属性的消息
+    client = user_client or bot
+    for i, m in enumerate(media_group_messages):
+        if m and not (m.photo or m.video or m.animation or m.video_note or m.document or m.audio):
+            try:
+                fresh = await client.get_messages(chat_message.chat.id, m.id)
+                if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
+                    LOGGER.info(f"[MediaGroup] Re-fetched msg {m.id}: got media attrs")
+                    media_group_messages[i] = fresh
+            except Exception as e:
+                LOGGER.debug(f"[MediaGroup] Re-fetch failed for msg {m.id}: {e}")
+
     total_media = sum(1 for m in media_group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio)
     is_single = total_media == 1
     group_label = "文件" if is_single else "媒体组"
