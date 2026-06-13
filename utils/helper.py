@@ -21,7 +21,7 @@ from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
 from pyrogram.errors import FloodWait
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, MessageMediaType
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -752,16 +752,16 @@ async def processMediaGroup(
     # 对 media_group 中缺失媒体数据的消息（Pyrofork 的 get_messages 可能不加载视频媒体），单独重新获取
     client = user_client or bot
     for i, msg in enumerate(media_group_messages):
-        if not (msg.photo or msg.video or msg.animation or msg.video_note or msg.audio or msg.document):
+        if not getattr(msg, 'media', None):
             if msg.media_group_id:
                 try:
                     fresh = await client.get_messages(msg.chat.id, msg.id)
-                    if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.audio or fresh.document):
-                        LOGGER.info(f"[MediaGroup] Re-fetched msg {msg.id}: found media")
+                    if fresh and getattr(fresh, 'media', None):
+                        LOGGER.info(f"[MediaGroup] Re-fetched msg {msg.id}: found media (type={fresh.media})")
                         media_group_messages[i] = fresh
                 except Exception as e:
                     LOGGER.debug(f"[MediaGroup] Re-fetch failed for msg {msg.id}: {e}")
-    total_media = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
+    total_media = sum(1 for m in media_group_messages if getattr(m, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.AUDIO, MessageMediaType.DOCUMENT, MessageMediaType.PHOTO))
     is_single = total_media == 1
     group_label = "文件" if is_single else "媒体组"
     valid_media = []
@@ -773,13 +773,13 @@ async def processMediaGroup(
     )
 
     for msg in media_group_messages:
-        if msg.video or msg.animation or msg.video_note or msg.audio or msg.document or msg.photo:
+        if getattr(msg, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.AUDIO, MessageMediaType.DOCUMENT, MessageMediaType.PHOTO):
             caption_text = await get_parsed_msg(
                 msg.caption or "", msg.caption_entities
             )
 
             try:
-                if msg.video or msg.animation or msg.video_note:
+                if getattr(msg, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE):
                     video_obj = msg.video or msg.animation or msg.video_note
                     valid_media.append(InputMediaVideo(
                         media=video_obj.file_id,
@@ -789,7 +789,7 @@ async def processMediaGroup(
                         height=getattr(video_obj, 'height', 0) or 0,
                         supports_streaming=True,
                     ))
-                elif msg.audio:
+                elif getattr(msg, 'media', None) == MessageMediaType.AUDIO:
                     valid_media.append(InputMediaAudio(
                         media=msg.audio.file_id,
                         caption=caption_text,
@@ -797,11 +797,11 @@ async def processMediaGroup(
                         performer=msg.audio.performer or "",
                         title=msg.audio.title or "",
                     ))
-                elif msg.document:
+                elif getattr(msg, 'media', None) == MessageMediaType.DOCUMENT:
                     valid_media.append(
                         InputMediaDocument(media=msg.document.file_id, caption=caption_text)
                     )
-                elif msg.photo:
+                elif getattr(msg, 'media', None) == MessageMediaType.PHOTO:
                     valid_media.append(
                         InputMediaPhoto(media=msg.photo.file_id, caption=caption_text)
                     )
@@ -863,13 +863,13 @@ async def processMediaGroup(
                 upload_target = "me" if user_client else message.chat.id
                 dl_success = 0
                 dl_fail_permanent = 0
-                total = sum(1 for m in media_group_messages if m.video or m.animation or m.video_note or m.audio or m.document or m.photo)
+                total = sum(1 for m in media_group_messages if getattr(m, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.AUDIO, MessageMediaType.DOCUMENT, MessageMediaType.PHOTO))
 
                 # ── 第一阶段：下载所有项目 ──
                 downloaded_items = []  # 列表元素: (idx, dl_path, msg, caption_text)
 
                 for idx, msg in enumerate(media_group_messages, 1):
-                    if not (msg.video or msg.animation or msg.video_note or msg.audio or msg.document or msg.photo):
+                    if not getattr(msg, 'media', None):
                         continue
                     dl_path = None
                     try:
@@ -948,7 +948,7 @@ async def processMediaGroup(
                     for item_idx, item_path, item_msg, item_caption in downloaded_items:
                         try:
                             _thumb = thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None
-                            if item_msg.video or item_msg.animation or item_msg.video_note:
+                            if getattr(item_msg, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE):
                                 video_obj = item_msg.video or item_msg.animation or item_msg.video_note
                                 batch_media.append(InputMediaVideo(
                                     media=item_path,
@@ -959,20 +959,20 @@ async def processMediaGroup(
                                     supports_streaming=True,
                                     thumb=_thumb,
                                 ))
-                            elif item_msg.audio:
+                            elif getattr(item_msg, 'media', None) == MessageMediaType.AUDIO:
                                 batch_media.append(InputMediaAudio(
                                     media=item_path,
                                     caption=item_caption,
                                     duration=item_msg.audio.duration or 0,
                                     thumb=_thumb,
                                 ))
-                            elif item_msg.document:
+                            elif getattr(item_msg, 'media', None) == MessageMediaType.DOCUMENT:
                                 batch_media.append(InputMediaDocument(
                                     media=item_path,
                                     caption=item_caption,
                                     thumb=_thumb,
                                 ))
-                            elif item_msg.photo:
+                            elif getattr(item_msg, 'media', None) == MessageMediaType.PHOTO:
                                 batch_media.append(InputMediaPhoto(
                                     media=item_path,
                                     caption=item_caption,

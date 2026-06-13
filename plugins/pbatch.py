@@ -13,7 +13,7 @@ from time import time
 from datetime import datetime
 from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.enums import ParseMode, ChatType
+from pyrogram.enums import ParseMode, ChatType, MessageMediaType
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
@@ -731,20 +731,20 @@ def setup_pbatch_handler(app: Client):
 
                         # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
                         group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == group_id]
-                        # 诊断日志
+                        # 诊断日志：使用 MessageMediaType 枚举
                         _diag_types = []
                         for _gm in group_messages:
                             _attrs = []
-                            if _gm.photo: _attrs.append("photo")
-                            if _gm.video: _attrs.append("video")
-                            if _gm.animation: _attrs.append("animation")
-                            if _gm.video_note: _attrs.append("video_note")
-                            if _gm.audio: _attrs.append("audio")
-                            if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
+                            _media = getattr(_gm, 'media', None)
+                            if _media == MessageMediaType.PHOTO: _attrs.append("photo")
+                            elif _media == MessageMediaType.VIDEO: _attrs.append("video")
+                            elif _media == MessageMediaType.ANIMATION: _attrs.append("animation")
+                            elif _media == MessageMediaType.VIDEO_NOTE: _attrs.append("video_note")
+                            elif _media == MessageMediaType.AUDIO: _attrs.append("audio")
+                            elif _media == MessageMediaType.DOCUMENT: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
                             if _gm.text: _attrs.append("text")
                             if _gm.sticker: _attrs.append("sticker")
                             if not _attrs:
-                                # 深度诊断：遍历消息对象中所有与媒体相关的属性
                                 _deep = []
                                 for _attr in dir(_gm):
                                     if _attr.startswith('_'):
@@ -763,7 +763,7 @@ def setup_pbatch_handler(app: Client):
                         LOGGER.info(f"[PublicBatch] MediaGroup {group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
                         group_size = sum(
                             1 for m in group_messages
-                            if m.photo or m.video or m.animation or m.video_note or m.document or m.audio
+                            if getattr(m, 'media', None) in (MessageMediaType.PHOTO, MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.DOCUMENT, MessageMediaType.AUDIO)
                         )
 
                         now = time()
@@ -807,80 +807,37 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(0.5)
                         continue
 
-                    source_file_id = None
+                    # 参考 vasusen-code/SaveRestrictedContentBot：使用 MessageMediaType 枚举 + copy_message
+                    # copy_message 对公开频道最可靠，能处理所有媒体类型（照片/视频/文档/音频等）
                     source_media_type = "document"
-                    if source_message.video or source_message.animation or source_message.video_note:
-                        source_file_id = (source_message.video or source_message.animation or source_message.video_note).file_id
+                    if source_message.media == MessageMediaType.VIDEO:
                         source_media_type = "video"
-                    elif source_message.photo:
-                        source_file_id = source_message.photo.file_id
+                        source_file_id = source_message.video.file_id if source_message.video else None
+                    elif source_message.media == MessageMediaType.PHOTO:
                         source_media_type = "photo"
-                    elif source_message.audio:
-                        source_file_id = source_message.audio.file_id
+                        source_file_id = source_message.photo.file_id if source_message.photo else None
+                    elif source_message.media == MessageMediaType.AUDIO:
                         source_media_type = "audio"
-                    elif source_message.document:
-                        source_file_id = source_message.document.file_id
+                        source_file_id = source_message.audio.file_id if source_message.audio else None
+                    elif source_message.media == MessageMediaType.DOCUMENT:
                         source_media_type = "document"
-
-                    if source_message.video or source_message.animation or source_message.video_note:
-                        video    = source_message.video or source_message.animation or source_message.video_note
-                        duration = video.duration or 0
-                        width    = video.width or 1280
-                        height   = video.height or 720
-
-                        _pub_thumb = thumbnail_file_id
-                        if not _pub_thumb and video.thumbs:
-                            try:
-                                _thumb_obj = video.thumbs[-1]
-                                _thumb_fname = f"Assets/pub_thumb_{source_message.id}_{int(time())}.jpg"
-                                _pub_thumb_path = await client.download_media(
-                                    _thumb_obj.file_id, file_name=_thumb_fname
-                                )
-                                if _pub_thumb_path and os.path.exists(_pub_thumb_path):
-                                    _pub_thumb = _pub_thumb_path
-                                else:
-                                    _pub_thumb = None
-                            except Exception:
-                                _pub_thumb = None
-
-                        try:
-                            await client.send_video(
-                                chat_id=chat_id,
-                                video=video.file_id,
-                                caption=source_message.caption or "",
-                                duration=duration,
-                                width=width,
-                                height=height,
-                                thumb=_pub_thumb,
-                                supports_streaming=True,
-                                parse_mode=ParseMode.MARKDOWN if source_message.caption else None,
-                            )
-                        except Exception:
-                            await client.send_video(
-                                chat_id=chat_id,
-                                video=video.file_id,
-                                caption=source_message.caption or "",
-                                duration=duration,
-                                width=width,
-                                height=height,
-                                supports_streaming=True,
-                            )
-
-                        if _pub_thumb and isinstance(_pub_thumb, str) and os.path.exists(_pub_thumb):
-                            try:
-                                os.remove(_pub_thumb)
-                            except Exception:
-                                pass
-
-                        success_count += 1
-
+                        source_file_id = source_message.document.file_id if source_message.document else None
+                    elif source_message.media == MessageMediaType.VIDEO_NOTE:
+                        source_media_type = "video"
+                        source_file_id = source_message.video_note.file_id if source_message.video_note else None
+                    elif source_message.media == MessageMediaType.ANIMATION:
+                        source_media_type = "video"
+                        source_file_id = source_message.animation.file_id if source_message.animation else None
                     else:
-                        await client.copy_message(
-                            chat_id=chat_id,
-                            from_chat_id=channel_username,
-                            message_id=source_message.id,
-                        )
-                        success_count += 1
+                        source_file_id = None
+
+                    # 统一使用 copy_message（参考 vasusen-code 项目做法）
+                    await client.copy_message(
+                        chat_id=chat_id,
+                        from_chat_id=channel_username,
+                        message_id=source_message.id,
+                    )
+                    success_count += 1
 
                     if LOG_GROUP_ID and log_user and source_file_id:
                         try:
@@ -1062,13 +1019,13 @@ def setup_pbatch_handler(app: Client):
         missing_count = count - len(all_messages)
         effective_total = len(all_messages)
 
-        # 诊断日志：统计 all_messages 中各类型消息数量
-        _diag_photo = sum(1 for m in all_messages if m and m.photo)
-        _diag_video = sum(1 for m in all_messages if m and m.video)
-        _diag_anim = sum(1 for m in all_messages if m and m.animation)
-        _diag_vn = sum(1 for m in all_messages if m and m.video_note)
-        _diag_doc = sum(1 for m in all_messages if m and m.document)
-        _diag_audio = sum(1 for m in all_messages if m and m.audio)
+        # 诊断日志：统计 all_messages 中各类型消息数量（使用 MessageMediaType 枚举）
+        _diag_photo = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.PHOTO)
+        _diag_video = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.VIDEO)
+        _diag_anim = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.ANIMATION)
+        _diag_vn = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.VIDEO_NOTE)
+        _diag_doc = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.DOCUMENT)
+        _diag_audio = sum(1 for m in all_messages if m and getattr(m, 'media', None) == MessageMediaType.AUDIO)
         _diag_text = sum(1 for m in all_messages if m and m.text)
         _diag_none = sum(1 for m in all_messages if not m)
         _diag_nomedia = effective_total - _diag_photo - _diag_video - _diag_anim - _diag_vn - _diag_doc - _diag_audio - _diag_text - _diag_none
@@ -1194,20 +1151,20 @@ def setup_pbatch_handler(app: Client):
 
                         # 从 all_messages 中手动收集同一媒体组的所有消息，绕过 Pyrofork 有问题的 get_media_group()
                         group_messages = [m for m in all_messages if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id]
-                        # 诊断日志：打印媒体组中每条消息的类型
+                        # 诊断日志：使用 MessageMediaType 枚举
                         _diag_types = []
                         for _gm in group_messages:
                             _attrs = []
-                            if _gm.photo: _attrs.append("photo")
-                            if _gm.video: _attrs.append("video")
-                            if _gm.animation: _attrs.append("animation")
-                            if _gm.video_note: _attrs.append("video_note")
-                            if _gm.audio: _attrs.append("audio")
-                            if _gm.document: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
+                            _media = getattr(_gm, 'media', None)
+                            if _media == MessageMediaType.PHOTO: _attrs.append("photo")
+                            elif _media == MessageMediaType.VIDEO: _attrs.append("video")
+                            elif _media == MessageMediaType.ANIMATION: _attrs.append("animation")
+                            elif _media == MessageMediaType.VIDEO_NOTE: _attrs.append("video_note")
+                            elif _media == MessageMediaType.AUDIO: _attrs.append("audio")
+                            elif _media == MessageMediaType.DOCUMENT: _attrs.append(f"document({getattr(_gm.document, 'mime_type', '?')})")
                             if _gm.text: _attrs.append("text")
                             if _gm.sticker: _attrs.append("sticker")
                             if not _attrs:
-                                # 深度诊断：遍历消息对象中所有与媒体相关的属性
                                 _deep = []
                                 for _attr in dir(_gm):
                                     if _attr.startswith('_'):
@@ -1224,7 +1181,7 @@ def setup_pbatch_handler(app: Client):
                                     _attrs.append("NONE")
                             _diag_types.append(f"  [{_gm.id}] {','.join(_attrs)}")
                         LOGGER.info(f"[PrivateBatch] MediaGroup {chat_message.media_group_id}: {len(group_messages)} msgs\n" + "\n".join(_diag_types))
-                        group_size = len([m for m in group_messages if m.photo or m.video or m.animation or m.video_note or m.document or m.audio])
+                        group_size = len([m for m in group_messages if getattr(m, 'media', None) in (MessageMediaType.PHOTO, MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE, MessageMediaType.DOCUMENT, MessageMediaType.AUDIO)])
                         _current_status = f"🖼 {'文件' if group_size == 1 else '媒体组'} {idx}/{effective_total}"
                         result = await processMediaGroup(
                             chat_message, bot, status_message,
@@ -1271,9 +1228,9 @@ def setup_pbatch_handler(app: Client):
                             continue
 
                         media_type = (
-                            "photo"    if chat_message.photo    else
-                            "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
-                            "audio"    if chat_message.audio    else
+                            "photo"    if getattr(chat_message, 'media', None) == MessageMediaType.PHOTO    else
+                            "video"    if getattr(chat_message, 'media', None) in (MessageMediaType.VIDEO, MessageMediaType.ANIMATION, MessageMediaType.VIDEO_NOTE) else
+                            "audio"    if getattr(chat_message, 'media', None) == MessageMediaType.AUDIO    else
                             "document"
                         )
 
