@@ -1020,63 +1020,38 @@ def setup_pbatch_handler(app: Client):
                 fail_count += len(chunk_ids)
 
         # ── 关键：Pyrofork 在某些情况下 get_messages 不加载视频媒体数据 ──
-        # 用 _raw.media 检查媒体是否存在，再用 send_message poll 重新拉取
+        # 用 raw API 的 messages.GetMessages 获取包含 media 的完整消息对象
+        # 然后调用 client.send_cached_media 直接发送
         _refetched = 0
-        for i, m in enumerate(all_messages):
-            if not m:
-                continue
-            has_media = bool(m.photo or m.video or m.animation or m.video_note or m.document or m.audio)
-            raw_media = getattr(getattr(m, '_raw', None), 'media', None)
-            if not has_media and raw_media is not None:
-                try:
-                    fresh = await user_client.get_messages(
-                        chat_id=pvt_chat_id, message_ids=m.id
-                    )
-                    if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
-                        all_messages[i] = fresh
-                        _refetched += 1
-                        LOGGER.info(f"[PrivateBatch] Re-fetched msg {m.id}: raw_media={type(raw_media).__name__} → loaded media")
-                except Exception as e:
-                    LOGGER.debug(f"[PrivateBatch] Re-fetch failed for msg {m.id}: {e}")
-
-        # ── 第二层：用 raw API 强制获取包含 group_id 的所有消息 ──
-        # 处理 media_group_id 中其他没有媒体属性的消息（Pyrofork 解析失败）
+        _raw_msg_map = {}  # msg_id → raw Message object
         try:
             from pyrogram import raw as _raw
             _r = await user_client.invoke(
-                _raw.functions.messages.GetHistory(
-                    peer=await user_client.resolve_peer(pvt_chat_id),
-                    offset_id=start_message_id + count,
-                    offset_date=0,
-                    add_offset=-count - 1,
-                    limit=count,
-                    max_id=0,
-                    min_id=0,
-                    hash=0,
+                _raw.functions.messages.GetMessages(
+                    id=[_raw.types.InputMessageID(id=i) for i in message_ids]
                 )
             )
-            _raw_msgs = getattr(_r, 'messages', None) or []
-            # 建立 id → raw message 映射
-            _raw_by_id = {rm.id: rm for rm in _raw_msgs if isinstance(rm, _raw.types.Message)}
-            # 对 all_messages 中没有媒体属性的，看 raw API 是否能拿到
-            for i, m in enumerate(all_messages):
-                if not m:
-                    continue
-                if m.photo or m.video or m.animation or m.video_note or m.document or m.audio:
-                    continue
-                rm = _raw_by_id.get(m.id)
-                if rm and getattr(rm, 'media', None) is not None:
-                    # 用 Pyrofork 重新解析这条消息
-                    try:
-                        fresh = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=m.id)
-                        if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
-                            all_messages[i] = fresh
-                            _refetched += 1
-                            LOGGER.info(f"[PrivateBatch] Raw API re-fetched msg {m.id}: raw_media={type(rm.media).__name__}")
-                    except Exception:
-                        pass
+            _raw_msgs = list(getattr(_r, 'messages', []) or [])
+            for rm in _raw_msgs:
+                if isinstance(rm, _raw.types.Message) and getattr(rm, 'media', None) is not None:
+                    _raw_msg_map[rm.id] = rm
         except Exception as e:
-            LOGGER.debug(f"[PrivateBatch] Raw API fetch failed: {e}")
+            LOGGER.warning(f"[PrivateBatch] Raw API GetMessages failed: {e}")
+
+        # 对每条没有媒体属性的消息，单独重新获取 Pyrofork Message
+        for i, m in enumerate(all_messages):
+            if not m:
+                continue
+            if m.photo or m.video or m.animation or m.video_note or m.document or m.audio:
+                continue
+            try:
+                fresh = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=m.id)
+                if fresh and (fresh.photo or fresh.video or fresh.animation or fresh.video_note or fresh.document or fresh.audio):
+                    all_messages[i] = fresh
+                    _refetched += 1
+                    LOGGER.info(f"[PrivateBatch] Re-fetched msg {m.id}: got media attrs")
+            except Exception as e:
+                LOGGER.debug(f"[PrivateBatch] Re-fetch failed for msg {m.id}: {e}")
 
         if _refetched:
             LOGGER.info(f"[PrivateBatch] Re-fetched {_refetched} messages with missing media")
@@ -1226,10 +1201,30 @@ def setup_pbatch_handler(app: Client):
                             user_client=user_client,
                             thumbnail_path=thumbnail_path,
                         )
+
+                        # 兜底：如果 processMediaGroup 失败但 Pyrofork 的 forward_messages 可以处理
+                        if not result and user_client:
+                            try:
+                                # 用 forward_messages 转发整个媒体组 — 走 MTProto 底层，绕过 Pyrofork 解析
+                                group_ids = [
+                                    m.id for m in all_messages
+                                    if m and getattr(m, 'media_group_id', None) == chat_message.media_group_id
+                                ]
+                                if group_ids:
+                                    await user_client.forward_messages(
+                                        chat_id="me",
+                                        from_chat_id=pvt_chat_id,
+                                        message_ids=group_ids,
+                                    )
+                                    LOGGER.info(f"[PrivateBatch] Forward fallback OK for media group {chat_message.media_group_id}: {len(group_ids)} msgs")
+                                    result = True
+                            except Exception as ff_err:
+                                LOGGER.warning(f"[PrivateBatch] Forward fallback failed: {ff_err}")
+
                         if result:
-                            success_count += group_size
+                            success_count += group_size if group_size > 0 else 1
                         else:
-                            fail_count += group_size
+                            fail_count += group_size if group_size > 0 else 1
                         await asyncio.sleep(3)
                         continue
 
