@@ -1073,6 +1073,12 @@ def setup_pbatch_handler(app: Client):
             # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
             LOGGER.info(f"[v20] start={start_message_id} count={count}")
 
+            # 先 get_chat 解析 peer 并缓存，避免 Peer id invalid
+            try:
+                await user_client.get_chat(pvt_chat_id)
+            except Exception as e:
+                LOGGER.warning(f"[v20] get_chat failed: {e}")
+
             # 获取足够多的消息（count + 10 的余量）
             limit_needed = min(count * 2, 500)  # 最多500条，避免性能问题
             messages = []
