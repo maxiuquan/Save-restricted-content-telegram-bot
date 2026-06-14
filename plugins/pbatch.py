@@ -1,4 +1,4 @@
-# ✅ v4.0 重构：按原版 vasusen-code/SaveRestrictedContentBot 方式逐条处理
+# ✅ v5.0 重构：用 get_chat_history 遍历获取消息（解析视频媒体）
 # ✅ 核心修复：用 msg.media 枚举（MessageMediaType.VIDEO）检测媒体类型，而非 msg.video 对象
 # ✅ 逐条 get_messages（一次一条），避免批量获取时 Pyrofork 不加载视频属性
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
@@ -651,8 +651,8 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PublicBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
 
-        missing_count = count - len(all_messages)
-        effective_total = len(all_messages)
+        missing_count = count - total_msg_count
+        effective_total = total_msg_count
 
         if missing_count > 0:
             LOGGER.info(f"[PublicBatch] {missing_count}/{count} messages not found in channel (deleted)")
@@ -985,10 +985,7 @@ def setup_pbatch_handler(app: Client):
         except Exception as e:
             LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
 
-        # ── 原版方式：逐条获取消息 + msg.media 枚举检测 ──
-        # 关键：不能用批量 get_messages（Pyrofork 对 from_scheduled 消息不加载视频属性）
-        # 必须逐条获取，且用 msg.media 枚举（MessageMediaType.VIDEO）而非 msg.video 对象
-        # 参考：vasusen-code/SaveRestrictedContentBot 的 pyroplug.py get_msg()
+        total_msg_count = count  # 初始值，后面用 get_chat_history 结果更新
 
         class CancelDownload(Exception):
             pass
@@ -1006,12 +1003,12 @@ def setup_pbatch_handler(app: Client):
         def _update_progress():
             nonlocal last_edit
             now = time()
-            if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+            if idx % 2 == 0 or idx == 1 or idx == total_msg_count or (now - last_edit) >= 3:
                 try:
                     asyncio.ensure_future(
                         safe_edit_progress(
                             status_message,
-                            _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_current_status),
+                            _progress_text(idx, total_msg_count, success_count, fail_count, start_ts, True, status_line=_current_status),
                         )
                     )
                     last_edit = now
@@ -1037,7 +1034,7 @@ def setup_pbatch_handler(app: Client):
                         _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
                     await safe_edit_progress(
                         status_message,
-                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_sl),
+                        _progress_text(idx, total_msg_count, success_count, fail_count, start_ts, True, status_line=_sl),
                     )
                 except Exception:
                     pass
@@ -1053,38 +1050,45 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # 原版方式：逐条消息处理
-            for idx in range(1, count + 1):
+            # ── v5.0：用 get_chat_history 获取消息（能正确加载视频媒体）──
+            LOGGER.info(f"[PrivateBatch] 🚀 v5.0 get_chat_history 模式启动")
+
+            all_messages = []
+            async for msg in user_client.get_chat_history(
+                chat_id=pvt_chat_id,
+                limit=count + 10,
+                offset_id=start_message_id + count,
+            ):
+                all_messages.append(msg)
+            all_messages.reverse()
+            all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
+            total_msg_count = len(all_messages)
+
+            _diag = {}
+            for m in all_messages:
+                _mt = str(m.media) if m.media else "NONE"
+                _diag[_mt] = _diag.get(_mt, 0) + 1
+            LOGGER.info(f"[PrivateBatch] get_chat_history 统计: total={total_msg_count} 分布={_diag}")
+
+            if not all_messages:
+                try:
+                    await status_message.edit_text("**❌ 无法获取任何消息。**", parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+                _del_state(chat_id)
+                await safe_stop_client(user_client)
+                return
+
+            for msg in all_messages:
                 if cancel_flags.get(chat_id):
                     break
 
-                msg_id = start_message_id + idx - 1
-
-                # ── 逐条获取消息（原版关键：一次一条）──
-                try:
-                    msg = await user_client.get_messages(pvt_chat_id, msg_id)
-                except FloodWait as fw:
-                    _w = fw.value if hasattr(fw, 'value') else 60
-                    LOGGER.warning(f"[PrivateBatch] FloodWait {_w}s at msg {msg_id}")
-                    await asyncio.sleep(_w + 2)
-                    try:
-                        msg = await user_client.get_messages(pvt_chat_id, msg_id)
-                    except Exception:
-                        fail_count += 1
-                        continue
-                except Exception as e:
-                    LOGGER.warning(f"[PrivateBatch] get_messages failed for {msg_id}: {e}")
-                    fail_count += 1
-                    continue
-
-                if not msg:
-                    missing_count += 1
-                    fail_count += 1
-                    continue
+                idx = all_messages.index(msg) + 1
+                msg_id = msg.id
 
                 # ── 纯文字消息 ──
                 if msg.text and not msg.media:
-                    _current_status = f"� 文字 {idx}/{count}"
+                    _current_status = f"� 文字 {idx}/{total_msg_count}"
                     try:
                         _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
                         await bot.send_message(chat_id=chat_id, text=_parsed, parse_mode=ParseMode.MARKDOWN)
@@ -1127,7 +1131,7 @@ def setup_pbatch_handler(app: Client):
 
                 try:
                     # 下载
-                    _current_status = f"📥 下载 {idx}/{count}"
+                    _current_status = f"📥 下载 {idx}/{total_msg_count}"
                     _update_progress()
                     file_path = await msg.download(
                         progress=Leaves.progress_for_pyrogram,
@@ -1142,7 +1146,7 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # ── 上传到 Saved Messages（原版方式：按 media 类型分发）──
-                    _current_status = f"📤 上传 {idx}/{count}"
+                    _current_status = f"📤 上传 {idx}/{total_msg_count}"
                     _update_progress()
 
                     if media_type == MessageMediaType.VIDEO:
