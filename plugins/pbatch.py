@@ -1,7 +1,7 @@
-# ✅ v19.1 重构：pyrogram + get_chat_history
-# ✅ 切换：pyrofork → pyrogram（requirements.txt）
-# ✅ 核心改动：get_chat_history 一次性获取所有消息（确保媒体属性完整加载）
-# ✅ 已修复：time.time() 导入 bug
+# ✅ v20.0 完全重写：pyrogram + get_chat_history
+# ✅ 切换 pyrofork → pyrogram（requirements.txt）
+# ✅ 核心：get_chat_history 获取所有消息 → download_media → 按文件扩展名判断类型上传到 Saved Messages
+# ✅ 去除 raw MTProto、get_messages 逐条获取、去除 channel peer 预解析
 
 import os
 import re
@@ -9,7 +9,7 @@ import json
 import asyncio
 import time
 from datetime import datetime
-from pyrogram import Client, filters, raw
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode, ChatType, MessageMediaType
 from pyrogram.errors import (
@@ -964,7 +964,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time.time()
 
-        LOGGER.info(f"[PrivateBatch] v17.0: raw + in_memory + full traceback")
+        LOGGER.info(f"[PrivateBatch] v20.0: fresh rewrite with pyrogram")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -991,17 +991,8 @@ def setup_pbatch_handler(app: Client):
         thumbnail_path = user_data.get("thumbnail_path") if user_data else None
         success_count  = 0
         fail_count     = 0
-        missing_count  = 0
-        effective_total = count
-        processed_groups = set()
         _current_status = ""
         _file_progress = [0, 0]
-
-        try:
-            log_user = await bot.get_users(user_id)
-        except Exception as e:
-            LOGGER.warning(f"[PrivateBatch] Could not fetch user {user_id} for logging: {e}")
-            log_user = None
 
         try:
             pvt_chat_id, start_message_id = getChatMsgID(url)
@@ -1022,43 +1013,11 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
 
-        # 按原版：直接用 get_messages 获取消息
-        # 但需要先用 raw API 解析 channel peer（避免 Peer id invalid）
-        try:
-            _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
-            _r = await user_client.invoke(
-                raw.functions.channels.GetChannels(
-                    id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
-                )
-            )
-            if _r.chats and hasattr(_r.chats[0], 'access_hash'):
-                _peer = raw.types.InputPeerChannel(
-                    channel_id=_raw_channel_id,
-                    access_hash=_r.chats[0].access_hash
-                )
-                # 注入到 peer cache
-                if hasattr(user_client, 'peers_by_id'):
-                    user_client.peers_by_id[pvt_chat_id] = _peer
-                if hasattr(user_client, 'peers_by_username'):
-                    pass  # 用户名查找不影响
-                LOGGER.info(f"[PrivateBatch] Channel peer resolved and cached")
-        except Exception as e:
-            LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
-
-        total_msg_count = count  # 初始值，后面用 get_chat_history 结果更新
-
-        class CancelDownload(Exception):
-            pass
-
-        def _file_progress_cb(current, total, *args):
-            if cancel_flags.get(chat_id):
-                raise CancelDownload()
-            _file_progress[0] = current
-            _file_progress[1] = total
-            Leaves.progress_for_pyrogram(current, total, *args)
-
+        # ── 进度 UI ──
         _progress_running = True
         last_edit = time.time()
+        idx = 1
+        total_msg_count = count
 
         def _update_progress():
             nonlocal last_edit
@@ -1110,70 +1069,53 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v19.1：改用 get_chat_history 获取消息（一次性加载完整数据） ──
-            # 关键发现：get_messages 逐条获取时，pyrogram 可能不加载 from_scheduled 视频消息的媒体属性
-            #          get_chat_history 能正确加载所有消息的完整数据
+            # ── v20.0 核心：get_chat_history 一次性获取所有消息 ──
+            # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
+            LOGGER.info(f"[v20] start={start_message_id} count={count}")
 
-            total_msg_count = count
-            LOGGER.info(f"[PrivateBatch] v19.1: get_chat_history mode, {total_msg_count} msgs, start={start_message_id}")
-
-            # 用 get_chat_history 一次性获取所有消息
-            # 注意：get_chat_history(offset_id=X) 返回 ID <= X 的消息（向上）
-            #       要获取 start_message_id 之后的消息，需传 offset_id=start_message_id
-            #       但这样会返回 start_message_id 之前的消息
-            #       正确做法：用 offset_id=0 获取全部，然后过滤 >= start_message_id 的
-            #       但更高效的方式是直接指定 offset_id=start_message_id，limit=total_msg_count+5
-            #       然后取返回结果中 id >= start_message_id 的前 total_msg_count 条
-            
-            # 更简单方案：offset_date=0 获取全部，从 start_message_id 开始取
-            # 但这样效率低。改用：offset_id=start_message_id，limit 设大一些，然后筛选
+            # 获取足够多的消息（count + 10 的余量）
+            limit_needed = min(count * 2, 500)  # 最多500条，避免性能问题
             messages = []
-            # offset_id=start_message_id 会获取 start_message_id 之前的消息
-            # 所以要获取 start_message_id 及之后的，需要 offset_id=0 或一个很小的值
-            # 然后用 filter 取 >= start_message_id 的连续消息
-            all_msgs = []
-            async for msg in user_client.get_chat_history(
+            async for m in user_client.get_chat_history(
                 chat_id=pvt_chat_id,
-                limit=total_msg_count * 2,  # 留余量
-                offset_id=0,  # 获取最新消息
-                reverse=True,  # 从旧到新（反向遍历）
+                limit=limit_needed,
             ):
-                if msg and not getattr(msg, 'empty', False) and msg.id:
-                    all_msgs.append(msg)
-            
-            # 过滤出从 start_message_id 开始的连续消息
-            start_idx = None
-            for i, m in enumerate(all_msgs):
-                if m.id == start_message_id:
-                    start_idx = i
+                if m and not getattr(m, 'empty', False) and m.id:
+                    messages.append(m)
+                if len(messages) >= count + 10:
                     break
-            
-            if start_idx is not None:
-                messages = all_msgs[start_idx:start_idx + total_msg_count]
-                # 确保只取 >= start_message_id 的
-                messages = [m for m in messages if m.id >= start_message_id][:total_msg_count]
-            else:
-                # 如果没找到 start_message_id，取前 total_msg_count 条
-                messages = all_msgs[:total_msg_count]
 
-            LOGGER.info(f"[v19.1] get_chat_history: filtered {len(messages)} msgs from {len(all_msgs)} total")
+            # 默认是最新在前，我们反转成最旧在前（ID 升序）
+            messages.reverse()
+
+            # 找到 start_message_id 的位置
+            start_pos = None
+            for i, m in enumerate(messages):
+                if m.id == start_message_id:
+                    start_pos = i
+                    break
+
+            if start_pos is not None:
+                messages = messages[start_pos:start_pos + count]
+            else:
+                # 如果没找到起始消息，取最后一个 start_message_id 之前的 count 条
+                messages = [m for m in messages if m.id >= start_message_id][:count]
+
+            total_msg_count = len(messages)
+            LOGGER.info(f"[v20] got {total_msg_count} msgs")
 
             if not messages:
                 await status_message.edit_text(
                     f"**❌ 无法获取消息。**\n\n"
-                    f"**📂 频道：** {channel_title}\n"
-                    f"**🔢 数量：** `{count}`\n"
-                    f"**📌 起始 ID：** `{start_message_id}`\n\n"
-                    f"**⚠️ 可能原因：**\n"
-                    f"• 用户客户端无权访问该频道\n"
-                    f"• 起始消息 ID 不存在\n"
-                    f"• 频道已设为私密",
+                    f"**🔢 请求：** `{count}` 条\n"
+                    f"**📌 起始 ID：** `{start_message_id}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 await safe_stop_client(user_client)
                 _del_state(chat_id)
                 return
 
+            # ── 遍历处理每一条消息 ──
             for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
                     break
@@ -1182,24 +1124,12 @@ def setup_pbatch_handler(app: Client):
                 mid = msg.id
 
                 try:
-                    # 诊断：打印消息属性概要
-                    _has_media = bool(msg.media)
-                    _has_video = bool(getattr(msg, 'video', None))
-                    _has_photo = bool(getattr(msg, 'photo', None))
-                    _has_doc = bool(getattr(msg, 'document', None))
-                    _has_audio = bool(getattr(msg, 'audio', None))
-                    _has_voice = bool(getattr(msg, 'voice', None))
-                    _media_type = getattr(msg, 'media', None)
-                    LOGGER.info(
-                        f"[v19.1] {idx}/{len(messages)} msg={mid} "
-                        f"media={_has_media} video={_has_video} photo={_has_photo} "
-                        f"doc={_has_doc} audio={_has_audio} voice={_has_voice} "
-                        f"type={_media_type}"
-                    )
+                    # 日志
+                    LOGGER.info(f"[v20] {idx}/{total_msg_count} id={mid} has_media={bool(msg.media)} text={bool(msg.text)}")
 
-                    # 文字消息
+                    # 文字消息 → 直接发送
                     if msg.text and not msg.media:
-                        _current_status = f"text {idx}/{len(messages)}"
+                        _current_status = f"text {idx}/{total_msg_count}"
                         _update_progress()
                         try:
                             _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
@@ -1210,16 +1140,14 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(1)
                         continue
 
-                    # 媒体消息
+                    # 媒体消息 → 下载 + 上传
                     if msg.media:
                         caption_text = msg.caption.markdown if msg.caption else ""
-                        file_path = None
-                        media_type = msg.media  # MessageMediaType 枚举
+                        media_type = msg.media
 
-                        _current_status = f"download {idx}/{len(messages)}"
+                        _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
 
-                        # 下载
                         file_path = await user_client.download_media(
                             msg,
                             file_name=f"dl_{mid}_{int(time.time())}",
@@ -1228,40 +1156,39 @@ def setup_pbatch_handler(app: Client):
                         )
 
                         if not file_path or not os.path.exists(file_path):
-                            LOGGER.warning(f"[v19.1] download returned None/missing for msg {mid}")
+                            LOGGER.warning(f"[v20] dl failed: {mid}")
                             fail_count += 1
                             continue
 
-                        # 上传到 Saved Messages
-                        _current_status = f"upload {idx}/{len(messages)}"
+                        _current_status = f"upload {idx}/{total_msg_count}"
                         _update_progress()
 
                         await _upload_to_saved(user_client, media_type, file_path, caption_text, thumbnail_path, mid)
                         success_count += 1
 
-                        # 清理临时文件
-                        if os.path.exists(file_path):
-                            try:
+                        # 清理
+                        try:
+                            if os.path.exists(file_path):
                                 os.remove(file_path)
-                            except Exception:
-                                pass
+                        except Exception:
+                            pass
 
                         _update_progress()
                         await _apply_delay(idx)
                         continue
 
-                    # 无媒体无文字——可能是空消息或其他类型
-                    LOGGER.warning(f"[v19.1] skip msg {mid}: no media, no text")
+                    # 无媒体无文字 → 跳过
+                    LOGGER.warning(f"[v20] skip: {mid}")
                     fail_count += 1
                     _update_progress()
 
                 except FloodWait as fw:
                     w = fw.value if hasattr(fw, 'value') else 60
-                    LOGGER.warning(f"[v19.1] FloodWait {w}s at msg {mid}")
+                    LOGGER.warning(f"[v20] FloodWait {w}s at {mid}")
                     await asyncio.sleep(w + 2)
                     fail_count += 1
                 except Exception as e:
-                    LOGGER.error(f"[v19.1] error msg {mid}: {type(e).__name__}: {e}")
+                    LOGGER.error(f"[v20] err {mid}: {type(e).__name__}: {e}")
                     fail_count += 1
 
         except Exception as e:
@@ -1269,12 +1196,14 @@ def setup_pbatch_handler(app: Client):
         finally:
             _cleanup_bg()
 
+        # ── 更新统计 ──
         await daily_limit.update_one(
             {"user_id": user_id},
             {"$inc": {"total_downloads": success_count}},
             upsert=True,
         )
 
+        # ── 完成消息 ──
         if cancel_flags.get(chat_id):
             try:
                 await status_message.edit_text(
@@ -1289,16 +1218,13 @@ def setup_pbatch_handler(app: Client):
             return
 
         elapsed = int(time.time() - start_ts)
-
-        _missing_line = f"\n**⚠️ 频道已删除：** `{missing_count}` 条" if missing_count > 0 else ""
         completion_msg = await bot.send_message(
             chat_id=chat_id,
             text=(
                 f"**✅ 私密批量下载完成！**\n\n"
-                f"**📥 请求下载：** `{count}` 条\n"
-                f"**✅ 下载成功：** `{success_count}`\n"
-                f"**❌ 下载失败：** `{fail_count}`"
-                f"{_missing_line}\n"
+                f"**📥 请求：** `{count}` 条\n"
+                f"**✅ 成功：** `{success_count}`\n"
+                f"**❌ 失败：** `{fail_count}`\n"
                 f"**⏱ 耗时：** `{elapsed}s`\n\n"
                 "📂 打开 **Telegram → 保存的消息** 查找你的文件。"
             ),
