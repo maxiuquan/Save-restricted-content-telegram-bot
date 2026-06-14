@@ -1,6 +1,6 @@
-# ✅ v15.0 重构：raw InputDocument + download_media(in_memory=True) + 手动写文件
-# ✅ 核心修复：in_memory=True 让 Pyrofork 返回 bytes，彻底绕开内部文件 I/O 的 int bug
-# ✅ 流程：channels.GetMessages → InputDocument → download_media(in_memory) → open().write()
+# ✅ v16.0 重构：直接访问 .video/.document 属性（绕开 msg.media=None）
+# ✅ 核心诊断：打印消息全部属性，确认 Pyrofork 到底解析了什么
+# ✅ 关键假设：msg.media=None 但 msg.video / msg.document 可能仍有值
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -964,7 +964,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v15.0: in_memory download for video")
+        LOGGER.info(f"[PrivateBatch] v16.0: direct .video/.document attr access")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1122,7 +1122,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v15.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v16.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1166,84 +1166,43 @@ def setup_pbatch_handler(app: Client):
                     try:
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
-                        # v14.0：raw MTProto，but use file_id+download with custom storage
-                        # 关键修复：Pyrofork 的 Message.media 为 None（视频），
-                        # 但 raw Message 有 document。手动构造 file_id 再调 download_media
+                        # v16.0：诊断 + 直接属性访问 + 多级 fallback
                         if not msg.media:
-                            # raw fetch + construct synthetic Message
-                            try:
-                                from pyrogram.raw import functions as raw_funcs, types as raw_types
-                                peer = await user_client.resolve_peer(pvt_chat_id)
-                                result = await user_client.invoke(
-                                    raw_funcs.channels.GetMessages(channel=peer, id=[msg_id])
+                            # Step 1: 打印消息所有属性（一次性诊断）
+                            _attrs = {k: type(v).__name__ for k, v in vars(msg).items() if not k.startswith('_')}
+                            LOGGER.info(f"[v16] msg {msg_id} attrs: {_attrs}")
+                            # Step 2: 直接检查 .video .document 等独立属性（可能 media=None 但这些有值）
+                            _dl_source = None
+                            for _attr_name in ('video', 'document', 'animation', 'audio', 'voice', 'video_note', 'photo'):
+                                _attr_val = getattr(msg, _attr_name, None)
+                                if _attr_val is not None:
+                                    LOGGER.info(f"[v16] msg {msg_id} has .{_attr_name}={type(_attr_val).__name__}")
+                                    _dl_source = (_attr_name, _attr_val)
+                                    break
+
+                            if _dl_source:
+                                _attr_name, _attr_val = _dl_source
+                                file_path = await _attr_val.download(
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("downloading", status_message, start_ts),
                                 )
-                                if not result or not result.messages:
-                                    LOGGER.warning(f"[raw] empty result for {msg_id}")
-                                    fail_count += 1
-                                    continue
-                                raw_msg = result.messages[0]
-                                if not isinstance(raw_msg, raw_types.Message) or not raw_msg.media:
-                                    LOGGER.warning(f"[raw] no media for {msg_id}")
-                                    fail_count += 1
-                                    continue
-                                # Get file_id from raw message
-                                if isinstance(raw_msg.media, raw_types.MessageMediaDocument):
-                                    doc = raw_msg.media.document
-                                    # Build file_id from raw document
-                                    file_id = raw_types.InputDocument(
-                                        id=doc.id, access_hash=doc.access_hash,
-                                        file_reference=doc.file_reference
-                                    )
-                                    # v15.0: in_memory=True → Pyrofork 返回 bytes，我手动写文件
-                                    # 彻底绕开 Pyrofork 内部文件 I/O 的 'int has no write' bug
-                                    import tempfile as _tf
-                                    _ext = ".mp4"
-                                    _mime = doc.mime_type or ""
-                                    if "video/" in _mime: _ext = "." + _mime.split("/")[1].split(";")[0]
-                                    elif "audio/" in _mime:
-                                        is_voice = any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice for a in doc.attributes)
-                                        _ext = ".ogg" if is_voice else ".mp3"
-                                    else: _ext = ".bin"
-                                    file_path = os.path.join(_tf.gettempdir(), f"tgbot_v15_{msg_id}{_ext}")
-
-                                    try:
-                                        data_bytes = await user_client.download_media(
-                                            file_id, in_memory=True,
-                                        )
-                                        if data_bytes and len(data_bytes) > 0:
-                                            with open(file_path, 'wb') as _fw:
-                                                _fw.write(data_bytes)
-                                            LOGGER.info(f"[v15] ok {len(data_bytes)} bytes msg {msg_id}")
-                                        else:
-                                            LOGGER.warning(f"[v15] empty data for msg {msg_id}")
-                                            fail_count += 1
-                                            continue
-                                    except Exception as de:
-                                        LOGGER.error(f"[v15] download_media(in_memory) failed {msg_id}: {type(de).__name__}: {de}")
-                                        fail_count += 1
-                                        continue
-
-                                    # Determine media_type by mime
-                                    mime = doc.mime_type or ""
-                                    if mime.startswith("video/"):
-                                        media_type = MessageMediaType.VIDEO
-                                    elif mime.startswith("audio/"):
-                                        is_voice = any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice
-                                                      for a in doc.attributes)
-                                        media_type = MessageMediaType.VOICE if is_voice else MessageMediaType.AUDIO
-                                    else:
-                                        media_type = MessageMediaType.DOCUMENT
-                                    # Video note?
-                                    is_vnote = any(isinstance(a, raw_types.DocumentAttributeVideo) and a.round_message
-                                                  for a in doc.attributes)
-                                    if is_vnote:
-                                        media_type = MessageMediaType.VIDEO_NOTE
+                                if file_path:
+                                    _type_map = {
+                                        'video': MessageMediaType.VIDEO,
+                                        'document': MessageMediaType.DOCUMENT,
+                                        'animation': MessageMediaType.ANIMATION,
+                                        'audio': MessageMediaType.AUDIO,
+                                        'voice': MessageMediaType.VOICE,
+                                        'video_note': MessageMediaType.VIDEO_NOTE,
+                                        'photo': MessageMediaType.PHOTO,
+                                    }
+                                    media_type = _type_map.get(_attr_name, MessageMediaType.DOCUMENT)
+                                    LOGGER.info(f"[v16] ok via .{_attr_name} msg {msg_id} type={media_type}")
                                 else:
-                                    LOGGER.warning(f"[raw] non-document media for {msg_id}")
-                                    fail_count += 1
-                                    continue
-                            except Exception as fe:
-                                LOGGER.error(f"[raw] exception msg {msg_id}: {type(fe).__name__}: {fe}")
+                                    LOGGER.warning(f"[v16] .{_attr_name}.download() returned None for {msg_id}")
+                            else:
+                                # Step 3: 所有独立属性都没有 → 跳过
+                                LOGGER.warning(f"[v16] msg {msg_id} no media attr at all, skip")
                                 fail_count += 1
                                 continue
                         else:
