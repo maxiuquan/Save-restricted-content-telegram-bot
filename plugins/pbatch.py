@@ -1,6 +1,5 @@
-# ✅ v5.0 重构：用 get_chat_history 遍历获取消息（解析视频媒体）
-# ✅ 核心修复：用 msg.media 枚举（MessageMediaType.VIDEO）检测媒体类型，而非 msg.video 对象
-# ✅ 逐条 get_messages（一次一条），避免批量获取时 Pyrofork 不加载视频属性
+# ✅ v6.0 重构：raw MTProto API 绕过 Pyrofork 媒体解析
+# ✅ 核心修复：Pyrofork 无法解析某些消息的视频属性 → 直接用 raw API
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -896,6 +895,210 @@ def setup_pbatch_handler(app: Client):
     # 私密批量下载
     # ────────────────────────────────────────────────────────────────────
 
+    # v6.0 helper: upload media to Saved Messages by type
+    async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
+        if media_type == MessageMediaType.VIDEO:
+            duration, _, _ = await get_media_info(file_path)
+            width, height = await get_video_resolution(file_path)
+            thumb = await get_video_thumbnail(file_path, duration)
+            await user_client.send_video("me", file_path, caption=caption,
+                duration=duration or 0, width=width, height=height,
+                thumb=thumb, supports_streaming=True)
+            LOGGER.info(f"[PrivateBatch] ok video msg {msg_id}")
+        elif media_type == MessageMediaType.PHOTO:
+            await user_client.send_photo("me", file_path, caption=caption)
+            LOGGER.info(f"[PrivateBatch] ok photo msg {msg_id}")
+        elif media_type == MessageMediaType.DOCUMENT:
+            thumb = None
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ('.mp4','.mkv','.webm','.avi','.mov'):
+                try:
+                    doc_dur, _, _ = await get_media_info(file_path)
+                    thumb = await get_video_thumbnail(file_path, doc_dur or 0)
+                except Exception: pass
+            await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
+            LOGGER.info(f"[PrivateBatch] ok document msg {msg_id}")
+        elif media_type == MessageMediaType.AUDIO:
+            duration, artist, title = await get_media_info(file_path)
+            await user_client.send_audio("me", file_path, caption=caption,
+                duration=duration or 0, performer=artist, title=title)
+            LOGGER.info(f"[PrivateBatch] ok audio msg {msg_id}")
+        elif media_type == MessageMediaType.VIDEO_NOTE:
+            duration, _, _ = await get_media_info(file_path)
+            await user_client.send_video_note("me", file_path, duration=duration or 0)
+            LOGGER.info(f"[PrivateBatch] ok video_note msg {msg_id}")
+        elif media_type == MessageMediaType.VOICE:
+            await user_client.send_voice("me", file_path, caption=caption)
+            LOGGER.info(f"[PrivateBatch] ok voice msg {msg_id}")
+        else:
+            await user_client.send_document("me", file_path, caption=caption)
+            LOGGER.info(f"[PrivateBatch] ok fallback msg {msg_id} type={media_type}")
+
+    # v6.0 helper: process media group via raw MTProto
+    async def _raw_download_and_upload(user_client, peer, msg_ids, bot, chat_id,
+                                        status_message, start_ts, thumb_path):
+        """Use raw MTProto to get messages, download media, upload to Saved Messages."""
+        from pyrogram.raw import functions as raw_funcs, types as raw_types
+
+        raw_result = await user_client.invoke(
+            raw_funcs.channels.GetMessages(channel=peer, id=[
+                raw_types.InputMessageID(id=mid) for mid in msg_ids
+            ])
+        )
+
+        if not raw_result or not raw_result.messages:
+            return False
+
+        success = True
+        for raw_msg in raw_result.messages:
+            if not isinstance(raw_msg, raw_types.Message) or not raw_msg.media:
+                LOGGER.warning(f"[PrivateBatch] raw msg {raw_msg.id} has no media")
+                continue
+
+            media = raw_msg.media
+            caption = raw_msg.message or ""
+
+            # Determine file to download
+            doc = None
+            photo = None
+            is_video = False
+            is_audio = False
+            is_voice = False
+            is_vnote = False
+
+            if isinstance(media, raw_types.MessageMediaDocument):
+                doc = media.document
+                for attr in doc.attributes:
+                    if isinstance(attr, raw_types.DocumentAttributeVideo):
+                        is_video = True
+                        if attr.round_message:
+                            is_vnote = True
+                    elif isinstance(attr, raw_types.DocumentAttributeAudio):
+                        if attr.voice:
+                            is_voice = True
+                        else:
+                            is_audio = True
+
+            elif isinstance(media, raw_types.MessageMediaPhoto):
+                photo = media.photo
+
+            if not doc and not photo:
+                continue
+
+            # Download via raw API
+            import tempfile
+            file_path = None
+            try:
+                if doc:
+                    ext = ".mp4" if is_video else ".ogg" if is_voice else ".mp3" if is_audio else ".bin"
+                    file_path = os.path.join(tempfile.gettempdir(), f"tgbot_raw_{raw_msg.id}{ext}")
+                    await _raw_download_file(user_client, doc, file_path)
+                elif photo:
+                    # Find largest photo size
+                    largest = max(photo.sizes, key=lambda s: getattr(s, 'w', 0) * getattr(s, 'h', 0)
+                                  if hasattr(s, 'w') and hasattr(s, 'h') else 0)
+                    file_path = os.path.join(tempfile.gettempdir(), f"tgbot_raw_{raw_msg.id}.jpg")
+                    await _raw_download_photo(user_client, largest, file_path)
+
+                if not file_path or not os.path.exists(file_path):
+                    continue
+
+                # Upload to Saved Messages
+                if is_video and not is_vnote:
+                    dur, _, _ = await get_media_info(file_path)
+                    w, h = await get_video_resolution(file_path)
+                    thumb = await get_video_thumbnail(file_path, dur)
+                    await user_client.send_video("me", file_path, caption=caption,
+                        duration=dur or 0, width=w, height=h, thumb=thumb, supports_streaming=True)
+                    LOGGER.info(f"[PrivateBatch] raw ok video msg {raw_msg.id}")
+                elif is_vnote:
+                    dur, _, _ = await get_media_info(file_path)
+                    await user_client.send_video_note("me", file_path, duration=dur or 0)
+                    LOGGER.info(f"[PrivateBatch] raw ok vnote msg {raw_msg.id}")
+                elif is_voice:
+                    await user_client.send_voice("me", file_path, caption=caption)
+                    LOGGER.info(f"[PrivateBatch] raw ok voice msg {raw_msg.id}")
+                elif is_audio:
+                    dur, artist, title = await get_media_info(file_path)
+                    await user_client.send_audio("me", file_path, caption=caption,
+                        duration=dur or 0, performer=artist, title=title)
+                    LOGGER.info(f"[PrivateBatch] raw ok audio msg {raw_msg.id}")
+                elif photo:
+                    await user_client.send_photo("me", file_path, caption=caption)
+                    LOGGER.info(f"[PrivateBatch] raw ok photo msg {raw_msg.id}")
+                else:
+                    await user_client.send_document("me", file_path, caption=caption)
+                    LOGGER.info(f"[PrivateBatch] raw ok doc msg {raw_msg.id}")
+
+            except FloodWait as fw:
+                w = fw.value if hasattr(fw, 'value') else 60
+                await asyncio.sleep(w + 2)
+                success = False
+            except Exception as e:
+                LOGGER.error(f"[PrivateBatch] raw upload failed msg {raw_msg.id}: {type(e).__name__}: {e}")
+                success = False
+            finally:
+                if file_path and os.path.exists(file_path):
+                    try: os.remove(file_path)
+                    except Exception: pass
+
+        return success
+
+    async def _raw_download_file(user_client, document, file_path):
+        """Download a document via raw MTProto upload.GetFile."""
+        from pyrogram.raw import functions as raw_funcs, types as raw_types
+        CHUNK = 1024 * 1024  # 1MB
+
+        location = raw_types.InputDocumentFileLocation(
+            id=document.id,
+            access_hash=document.access_hash,
+            file_reference=document.file_reference,
+            thumb_size=""
+        )
+        offset = 0
+        with open(file_path, 'wb') as f:
+            while True:
+                result = await user_client.invoke(
+                    raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
+                )
+                if not result or not result.bytes:
+                    break
+                f.write(result.bytes)
+                offset += len(result.bytes)
+                if len(result.bytes) < CHUNK:
+                    break
+
+    async def _raw_download_photo(user_client, photo_size, file_path):
+        """Download a photo size via raw MTProto upload.GetFile."""
+        from pyrogram.raw import functions as raw_funcs, types as raw_types
+        CHUNK = 1024 * 1024
+
+        location = raw_types.InputPhotoFileLocation(
+            id=photo_size.id if hasattr(photo_size, 'id') else 0,
+            access_hash=0,
+            file_reference=b'',
+            thumb_size=photo_size.type if hasattr(photo_size, 'type') else 'y'
+        )
+        offset = 0
+        with open(file_path, 'wb') as f:
+            while True:
+                result = await user_client.invoke(
+                    raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
+                )
+                if not result or not result.bytes:
+                    break
+                f.write(result.bytes)
+                offset += len(result.bytes)
+                if len(result.bytes) < CHUNK:
+                    break
+
+    async def _apply_delay(idx):
+        if idx < 25: t = 3
+        elif idx < 50: t = 5
+        elif idx < 100: t = 8
+        else: t = 12
+        await asyncio.sleep(t)
+
     async def _run_private_batch(bot: Client, status_message: Message, state: dict):
         user_id    = state["user_id"]
         chat_id    = status_message.chat.id
@@ -904,7 +1107,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] 🚀 v4.0 原版逐条模式启动（msg.media 枚举+逐条获取）")
+        LOGGER.info(f"[PrivateBatch] 🚀 v6.0 raw MTProto 模式启动（绕过 Pyrofork 媒体解析）")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1050,8 +1253,7 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v5.0：用 get_chat_history 获取消息（能正确加载视频媒体）──
-            LOGGER.info(f"[PrivateBatch] 🚀 v5.0 get_chat_history 模式启动")
+            # ── v6.0：get_chat_history + raw MTProto fallback ──
 
             all_messages = []
             async for msg in user_client.get_chat_history(
@@ -1063,21 +1265,24 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-
-            _diag = {}
-            for m in all_messages:
-                _mt = str(m.media) if m.media else "NONE"
-                _diag[_mt] = _diag.get(_mt, 0) + 1
-            LOGGER.info(f"[PrivateBatch] get_chat_history 统计: total={total_msg_count} 分布={_diag}")
+            LOGGER.info(f"[PrivateBatch] v6.0 raw MTProto: {total_msg_count} messages")
 
             if not all_messages:
                 try:
-                    await status_message.edit_text("**❌ 无法获取任何消息。**", parse_mode=ParseMode.MARKDOWN)
+                    await status_message.edit_text("**FAIL: No messages.**", parse_mode=ParseMode.MARKDOWN)
                 except Exception:
                     pass
                 _del_state(chat_id)
                 await safe_stop_client(user_client)
                 return
+
+            try:
+                _raw_ch = int(str(pvt_chat_id)[4:])
+                _peer = await user_client.resolve_peer(pvt_chat_id)
+            except Exception:
+                _peer = None
+
+            processed_groups = set()
 
             for msg in all_messages:
                 if cancel_flags.get(chat_id):
@@ -1086,9 +1291,14 @@ def setup_pbatch_handler(app: Client):
                 idx = all_messages.index(msg) + 1
                 msg_id = msg.id
 
-                # ── 纯文字消息 ──
+                # media group: skip already processed
+                _gid = getattr(msg, 'media_group_id', None)
+                if _gid and _gid in processed_groups:
+                    continue
+
+                # text-only message
                 if msg.text and not msg.media:
-                    _current_status = f"� 文字 {idx}/{total_msg_count}"
+                    _current_status = f"text {idx}/{total_msg_count}"
                     try:
                         _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
                         await bot.send_message(chat_id=chat_id, text=_parsed, parse_mode=ParseMode.MARKDOWN)
@@ -1099,171 +1309,69 @@ def setup_pbatch_handler(app: Client):
                     await asyncio.sleep(1)
                     continue
 
-                # ── 无媒体消息 ──
-                if not msg.media:
-                    # 诊断：为什么没有 media？记录消息实际属性
-                    _has_video = msg.video is not None
-                    _has_photo = msg.photo is not None
-                    _has_doc   = msg.document is not None
-                    _has_audio = msg.audio is not None
-                    _has_anim  = msg.animation is not None
-                    _has_vnote = msg.video_note is not None
-                    _has_voice = msg.voice is not None
-                    _has_text  = bool(msg.text or msg.caption)
-                    _has_media_raw = getattr(msg, '_raw', None)
-                    LOGGER.warning(
-                        f"[PrivateBatch] ⚠️ msg {msg_id} 无 media 枚举！"
-                        f" video={_has_video} photo={_has_photo} doc={_has_doc}"
-                        f" audio={_has_audio} anim={_has_anim} vnote={_has_vnote}"
-                        f" voice={_has_voice} text={_has_text}"
-                        f" raw_media={_has_media_raw is not None}"
-                    )
-                    fail_count += 1
+                # has media: normal download+upload
+                if msg.media:
+                    media_type = msg.media
+                    caption_text = msg.caption.markdown if msg.caption else ""
+                    file_path = None
+                    try:
+                        _current_status = f"download {idx}/{total_msg_count}"
+                        _update_progress()
+                        file_path = await msg.download(
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs("downloading", status_message, start_ts),
+                        )
+                        if file_path and os.path.exists(file_path):
+                            _current_status = f"upload {idx}/{total_msg_count}"
+                            _update_progress()
+                            await _upload_to_saved(user_client, media_type, file_path, caption_text, thumbnail_path, msg_id)
+                            success_count += 1
+                            if _gid:
+                                processed_groups.add(_gid)
+                        else:
+                            fail_count += 1
+                    except FloodWait as fw:
+                        w = fw.value if hasattr(fw, 'value') else 60
+                        await asyncio.sleep(w + 2)
+                        fail_count += 1
+                    except Exception as e:
+                        LOGGER.error(f"[PrivateBatch] Failed msg {msg_id}: {type(e).__name__}: {e}")
+                        fail_count += 1
+                    finally:
+                        if file_path and os.path.exists(file_path):
+                            try: os.remove(file_path)
+                            except Exception: pass
                     _update_progress()
-                    await asyncio.sleep(1)
+                    await _apply_delay(idx)
                     continue
 
-                # ── 原版方式：用 msg.media 枚举检测媒体类型 ──
-                media_type = msg.media  # MessageMediaType enum
-                LOGGER.info(f"[PrivateBatch] 📋 msg {msg_id} media_type={media_type}")
-                caption_text = msg.caption.markdown if msg.caption else ""
-                file_path = None
-
-                try:
-                    # 下载
-                    _current_status = f"📥 下载 {idx}/{total_msg_count}"
+                # no media but has media_group_id: use raw MTProto
+                if _gid and _peer:
+                    group_ids = [m.id for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
+                    _current_status = f"raw {idx}/{total_msg_count}"
                     _update_progress()
-                    file_path = await msg.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", status_message, start_ts),
-                    )
-
-                    if not file_path or not os.path.exists(file_path):
-                        LOGGER.warning(f"[PrivateBatch] download failed for msg {msg_id}, media={media_type}")
-                        fail_count += 1
-                        _update_progress()
-                        await asyncio.sleep(1)
-                        continue
-
-                    # ── 上传到 Saved Messages（原版方式：按 media 类型分发）──
-                    _current_status = f"📤 上传 {idx}/{total_msg_count}"
+                    try:
+                        ok = await _raw_download_and_upload(
+                            user_client, _peer, group_ids, bot, chat_id,
+                            status_message, start_ts, thumbnail_path,
+                        )
+                        if ok:
+                            success_count += len(group_ids)
+                        else:
+                            fail_count += len(group_ids)
+                    except Exception as e:
+                        LOGGER.error(f"[PrivateBatch] raw group {_gid} failed: {e}")
+                        fail_count += len(group_ids)
+                    processed_groups.add(_gid)
                     _update_progress()
+                    await _apply_delay(idx)
+                    continue
 
-                    if media_type == MessageMediaType.VIDEO:
-                        duration, _, _ = await get_media_info(file_path)
-                        width, height = await get_video_resolution(file_path)
-                        thumb = await get_video_thumbnail(file_path, duration)
-                        await user_client.send_video(
-                            chat_id="me",
-                            video=file_path,
-                            caption=caption_text,
-                            duration=duration or 0,
-                            width=width,
-                            height=height,
-                            thumb=thumb,
-                            supports_streaming=True,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ video msg {msg_id}")
-
-                    elif media_type == MessageMediaType.PHOTO:
-                        await user_client.send_photo(
-                            chat_id="me",
-                            photo=file_path,
-                            caption=caption_text,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ photo msg {msg_id}")
-
-                    elif media_type == MessageMediaType.DOCUMENT:
-                        thumb = None
-                        ext = os.path.splitext(file_path)[1].lower()
-                        if ext in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
-                            try:
-                                doc_dur, _, _ = await get_media_info(file_path)
-                                thumb = await get_video_thumbnail(file_path, doc_dur or 0)
-                            except Exception:
-                                pass
-                        await user_client.send_document(
-                            chat_id="me",
-                            document=file_path,
-                            caption=caption_text,
-                            thumb=thumb,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ document msg {msg_id}")
-
-                    elif media_type == MessageMediaType.AUDIO:
-                        duration, artist, title = await get_media_info(file_path)
-                        await user_client.send_audio(
-                            chat_id="me",
-                            audio=file_path,
-                            caption=caption_text,
-                            duration=duration or 0,
-                            performer=artist,
-                            title=title,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ audio msg {msg_id}")
-
-                    elif media_type == MessageMediaType.VIDEO_NOTE:
-                        duration, _, _ = await get_media_info(file_path)
-                        await user_client.send_video_note(
-                            chat_id="me",
-                            video_note=file_path,
-                            duration=duration or 0,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ video_note msg {msg_id}")
-
-                    elif media_type == MessageMediaType.VOICE:
-                        await user_client.send_voice(
-                            chat_id="me",
-                            voice=file_path,
-                            caption=caption_text,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ voice msg {msg_id}")
-
-                    else:
-                        # 兜底：作为文档发送
-                        await user_client.send_document(
-                            chat_id="me",
-                            document=file_path,
-                            caption=caption_text,
-                        )
-                        success_count += 1
-                        LOGGER.info(f"[PrivateBatch] ✓ fallback document msg {msg_id} (media={media_type})")
-
-                except FloodWait as fw:
-                    _w = fw.value if hasattr(fw, 'value') else 60
-                    LOGGER.warning(f"[PrivateBatch] FloodWait {_w}s during upload msg {msg_id}")
-                    await asyncio.sleep(_w + 2)
-                    fail_count += 1
-                except Exception as e:
-                    LOGGER.error(f"[PrivateBatch] Failed msg {msg_id}: {type(e).__name__}: {e}")
-                    fail_count += 1
-                finally:
-                    # 清理临时文件
-                    if file_path and os.path.exists(file_path):
-                        try:
-                            os.remove(file_path)
-                        except Exception:
-                            pass
-
-                # 进度更新
+                # no media, no group: skip
+                LOGGER.warning(f"[PrivateBatch] skip msg {msg_id}: no media, no group")
+                fail_count += 1
                 _update_progress()
-
-                # ── 原版延迟：避免 FloodWait ──
-                if idx < 25:
-                    timer = 3
-                elif idx < 50:
-                    timer = 5
-                elif idx < 100:
-                    timer = 8
-                else:
-                    timer = 12
-                await asyncio.sleep(timer)
+                await asyncio.sleep(1)
 
         except Exception as e:
             LOGGER.error(f"[PrivateBatch] Unexpected error: {e}")
