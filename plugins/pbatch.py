@@ -1,5 +1,5 @@
-# ✅ v7.0 重构：forward_messages 替代 raw MTProto（绕过 Pyrofork 媒体解析）
-# ✅ 核心修复：对无 media 但有 media_group_id 的消息，直接 forward 到 Saved Messages
+# ✅ v8.0 重构：即使 msg.media 为 None 也尝试 msg.download()
+# ✅ 核心修复：Pyrofork 内部用 raw TL 数据下载，不依赖 msg.media 解析
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -949,7 +949,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v7.0 forward_messages mode for media groups")
+        LOGGER.info(f"[PrivateBatch] v8.0: download even if msg.media is None")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1095,7 +1095,7 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v7.0：get_chat_history + forward_messages for media groups ──
+            # ── v8.0：get_chat_history + download even without msg.media ──
 
             all_messages = []
             async for msg in user_client.get_chat_history(
@@ -1107,7 +1107,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v7.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v8.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1179,22 +1179,65 @@ def setup_pbatch_handler(app: Client):
                     await _apply_delay(idx)
                     continue
 
-                # no media but has media_group_id: forward to Saved Messages
+                # no media but has media_group_id: try download (Pyrofork may still work)
                 if _gid:
-                    group_ids = [m.id for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
-                    _current_status = f"forward group {idx}/{total_msg_count}"
-                    _update_progress()
-                    try:
-                        await user_client.forward_messages(
-                            chat_id="me",
-                            from_chat_id=pvt_chat_id,
-                            message_ids=group_ids,
-                        )
-                        success_count += len(group_ids)
-                        LOGGER.info(f"[PrivateBatch] forwarded group {_gid}: {len(group_ids)} msgs")
-                    except Exception as e:
-                        LOGGER.error(f"[PrivateBatch] forward group {_gid} failed: {type(e).__name__}: {e}")
-                        fail_count += len(group_ids)
+                    group_msgs = [m for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
+                    group_ok = 0
+                    group_fail = 0
+                    for gm in group_msgs:
+                        if cancel_flags.get(chat_id):
+                            break
+                        _current_status = f"group d/l {all_messages.index(gm)+1}/{total_msg_count}"
+                        _update_progress()
+                        fpath = None
+                        try:
+                            fpath = await gm.download(
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("downloading", status_message, start_ts),
+                            )
+                            if fpath and os.path.exists(fpath):
+                                # Determine type from file
+                                ext = os.path.splitext(fpath)[1].lower()
+                                cap = gm.caption.markdown if gm.caption else ""
+                                if ext in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
+                                    dur, _, _ = await get_media_info(fpath)
+                                    w, h = await get_video_resolution(fpath)
+                                    thumb = await get_video_thumbnail(fpath, dur)
+                                    await user_client.send_video("me", fpath, caption=cap,
+                                        duration=dur or 0, width=w, height=h,
+                                        thumb=thumb, supports_streaming=True)
+                                    LOGGER.info(f"[PrivateBatch] group video ok msg {gm.id}")
+                                elif ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
+                                    await user_client.send_photo("me", fpath, caption=cap)
+                                    LOGGER.info(f"[PrivateBatch] group photo ok msg {gm.id}")
+                                elif ext in ('.ogg', '.oga'):
+                                    await user_client.send_voice("me", fpath, caption=cap)
+                                    LOGGER.info(f"[PrivateBatch] group voice ok msg {gm.id}")
+                                elif ext in ('.mp3', '.m4a', '.wav', '.flac'):
+                                    dur, artist, title = await get_media_info(fpath)
+                                    await user_client.send_audio("me", fpath, caption=cap,
+                                        duration=dur or 0, performer=artist, title=title)
+                                    LOGGER.info(f"[PrivateBatch] group audio ok msg {gm.id}")
+                                else:
+                                    await user_client.send_document("me", fpath, caption=cap)
+                                    LOGGER.info(f"[PrivateBatch] group doc ok msg {gm.id}")
+                                group_ok += 1
+                            else:
+                                group_fail += 1
+                        except FloodWait as fw:
+                            w = fw.value if hasattr(fw, 'value') else 60
+                            await asyncio.sleep(w + 2)
+                            group_fail += 1
+                        except Exception as e:
+                            LOGGER.warning(f"[PrivateBatch] group msg {gm.id} failed: {type(e).__name__}")
+                            group_fail += 1
+                        finally:
+                            if fpath and os.path.exists(fpath):
+                                try: os.remove(fpath)
+                                except Exception: pass
+
+                    success_count += group_ok
+                    fail_count += group_fail
                     processed_groups.add(_gid)
                     _update_progress()
                     await _apply_delay(idx)
