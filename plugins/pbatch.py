@@ -1,4 +1,4 @@
-# ✅ v20.0 完全重写：pyrogram + get_chat_history
+# ✅ v20.0 完全重写：按参考项目模式（get_dialogs + 多格式 chat_id 回退）
 # ✅ 切换 pyrofork → pyrogram（requirements.txt）
 # ✅ 核心：get_chat_history 获取所有消息 → download_media → 按文件扩展名判断类型上传到 Saved Messages
 # ✅ 去除 raw MTProto、get_messages 逐条获取、去除 channel peer 预解析
@@ -9,7 +9,7 @@ import json
 import asyncio
 import time
 from datetime import datetime
-from pyrogram import Client, filters
+from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode, ChatType, MessageMediaType
 from pyrogram.errors import (
@@ -1073,23 +1073,44 @@ def setup_pbatch_handler(app: Client):
             # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
             LOGGER.info(f"[v20] start={start_message_id} count={count}")
 
-            # 先 get_chat 解析 peer 并缓存，避免 Peer id invalid
+            # 参考项目做法：先 get_dialogs 刷新缓存，确保 peer 被缓存
             try:
-                await user_client.get_chat(pvt_chat_id)
+                async for _ in user_client.get_dialogs(limit=50):
+                    pass
             except Exception as e:
-                LOGGER.warning(f"[v20] get_chat failed: {e}")
+                LOGGER.warning(f"[v20] get_dialogs refresh failed: {e}")
+
+            # 如果 pvt_chat_id 带 -100 前缀，尝试去掉前缀再试
+            _fetch_id = pvt_chat_id
+            _alt_id = None
+            chat_id_str = str(pvt_chat_id)
+            if chat_id_str.startswith('-100'):
+                _alt_id = int(f"-{chat_id_str[4:]}")
+            elif chat_id_str.startswith('-'):
+                _alt_id = int(f"-100{chat_id_str[1:]}")
 
             # 获取足够多的消息（count + 10 的余量）
             limit_needed = min(count * 2, 500)  # 最多500条，避免性能问题
             messages = []
-            async for m in user_client.get_chat_history(
-                chat_id=pvt_chat_id,
-                limit=limit_needed,
-            ):
-                if m and not getattr(m, 'empty', False) and m.id:
-                    messages.append(m)
-                if len(messages) >= count + 10:
-                    break
+
+            # 尝试主 chat_id，失败则尝试备选
+            for cid in ([_fetch_id, _alt_id] if _alt_id else [_fetch_id]):
+                try:
+                    async for m in user_client.get_chat_history(
+                        chat_id=cid,
+                        limit=limit_needed,
+                    ):
+                        if m and not getattr(m, 'empty', False) and m.id:
+                            messages.append(m)
+                        if len(messages) >= count + 10:
+                            break
+                    if messages:
+                        _fetch_id = cid
+                        break
+                except Exception as e:
+                    LOGGER.warning(f"[v20] get_chat_history({cid}) failed: {e}")
+                    messages = []
+                    continue
 
             # 默认是最新在前，我们反转成最旧在前（ID 升序）
             messages.reverse()
