@@ -980,17 +980,31 @@ def setup_pbatch_handler(app: Client):
             offset = 0
 
             # 5) Download file in chunks
-            with open(file_path, 'wb') as f:
-                while True:
-                    chunk = await user_client.invoke(
-                        raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
-                    )
-                    if not chunk or not chunk.bytes:
-                        break
-                    f.write(chunk.bytes)
-                    offset += len(chunk.bytes)
-                    if len(chunk.bytes) < CHUNK:
-                        break
+            try:
+                with open(file_path, 'wb') as f:
+                    LOGGER.info(f"[raw] starting download msg {msg_id} → {file_path}")
+                    while True:
+                        chunk = await user_client.invoke(
+                            raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
+                        )
+                        LOGGER.debug(f"[raw] chunk type={type(chunk).__name__} offset={offset}")
+                        if chunk is None:
+                            LOGGER.warning(f"[raw] chunk is None, stop msg {msg_id}")
+                            break
+                        data = getattr(chunk, 'bytes', None)
+                        if not data:
+                            LOGGER.info(f"[raw] no more bytes, stop msg {msg_id} at offset {offset}")
+                            break
+                        f.write(data)
+                        offset += len(data)
+                        if len(data) < CHUNK:
+                            break
+            except AttributeError as ae:
+                LOGGER.error(f"[raw] ATTR msg {msg_id} file_path={file_path!r} chunk_type={type(chunk).__name__} chunk={chunk!r}: {ae}")
+                return None
+            except Exception as e:
+                LOGGER.error(f"[raw] DOWNLOAD ERR msg {msg_id} file_path={file_path!r}: {type(e).__name__}: {e}")
+                return None
 
             if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                 LOGGER.info(f"[raw] ok {os.path.getsize(file_path)} bytes msg {msg_id}")
