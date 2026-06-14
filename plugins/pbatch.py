@@ -1068,6 +1068,9 @@ def setup_pbatch_handler(app: Client):
 
         _bg_task = asyncio.create_task(_bg_update())
 
+        # 跟踪已通过 "media group shell" fallback 处理过的消息 ID，避免主循环重复处理
+        _handled_by_grouped_fallback: set = set()
+
         try:
             # ── v20.0 核心：get_chat_history 一次性获取所有消息 ──
             # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
@@ -1141,6 +1144,11 @@ def setup_pbatch_handler(app: Client):
 
                 idx = j
                 mid = msg.id
+
+                # 跳过已通过 "media group shell" fallback 处理过的消息
+                if mid in _handled_by_grouped_fallback:
+                    LOGGER.info(f"[v20] skip {mid} — already handled by grouped fallback")
+                    continue
 
                 try:
                     # 详细诊断
@@ -1288,6 +1296,7 @@ def setup_pbatch_handler(app: Client):
                                             thumbnail_path, _gm.id
                                         )
                                         success_count += 1
+                                        _handled_by_grouped_fallback.add(_gm.id)
                                         try:
                                             os.remove(_gp)
                                         except Exception:
