@@ -1,10 +1,7 @@
-# ✅ v3.0 重构：私密批量用 forward_messages 绕过 Pyrofork 媒体解析问题
-# ✅ 已修复：processMediaGroup 不再用于私密批量（Pyrofork 无法解析 from_scheduled 视频）
+# ✅ v4.0 重构：按原版 vasusen-code/SaveRestrictedContentBot 方式逐条处理
+# ✅ 核心修复：用 msg.media 枚举（MessageMediaType.VIDEO）检测媒体类型，而非 msg.video 对象
+# ✅ 逐条 get_messages（一次一条），避免批量获取时 Pyrofork 不加载视频属性
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
-# ✅ 已修复：in_memory=True + no_updates=True → sqlite3 + TCPTransport 错误修复
-# ✅ 已修复：AuthKeyUnregistered → 会话自动移除 + 用户通知
-# ✅ 已修复：safe_stop_client → OSError 忽略
-# ✅ 已优化：非阻塞进度 + 全局信号量 + 响应式 UI
 
 import os
 import re
@@ -14,7 +11,7 @@ from time import time
 from datetime import datetime
 from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.enums import ParseMode, ChatType
+from pyrogram.enums import ParseMode, ChatType, MessageMediaType
 from pyrogram.errors import (
     ChannelInvalid,
     ChannelPrivate,
@@ -39,6 +36,9 @@ from utils.helper import (
     create_optimized_user_client,
     safe_stop_client,
     safe_edit_progress,
+    get_media_info,
+    get_video_resolution,
+    get_video_thumbnail,
     GLOBAL_DOWNLOAD_SEMAPHORE,
     GLOBAL_UPLOAD_SEMAPHORE,
 )
@@ -904,7 +904,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] 🚀 v3.0 forward_messages 模式启动")
+        LOGGER.info(f"[PrivateBatch] 🚀 v4.0 原版逐条模式启动（msg.media 枚举+逐条获取）")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -985,66 +985,10 @@ def setup_pbatch_handler(app: Client):
         except Exception as e:
             LOGGER.warning(f"[PrivateBatch] Could not pre-resolve channel: {e}")
 
-        message_ids = list(range(start_message_id, start_message_id + count))
-        all_messages = []
-
-        CHUNK = 200
-        for i in range(0, len(message_ids), CHUNK):
-            chunk_ids = message_ids[i:i + CHUNK]
-            try:
-                chunk_msgs = await user_client.get_messages(
-                    chat_id=pvt_chat_id, message_ids=chunk_ids
-                )
-                all_messages.extend(chunk_msgs)
-            except Exception as e:
-                LOGGER.error(f"[PrivateBatch] Fetch chunk failed: {e}")
-                fail_count += len(chunk_ids)
-
-        # 按原版：直接用 get_messages 获取消息，不做特殊重获取
-        # Pyrofork 会正常加载视频媒体数据
-
-        missing_count = count - len(all_messages)
-        effective_total = len(all_messages)
-
-        # 诊断日志：统计 all_messages 中各类型消息数量
-        _diag_photo = sum(1 for m in all_messages if m and m.photo)
-        _diag_video = sum(1 for m in all_messages if m and m.video)
-        _diag_anim = sum(1 for m in all_messages if m and m.animation)
-        _diag_vn = sum(1 for m in all_messages if m and m.video_note)
-        _diag_doc = sum(1 for m in all_messages if m and m.document)
-        _diag_audio = sum(1 for m in all_messages if m and m.audio)
-        _diag_text = sum(1 for m in all_messages if m and m.text)
-        _diag_none = sum(1 for m in all_messages if not m)
-        _diag_nomedia = effective_total - _diag_photo - _diag_video - _diag_anim - _diag_vn - _diag_doc - _diag_audio - _diag_text - _diag_none
-        LOGGER.info(f"[PrivateBatch] all_messages 统计: total={effective_total} photo={_diag_photo} video={_diag_video} anim={_diag_anim} vnote={_diag_vn} doc={_diag_doc} audio={_diag_audio} text={_diag_text} None={_diag_none} other={_diag_nomedia}")
-
-        if missing_count > 0:
-            LOGGER.info(f"[PrivateBatch] {missing_count}/{count} messages not found in channel (deleted)")
-
-        if not all_messages:
-            try:
-                await status_message.edit_text(
-                    "**❌ 无法获取任何消息。\n"
-                    "请确保登录的账号是该频道/群组的成员。**",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-            except Exception:
-                pass
-            _del_state(chat_id)
-            await safe_stop_client(user_client)
-            return
-
-        await status_message.edit_text(
-            _progress_text(0, effective_total, 0, 0, start_ts, True),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⛔ 取消", callback_data=f"batch_cancel_{chat_id}"),
-            ]]),
-        )
-        last_edit = time()
-
-        idx = 0
-        _progress_running = True
+        # ── 原版方式：逐条获取消息 + msg.media 枚举检测 ──
+        # 关键：不能用批量 get_messages（Pyrofork 对 from_scheduled 消息不加载视频属性）
+        # 必须逐条获取，且用 msg.media 枚举（MessageMediaType.VIDEO）而非 msg.video 对象
+        # 参考：vasusen-code/SaveRestrictedContentBot 的 pyroplug.py get_msg()
 
         class CancelDownload(Exception):
             pass
@@ -1055,6 +999,24 @@ def setup_pbatch_handler(app: Client):
             _file_progress[0] = current
             _file_progress[1] = total
             Leaves.progress_for_pyrogram(current, total, *args)
+
+        _progress_running = True
+        last_edit = time()
+
+        def _update_progress():
+            nonlocal last_edit
+            now = time()
+            if idx % 2 == 0 or idx == 1 or idx == count or (now - last_edit) >= 3:
+                try:
+                    asyncio.ensure_future(
+                        safe_edit_progress(
+                            status_message,
+                            _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_current_status),
+                        )
+                    )
+                    last_edit = now
+                except Exception:
+                    pass
 
         async def _bg_update():
             while _progress_running:
@@ -1075,7 +1037,7 @@ def setup_pbatch_handler(app: Client):
                         _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
                     await safe_edit_progress(
                         status_message,
-                        _progress_text(idx, effective_total, success_count, fail_count, start_ts, True, status_line=_sl),
+                        _progress_text(idx, count, success_count, fail_count, start_ts, True, status_line=_sl),
                     )
                 except Exception:
                     pass
@@ -1091,124 +1053,195 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── 重构：用 forward_messages 绕过 Pyrofork 媒体解析问题 ──
-            # 1. 按 media_group_id 分组所有消息
-            groups = {}       # media_group_id -> [msg_ids]
-            group_first = {}  # media_group_id -> first message (for idx)
-            ungrouped = []    # 不在媒体组中的消息
-
-            for idx, msg in enumerate(all_messages, 1):
-                if not msg or not msg.id:
-                    continue
-                _gid = getattr(msg, 'media_group_id', None)
-                if _gid:
-                    if _gid not in groups:
-                        groups[_gid] = []
-                        group_first[_gid] = idx
-                    groups[_gid].append(msg.id)
-                else:
-                    ungrouped.append((idx, msg))
-
-            total_items = len(groups) + len(ungrouped)
-            processed = 0
-
-            # 2. 处理媒体组
-            for gid, gids in groups.items():
+            # 原版方式：逐条消息处理
+            for idx in range(1, count + 1):
                 if cancel_flags.get(chat_id):
                     break
-                processed += 1
-                _current_status = f"🖼 媒体组 {processed}/{total_items}"
 
+                msg_id = start_message_id + idx - 1
+
+                # ── 逐条获取消息（原版关键：一次一条）──
                 try:
-                    await user_client.forward_messages(
-                        chat_id="me",
-                        from_chat_id=pvt_chat_id,
-                        message_ids=gids,
-                    )
-                    success_count += len(gids)
-                    LOGGER.info(f"[PrivateBatch] Forwarded media group {gid}: {len(gids)} msgs")
-                except Exception as fe:
-                    _err = str(fe).lower()
-                    LOGGER.warning(f"[PrivateBatch] Forward media group {gid} failed: {fe}")
-                    # 回退：逐个下载+上传
-                    for mid in gids:
-                        try:
-                            _msg = await user_client.get_messages(pvt_chat_id, mid)
-                            if _msg and _msg.media:
-                                _path = await _msg.download()
-                                if _path:
-                                    await send_media_to_saved(
-                                        user_client=user_client, bot=bot,
-                                        message=status_message,
-                                        media_path=_path, media_type="document",
-                                        caption="",
-                                        progress_message=status_message,
-                                        start_time=time(),
-                                    )
-                                    success_count += 1
-                                    if os.path.exists(_path):
-                                        os.remove(_path)
-                                else:
-                                    fail_count += 1
-                            else:
-                                fail_count += 1
-                        except Exception:
-                            fail_count += 1
-
-                await asyncio.sleep(3)
-
-            # 3. 处理非媒体组消息
-            for idx, msg in ungrouped:
-                if cancel_flags.get(chat_id):
-                    break
-                processed += 1
-
-                if msg.text or msg.caption:
-                    _current_status = f"📝 文字 {processed}/{total_items}"
+                    msg = await user_client.get_messages(pvt_chat_id, msg_id)
+                except FloodWait as fw:
+                    _w = fw.value if hasattr(fw, 'value') else 60
+                    LOGGER.warning(f"[PrivateBatch] FloodWait {_w}s at msg {msg_id}")
+                    await asyncio.sleep(_w + 2)
                     try:
-                        _parsed = await get_parsed_msg(msg.text or msg.caption or "", msg.entities or msg.caption_entities)
+                        msg = await user_client.get_messages(pvt_chat_id, msg_id)
+                    except Exception:
+                        fail_count += 1
+                        continue
+                except Exception as e:
+                    LOGGER.warning(f"[PrivateBatch] get_messages failed for {msg_id}: {e}")
+                    fail_count += 1
+                    continue
+
+                if not msg:
+                    missing_count += 1
+                    fail_count += 1
+                    continue
+
+                # ── 纯文字消息 ──
+                if msg.text and not msg.media:
+                    _current_status = f"� 文字 {idx}/{count}"
+                    try:
+                        _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
                         await bot.send_message(chat_id=chat_id, text=_parsed, parse_mode=ParseMode.MARKDOWN)
                         success_count += 1
                     except Exception:
                         fail_count += 1
+                    _update_progress()
+                    await asyncio.sleep(1)
                     continue
 
+                # ── 无媒体消息 ──
                 if not msg.media:
                     fail_count += 1
+                    _update_progress()
+                    await asyncio.sleep(1)
                     continue
 
-                _current_status = f"📥 下载 {processed}/{total_items}"
-                try:
-                    await user_client.forward_messages(
-                        chat_id="me",
-                        from_chat_id=pvt_chat_id,
-                        message_ids=[msg.id],
-                    )
-                    success_count += 1
-                    LOGGER.info(f"[PrivateBatch] Forwarded single msg {msg.id}")
-                except Exception as fe:
-                    LOGGER.warning(f"[PrivateBatch] Forward single msg {msg.id} failed: {fe}")
-                    # 回退：下载+上传
-                    try:
-                        _path = await msg.download()
-                        if _path:
-                            await send_media_to_saved(
-                                user_client=user_client, bot=bot,
-                                message=status_message,
-                                media_path=_path, media_type="document",
-                                caption="",
-                                progress_message=status_message,
-                                start_time=time(),
-                            )
-                            success_count += 1
-                            if os.path.exists(_path):
-                                os.remove(_path)
-                        else:
-                            fail_count += 1
-                    except Exception:
-                        fail_count += 1
+                # ── 原版方式：用 msg.media 枚举检测媒体类型 ──
+                media_type = msg.media  # MessageMediaType enum
+                caption_text = msg.caption.markdown if msg.caption else ""
+                file_path = None
 
-                await asyncio.sleep(3)
+                try:
+                    # 下载
+                    _current_status = f"📥 下载 {idx}/{count}"
+                    _update_progress()
+                    file_path = await msg.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", status_message, start_ts),
+                    )
+
+                    if not file_path or not os.path.exists(file_path):
+                        LOGGER.warning(f"[PrivateBatch] download failed for msg {msg_id}, media={media_type}")
+                        fail_count += 1
+                        _update_progress()
+                        await asyncio.sleep(1)
+                        continue
+
+                    # ── 上传到 Saved Messages（原版方式：按 media 类型分发）──
+                    _current_status = f"📤 上传 {idx}/{count}"
+                    _update_progress()
+
+                    if media_type == MessageMediaType.VIDEO:
+                        duration, _, _ = await get_media_info(file_path)
+                        width, height = await get_video_resolution(file_path)
+                        thumb = await get_video_thumbnail(file_path, duration)
+                        await user_client.send_video(
+                            chat_id="me",
+                            video=file_path,
+                            caption=caption_text,
+                            duration=duration or 0,
+                            width=width,
+                            height=height,
+                            thumb=thumb,
+                            supports_streaming=True,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ video msg {msg_id}")
+
+                    elif media_type == MessageMediaType.PHOTO:
+                        await user_client.send_photo(
+                            chat_id="me",
+                            photo=file_path,
+                            caption=caption_text,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ photo msg {msg_id}")
+
+                    elif media_type == MessageMediaType.DOCUMENT:
+                        thumb = None
+                        ext = os.path.splitext(file_path)[1].lower()
+                        if ext in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
+                            try:
+                                doc_dur, _, _ = await get_media_info(file_path)
+                                thumb = await get_video_thumbnail(file_path, doc_dur or 0)
+                            except Exception:
+                                pass
+                        await user_client.send_document(
+                            chat_id="me",
+                            document=file_path,
+                            caption=caption_text,
+                            thumb=thumb,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ document msg {msg_id}")
+
+                    elif media_type == MessageMediaType.AUDIO:
+                        duration, artist, title = await get_media_info(file_path)
+                        await user_client.send_audio(
+                            chat_id="me",
+                            audio=file_path,
+                            caption=caption_text,
+                            duration=duration or 0,
+                            performer=artist,
+                            title=title,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ audio msg {msg_id}")
+
+                    elif media_type == MessageMediaType.VIDEO_NOTE:
+                        duration, _, _ = await get_media_info(file_path)
+                        await user_client.send_video_note(
+                            chat_id="me",
+                            video_note=file_path,
+                            duration=duration or 0,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ video_note msg {msg_id}")
+
+                    elif media_type == MessageMediaType.VOICE:
+                        await user_client.send_voice(
+                            chat_id="me",
+                            voice=file_path,
+                            caption=caption_text,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ voice msg {msg_id}")
+
+                    else:
+                        # 兜底：作为文档发送
+                        await user_client.send_document(
+                            chat_id="me",
+                            document=file_path,
+                            caption=caption_text,
+                        )
+                        success_count += 1
+                        LOGGER.info(f"[PrivateBatch] ✓ fallback document msg {msg_id} (media={media_type})")
+
+                except FloodWait as fw:
+                    _w = fw.value if hasattr(fw, 'value') else 60
+                    LOGGER.warning(f"[PrivateBatch] FloodWait {_w}s during upload msg {msg_id}")
+                    await asyncio.sleep(_w + 2)
+                    fail_count += 1
+                except Exception as e:
+                    LOGGER.error(f"[PrivateBatch] Failed msg {msg_id}: {type(e).__name__}: {e}")
+                    fail_count += 1
+                finally:
+                    # 清理临时文件
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                        except Exception:
+                            pass
+
+                # 进度更新
+                _update_progress()
+
+                # ── 原版延迟：避免 FloodWait ──
+                if idx < 25:
+                    timer = 3
+                elif idx < 50:
+                    timer = 5
+                elif idx < 100:
+                    timer = 8
+                else:
+                    timer = 12
+                await asyncio.sleep(timer)
 
         except Exception as e:
             LOGGER.error(f"[PrivateBatch] Unexpected error: {e}")
