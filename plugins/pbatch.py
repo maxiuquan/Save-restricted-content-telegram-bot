@@ -1095,36 +1095,30 @@ def setup_pbatch_handler(app: Client):
             except Exception as e:
                 LOGGER.warning(f"[v20] raw peer resolve failed: {e}")
 
-            # 获取足够多的消息（count + 10 的余量）
-            limit_needed = min(count * 2, 500)  # 最多500条，避免性能问题
+            # 获取足够多的消息：从 start_message_id 往后取 count 条
+            # get_chat_history 默认最新在前，用 offset_id 跳过比 start_message_id 新的消息
+            # offset_id 含义：只返回 id < offset_id 的消息
+            # 所以 offset_id=start_message_id+count 能确保包含我们的目标范围
+            limit_needed = min(count * 2 + 10, 500)
             messages = []
             try:
                 async for m in user_client.get_chat_history(
                     chat_id=pvt_chat_id,
+                    offset_id=start_message_id + count + 5,
                     limit=limit_needed,
                 ):
                     if m and not getattr(m, 'empty', False) and m.id:
                         messages.append(m)
-                    if len(messages) >= count + 10:
+                    if len(messages) >= count * 2:
                         break
             except Exception as e:
                 LOGGER.warning(f"[v20] get_chat_history failed: {e}")
 
-            # 默认是最新在前，我们反转成最旧在前（ID 升序）
+            # 默认最新在前 → 反转成 ID 升序
             messages.reverse()
 
-            # 找到 start_message_id 的位置
-            start_pos = None
-            for i, m in enumerate(messages):
-                if m.id == start_message_id:
-                    start_pos = i
-                    break
-
-            if start_pos is not None:
-                messages = messages[start_pos:start_pos + count]
-            else:
-                # 如果没找到起始消息，取最后一个 start_message_id 之前的 count 条
-                messages = [m for m in messages if m.id >= start_message_id][:count]
+            # 从 start_message_id 开始取
+            messages = [m for m in messages if m.id >= start_message_id][:count]
 
             total_msg_count = len(messages)
             LOGGER.info(f"[v20] got {total_msg_count} msgs")
