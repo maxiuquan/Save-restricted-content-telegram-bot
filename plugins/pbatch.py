@@ -1,8 +1,7 @@
-# ✅ v18.0 重构：完全按参考项目 Save-Restricted-Content-Bot-v3 模式
-# ✅ 参考：https://github.com/maxiuquan/Save-Restricted-Content-Bot-v3
-# ✅ 核心改动：get_dialogs() → get_messages() 逐条 → download_media() → 上传
-# ✅ 不用 get_chat_history，不用 raw MTProto，不用 forward_messages
-# ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
+# ✅ v19.1 重构：pyrogram + get_chat_history
+# ✅ 切换：pyrofork → pyrogram（requirements.txt）
+# ✅ 核心改动：get_chat_history 一次性获取所有消息（确保媒体属性完整加载）
+# ✅ 已修复：time.time() 导入 bug
 
 import os
 import re
@@ -1111,49 +1110,67 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v18.0：完全按参考项目 Save-Restricted-Content-Bot-v3 模式 ──
-            # 参考：https://github.com/maxiuquan/Save-Restricted-Content-Bot-v3/plugins/batch.py
-            # 核心改动：
-            #   1. 不用 get_chat_history，改用 get_messages 逐条获取
-            #   2. 先调 get_dialogs() 刷新缓存（关键！）
-            #   3. 按 msg_id 递增遍历：mid = start_message_id + j
-            #   4. 检查 m.video / m.photo / m.document 等具体属性
-            #   5. 用 user_client.download_media(m) 下载
+            # ── v19.1：改用 get_chat_history 获取消息（一次性加载完整数据） ──
+            # 关键发现：get_messages 逐条获取时，pyrogram 可能不加载 from_scheduled 视频消息的媒体属性
+            #          get_chat_history 能正确加载所有消息的完整数据
 
             total_msg_count = count
-            LOGGER.info(f"[PrivateBatch] v18.0: ref-bot-v3 mode, {total_msg_count} msgs, start={start_message_id}")
+            LOGGER.info(f"[PrivateBatch] v19.1: get_chat_history mode, {total_msg_count} msgs, start={start_message_id}")
 
-            # Step 0: 刷新 dialogs 缓存（参考项目关键步骤）
-            async for _ in user_client.get_dialogs(limit=200):
-                pass
+            # 用 get_chat_history 一次性获取所有消息
+            messages = []
+            async for msg in user_client.get_chat_history(
+                chat_id=pvt_chat_id,
+                limit=total_msg_count,
+                offset_id=start_message_id - 1,
+            ):
+                if msg and not getattr(msg, 'empty', False) and msg.id:
+                    messages.append(msg)
 
-            for j in range(total_msg_count):
+            LOGGER.info(f"[v19.1] get_chat_history returned {len(messages)} messages")
+
+            if not messages:
+                await status_message.edit_text(
+                    f"**❌ 无法获取消息。**\n\n"
+                    f"**📂 频道：** {channel_title}\n"
+                    f"**🔢 数量：** `{count}`\n"
+                    f"**📌 起始 ID：** `{start_message_id}`\n\n"
+                    f"**⚠️ 可能原因：**\n"
+                    f"• 用户客户端无权访问该频道\n"
+                    f"• 起始消息 ID 不存在\n"
+                    f"• 频道已设为私密",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                await safe_stop_client(user_client)
+                _del_state(chat_id)
+                return
+
+            for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
                     break
 
-                idx = j + 1
-                mid = start_message_id + j
+                idx = j
+                mid = msg.id
 
                 try:
-                    # Step 1: 用 get_messages 逐条获取（不用 get_chat_history）
-                    msg = await user_client.get_messages(pvt_chat_id, mid)
-
-                    if not msg or getattr(msg, 'empty', False) or not msg.id:
-                        LOGGER.warning(f"[v18] msg {mid}: empty/not found")
-                        fail_count += 1
-                        continue
-
                     # 诊断：打印消息属性概要
                     _has_media = bool(msg.media)
                     _has_video = bool(getattr(msg, 'video', None))
                     _has_photo = bool(getattr(msg, 'photo', None))
                     _has_doc = bool(getattr(msg, 'document', None))
-                    _from_sched = getattr(msg, 'from_scheduled', False)
-                    LOGGER.info(f"[v18] {idx}/{total_msg_count} msg={mid} media={_has_media} video={_has_video} photo={_has_photo} doc={_has_doc} from_sched={_from_sched}")
+                    _has_audio = bool(getattr(msg, 'audio', None))
+                    _has_voice = bool(getattr(msg, 'voice', None))
+                    _media_type = getattr(msg, 'media', None)
+                    LOGGER.info(
+                        f"[v19.1] {idx}/{len(messages)} msg={mid} "
+                        f"media={_has_media} video={_has_video} photo={_has_photo} "
+                        f"doc={_has_doc} audio={_has_audio} voice={_has_voice} "
+                        f"type={_media_type}"
+                    )
 
-                    # Step 2: 文字消息
+                    # 文字消息
                     if msg.text and not msg.media:
-                        _current_status = f"text {idx}/{total_msg_count}"
+                        _current_status = f"text {idx}/{len(messages)}"
                         _update_progress()
                         try:
                             _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
@@ -1164,16 +1181,16 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(1)
                         continue
 
-                    # Step 3: 媒体消息 — 按参考项目 process_msg 模式
+                    # 媒体消息
                     if msg.media:
                         caption_text = msg.caption.markdown if msg.caption else ""
                         file_path = None
-                        media_type = msg.media  # 默认用枚举
+                        media_type = msg.media  # MessageMediaType 枚举
 
-                        _current_status = f"download {idx}/{total_msg_count}"
+                        _current_status = f"download {idx}/{len(messages)}"
                         _update_progress()
 
-                        # 按参考项目方式下载
+                        # 下载
                         file_path = await user_client.download_media(
                             msg,
                             file_name=f"dl_{mid}_{int(time.time())}",
@@ -1182,12 +1199,12 @@ def setup_pbatch_handler(app: Client):
                         )
 
                         if not file_path or not os.path.exists(file_path):
-                            LOGGER.warning(f"[v18] download returned None/missing for msg {mid}")
+                            LOGGER.warning(f"[v19.1] download returned None/missing for msg {mid}")
                             fail_count += 1
                             continue
 
-                        # 按参考项目方式上传（根据 m.video / m.photo 等）
-                        _current_status = f"upload {idx}/{total_msg_count}"
+                        # 上传到 Saved Messages
+                        _current_status = f"upload {idx}/{len(messages)}"
                         _update_progress()
 
                         await _upload_to_saved(user_client, media_type, file_path, caption_text, thumbnail_path, mid)
@@ -1204,18 +1221,18 @@ def setup_pbatch_handler(app: Client):
                         await _apply_delay(idx)
                         continue
 
-                    # 无媒体无文字
-                    LOGGER.warning(f"[v18] skip msg {mid}: no media, no text")
+                    # 无媒体无文字——可能是空消息或其他类型
+                    LOGGER.warning(f"[v19.1] skip msg {mid}: no media, no text")
                     fail_count += 1
                     _update_progress()
 
                 except FloodWait as fw:
                     w = fw.value if hasattr(fw, 'value') else 60
-                    LOGGER.warning(f"[v18] FloodWait {w}s at msg {mid}")
+                    LOGGER.warning(f"[v19.1] FloodWait {w}s at msg {mid}")
                     await asyncio.sleep(w + 2)
                     fail_count += 1
                 except Exception as e:
-                    LOGGER.error(f"[v18] error msg {mid}: {type(e).__name__}: {e}")
+                    LOGGER.error(f"[v19.1] error msg {mid}: {type(e).__name__}: {e}")
                     fail_count += 1
 
         except Exception as e:
