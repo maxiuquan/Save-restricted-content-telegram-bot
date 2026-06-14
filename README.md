@@ -4,7 +4,7 @@
 
 **A powerful Telegram bot for downloading and managing restricted content from public and private Telegram channels and groups.**
 
-Built with [Pyrofork](https://github.com/Mayuri-Chan/pyrofork) • Async MongoDB (Motor) • Telegram Star Payments
+Built with [Pyrogram](https://github.com/pyrogram/pyrogram) • Async MongoDB (Motor) • Telegram Star Payments
 
 [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/tawhid120/Save-restricted-content-bot-)
 

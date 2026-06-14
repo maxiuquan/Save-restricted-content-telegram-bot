@@ -15,7 +15,7 @@ app = Client(
     bot_token=BOT_TOKEN,
     workers=256,                      # 增加 workers 以处理更多并发消息
     max_concurrent_transmissions=10,  # 提升并发传输数，减少排队等待
-    # 可选: 如果 pyrofork 支持，可启用更快的事件循环策略
+    # 可选: 如果 pyrogram 支持，可启用更快的事件循环策略
     # no_updates=False 保持默认，让机器人能正常接收更新
 )
 

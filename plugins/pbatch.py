@@ -8,7 +8,7 @@ import os
 import re
 import json
 import asyncio
-from time import time
+import time
 from datetime import datetime
 from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -107,7 +107,7 @@ def is_private_link(url: str) -> bool:
 
 
 def _progress_text(done: int, total: int, success: int, fail: int, start_ts: float, is_private: bool, status_line: str = "") -> str:
-    elapsed = time() - start_ts
+    elapsed = time.time() - start_ts
     rate = done / elapsed if elapsed > 0 else 0
     eta = int((total - done) / rate) if rate > 0 else 0
     pct = (done / total * 100) if total else 0
@@ -606,7 +606,7 @@ def setup_pbatch_handler(app: Client):
         chat_id = status_message.chat.id
         url     = state["url"]
         count   = state["count"]
-        start_ts = time()
+        start_ts = time.time()
 
         cancel_flags.pop(chat_id, None)
 
@@ -677,7 +677,7 @@ def setup_pbatch_handler(app: Client):
             ]]),
         )
 
-        last_edit = time()
+        last_edit = time.time()
         idx = 0
         _progress_running = True
 
@@ -751,7 +751,7 @@ def setup_pbatch_handler(app: Client):
                         else:
                             fail_count += group_size
 
-                        now = time()
+                        now = time.time()
                         if idx % 2 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                             try:
                                 await safe_edit_progress(
@@ -844,7 +844,7 @@ def setup_pbatch_handler(app: Client):
                     fail_count += 1
                     LOGGER.error(f"[PublicBatch] Failed msg {source_message.id}: {e}")
 
-                now = time()
+                now = time.time()
                 if idx % 3 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                     try:
                         await safe_edit_progress(
@@ -868,7 +868,7 @@ def setup_pbatch_handler(app: Client):
             upsert=True,
         )
 
-        elapsed = int(time() - start_ts)
+        elapsed = int(time.time() - start_ts)
         _missing_line = f"\n**⚠️ 频道已删除：** `{missing_count}` 条" if missing_count > 0 else ""
         completion_msg = await client.send_message(
             chat_id=chat_id,
@@ -963,7 +963,7 @@ def setup_pbatch_handler(app: Client):
         session_id = state["session_id"]
         url        = state["url"]
         count      = state["count"]
-        start_ts   = time()
+        start_ts   = time.time()
 
         LOGGER.info(f"[PrivateBatch] v17.0: raw + in_memory + full traceback")
         cancel_flags.pop(chat_id, None)
@@ -1059,11 +1059,11 @@ def setup_pbatch_handler(app: Client):
             Leaves.progress_for_pyrogram(current, total, *args)
 
         _progress_running = True
-        last_edit = time()
+        last_edit = time.time()
 
         def _update_progress():
             nonlocal last_edit
-            now = time()
+            now = time.time()
             if idx % 2 == 0 or idx == 1 or idx == total_msg_count or (now - last_edit) >= 3:
                 try:
                     asyncio.ensure_future(
@@ -1176,7 +1176,7 @@ def setup_pbatch_handler(app: Client):
                         # 按参考项目方式下载
                         file_path = await user_client.download_media(
                             msg,
-                            file_name=f"{time.time()}",
+                            file_name=f"dl_{mid}_{int(time.time())}",
                             progress=Leaves.progress_for_pyrogram,
                             progress_args=progressArgs("downloading", status_message, start_ts),
                         )
@@ -1242,7 +1242,7 @@ def setup_pbatch_handler(app: Client):
             await safe_stop_client(user_client)
             return
 
-        elapsed = int(time() - start_ts)
+        elapsed = int(time.time() - start_ts)
 
         _missing_line = f"\n**⚠️ 频道已删除：** `{missing_count}` 条" if missing_count > 0 else ""
         completion_msg = await bot.send_message(
