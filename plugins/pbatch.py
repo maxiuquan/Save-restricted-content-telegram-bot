@@ -1,6 +1,7 @@
-# ✅ v10.0 重构：合并 v8.0 group 分支到主分支，统一处理 media+video
-# ✅ 核心修复：if msg.media or _gid → 让视频消息也走下载流程
-# ✅ 关键：用 user_client.download_media((chat, msg_id)) 重新获取
+# ✅ v11.0 重构：视频消息用 raw MTProto (channels.GetMessages + upload.GetFile) 下载
+# ✅ 核心修复：彻底绕过 Pyrofork 的 download_media() 包装器（_get_message 返回 tuple 报错）
+# ✅ 上一版 v10.0 的 msg.download_media((chat, msg_id)) 触发 'tuple has no file_id'
+# ✅ 关键：raw invoke() 直接与 Telegram 服务器通信，不经过 Python 包装
 # ✅ _upload_to_saved: media_type=None 时按文件扩展名嗅探类型
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
@@ -898,6 +899,108 @@ def setup_pbatch_handler(app: Client):
     # ────────────────────────────────────────────────────────────────────
 
     # v6.0 helper: upload media to Saved Messages by type
+    # v11.0 helper: raw MTProto download via invoke() - bypasses Pyrofork's wrapper
+    async def _raw_download_msg(user_client, chat_id, msg_id, status_msg, start_ts):
+        """Use raw MTProto API directly to download a media file.
+        Bypasses Pyrofork's download_media() entirely, avoiding the
+        'tuple object has no attribute file_id' bug.
+        Returns the local file path or None.
+        """
+        import tempfile
+        from pyrogram.raw import functions as raw_funcs, types as raw_types
+
+        try:
+            # 1) Resolve peer
+            peer = await user_client.resolve_peer(chat_id)
+
+            # 2) Fetch the raw message
+            result = await user_client.invoke(
+                raw_funcs.channels.GetMessages(channel=peer, id=[msg_id])
+            )
+            if not result or not result.messages:
+                LOGGER.warning(f"[raw] GetMessages returned empty for {msg_id}")
+                return None
+
+            raw_msg = result.messages[0]
+            if not isinstance(raw_msg, raw_types.Message) or not raw_msg.media:
+                LOGGER.warning(f"[raw] msg {msg_id} has no media in raw response")
+                return None
+
+            media = raw_msg.media
+            doc = None
+            photo = None
+            ext = ".bin"
+
+            # 3) Determine file location from raw media
+            if isinstance(media, raw_types.MessageMediaDocument):
+                doc = media.document
+                # Pick extension from mime-type
+                mime = doc.mime_type or ""
+                if mime.startswith("video/"): ext = "." + mime.split("/")[-1].split(";")[0]
+                elif mime.startswith("audio/"): ext = "." + mime.split("/")[-1].split(";")[0]
+                else: ext = ".bin"
+            elif isinstance(media, raw_types.MessageMediaPhoto):
+                photo = media.photo
+                ext = ".jpg"
+            else:
+                LOGGER.warning(f"[raw] unsupported media type for {msg_id}: {type(media).__name__}")
+                return None
+
+            # 4) Build file location
+            if doc:
+                location = raw_types.InputDocumentFileLocation(
+                    id=doc.id, access_hash=doc.access_hash,
+                    file_reference=doc.file_reference, thumb_size=""
+                )
+            else:
+                # Pick largest photo size
+                sizes = [s for s in photo.sizes if hasattr(s, 'sizes')]
+                if not sizes:
+                    sizes = photo.sizes
+                largest = max(photo.sizes, key=lambda s: (
+                    (s.w * s.h) if hasattr(s, 'w') and hasattr(s, 'h') else 0
+                ))
+                # For photo, use InputPhotoFileLocation with the size type
+                photo_size = raw_types.InputPhotoSize(
+                    type=largest.type, location=raw_types.FileLocationToBeDeprecated(
+                        volume_id=photo.id & 0xFFFFFFFF,
+                        local_id=0,
+                    )
+                )
+                # Simpler: use InputPeerPhotoFileLocation
+                location = raw_types.InputPhotoFileLocation(
+                    id=largest.location.volume_id if hasattr(largest, 'location') else photo.id,
+                    access_hash=photo.access_hash,
+                    file_reference=b"",
+                    thumb_size=largest.type if hasattr(largest, 'type') else "y",
+                )
+
+            file_path = os.path.join(tempfile.gettempdir(), f"tgbot_raw_{msg_id}{ext}")
+            CHUNK = 1024 * 1024
+            offset = 0
+
+            # 5) Download file in chunks
+            with open(file_path, 'wb') as f:
+                while True:
+                    chunk = await user_client.invoke(
+                        raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
+                    )
+                    if not chunk or not chunk.bytes:
+                        break
+                    f.write(chunk.bytes)
+                    offset += len(chunk.bytes)
+                    if len(chunk.bytes) < CHUNK:
+                        break
+
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                LOGGER.info(f"[raw] ok {os.path.getsize(file_path)} bytes msg {msg_id}")
+                return file_path
+            return None
+
+        except Exception as e:
+            LOGGER.error(f"[raw] failed msg {msg_id}: {type(e).__name__}: {e}")
+            return None
+
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
         # If media_type is None (Pyrofork couldn't parse), sniff from file ext
         if media_type is None:
@@ -965,7 +1068,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v10.0: msg.media or _gid unified branch")
+        LOGGER.info(f"[PrivateBatch] v11.0: raw MTProto for video fallback")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1123,7 +1226,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v10.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v11.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1174,11 +1277,9 @@ def setup_pbatch_handler(app: Client):
                                 progress_args=progressArgs("downloading", status_message, start_ts),
                             )
                         else:
-                            # msg.media=None（视频），用元组让 Pyrofork 重新获取
-                            file_path = await user_client.download_media(
-                                (pvt_chat_id, msg_id),
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=progressArgs("downloading", status_message, start_ts),
+                            # msg.media=None → 用 raw MTProto API 直接下载
+                            file_path = await _raw_download_msg(
+                                user_client, pvt_chat_id, msg_id, status_message, start_ts
                             )
                         if file_path and os.path.exists(file_path):
                             _current_status = f"upload {idx}/{total_msg_count}"
