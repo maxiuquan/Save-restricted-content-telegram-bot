@@ -1,5 +1,7 @@
-# ✅ v9.0 重构：用 client.download_media((chat, msg_id)) 绕过 msg.media=None 问题
-# ✅ 核心修复：元组形式让 Pyrofork 内部重新获取消息并解析媒体
+# ✅ v10.0 重构：合并 v8.0 group 分支到主分支，统一处理 media+video
+# ✅ 核心修复：if msg.media or _gid → 让视频消息也走下载流程
+# ✅ 关键：用 user_client.download_media((chat, msg_id)) 重新获取
+# ✅ _upload_to_saved: media_type=None 时按文件扩展名嗅探类型
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -897,6 +899,20 @@ def setup_pbatch_handler(app: Client):
 
     # v6.0 helper: upload media to Saved Messages by type
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
+        # If media_type is None (Pyrofork couldn't parse), sniff from file ext
+        if media_type is None:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
+                media_type = MessageMediaType.VIDEO
+            elif ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
+                media_type = MessageMediaType.PHOTO
+            elif ext in ('.ogg', '.oga'):
+                media_type = MessageMediaType.VOICE
+            elif ext in ('.mp3', '.m4a', '.wav', '.flac'):
+                media_type = MessageMediaType.AUDIO
+            else:
+                media_type = MessageMediaType.DOCUMENT
+            LOGGER.info(f"[PrivateBatch] sniffed media_type={media_type} for msg {msg_id} from ext")
         if media_type == MessageMediaType.VIDEO:
             duration, _, _ = await get_media_info(file_path)
             width, height = await get_video_resolution(file_path)
@@ -949,7 +965,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v9.0: client.download_media((chat, msg_id))")
+        LOGGER.info(f"[PrivateBatch] v10.0: msg.media or _gid unified branch")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1107,7 +1123,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v9.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v10.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1143,18 +1159,27 @@ def setup_pbatch_handler(app: Client):
                     await asyncio.sleep(1)
                     continue
 
-                # has media: normal download+upload
-                if msg.media:
+                # 有 media 或有 media_group_id：都尝试 download+upload
+                if msg.media or _gid:
                     media_type = msg.media
                     caption_text = msg.caption.markdown if msg.caption else ""
                     file_path = None
                     try:
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
-                        file_path = await msg.download(
-                            progress=Leaves.progress_for_pyrogram,
-                            progress_args=progressArgs("downloading", status_message, start_ts),
-                        )
+                        # 关键：若 msg.media 为 None（视频），用元组让 Pyrofork 重新获取
+                        if msg.media:
+                            file_path = await msg.download(
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("downloading", status_message, start_ts),
+                            )
+                        else:
+                            # msg.media=None（视频），用元组让 Pyrofork 重新获取
+                            file_path = await user_client.download_media(
+                                (pvt_chat_id, msg_id),
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("downloading", status_message, start_ts),
+                            )
                         if file_path and os.path.exists(file_path):
                             _current_status = f"upload {idx}/{total_msg_count}"
                             _update_progress()
@@ -1179,73 +1204,7 @@ def setup_pbatch_handler(app: Client):
                     await _apply_delay(idx)
                     continue
 
-                # no media but has media_group_id: use client.download_media((chat, msg_id))
-                # 关键：用元组让 Pyrofork 内部重新获取消息，绕过 msg.media=None 的问题
-                if _gid:
-                    group_msgs = [m for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
-                    group_ok = 0
-                    group_fail = 0
-                    for gm in group_msgs:
-                        if cancel_flags.get(chat_id):
-                            break
-                        _current_status = f"group d/l {all_messages.index(gm)+1}/{total_msg_count}"
-                        _update_progress()
-                        fpath = None
-                        try:
-                            # 关键修复：用 (chat_id, msg_id) 元组，Pyrofork 会重新获取消息
-                            fpath = await user_client.download_media(
-                                (pvt_chat_id, gm.id),
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=progressArgs("downloading", status_message, start_ts),
-                            )
-                            if fpath and os.path.exists(fpath):
-                                # Determine type from file
-                                ext = os.path.splitext(fpath)[1].lower()
-                                cap = gm.caption.markdown if gm.caption else ""
-                                if ext in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
-                                    dur, _, _ = await get_media_info(fpath)
-                                    w, h = await get_video_resolution(fpath)
-                                    thumb = await get_video_thumbnail(fpath, dur)
-                                    await user_client.send_video("me", fpath, caption=cap,
-                                        duration=dur or 0, width=w, height=h,
-                                        thumb=thumb, supports_streaming=True)
-                                    LOGGER.info(f"[PrivateBatch] group video ok msg {gm.id}")
-                                elif ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
-                                    await user_client.send_photo("me", fpath, caption=cap)
-                                    LOGGER.info(f"[PrivateBatch] group photo ok msg {gm.id}")
-                                elif ext in ('.ogg', '.oga'):
-                                    await user_client.send_voice("me", fpath, caption=cap)
-                                    LOGGER.info(f"[PrivateBatch] group voice ok msg {gm.id}")
-                                elif ext in ('.mp3', '.m4a', '.wav', '.flac'):
-                                    dur, artist, title = await get_media_info(fpath)
-                                    await user_client.send_audio("me", fpath, caption=cap,
-                                        duration=dur or 0, performer=artist, title=title)
-                                    LOGGER.info(f"[PrivateBatch] group audio ok msg {gm.id}")
-                                else:
-                                    await user_client.send_document("me", fpath, caption=cap)
-                                    LOGGER.info(f"[PrivateBatch] group doc ok msg {gm.id}")
-                                group_ok += 1
-                            else:
-                                group_fail += 1
-                        except FloodWait as fw:
-                            w = fw.value if hasattr(fw, 'value') else 60
-                            await asyncio.sleep(w + 2)
-                            group_fail += 1
-                        except Exception as e:
-                            LOGGER.warning(f"[PrivateBatch] group msg {gm.id} failed: {type(e).__name__}")
-                            group_fail += 1
-                        finally:
-                            if fpath and os.path.exists(fpath):
-                                try: os.remove(fpath)
-                                except Exception: pass
-
-                    success_count += group_ok
-                    fail_count += group_fail
-                    processed_groups.add(_gid)
-                    _update_progress()
-                    await _apply_delay(idx)
-                    continue
-
+                # v10.0：删除 v8.0 重复的 group 处理块（已合并到主分支）
                 # no media, no group: skip
                 LOGGER.warning(f"[PrivateBatch] skip msg {msg_id}: no media, no group")
                 fail_count += 1
