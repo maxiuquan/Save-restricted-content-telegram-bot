@@ -1073,44 +1073,42 @@ def setup_pbatch_handler(app: Client):
             # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
             LOGGER.info(f"[v20] start={start_message_id} count={count}")
 
-            # 参考项目做法：先 get_dialogs 刷新缓存，确保 peer 被缓存
+            # 关键步骤：用 raw API 获取 channel access_hash 并注入 peer 缓存
+            # 临时创建的客户端没有私密频道的 peer 缓存，直接 get_chat_history 会报 Peer id invalid
             try:
-                async for _ in user_client.get_dialogs(limit=50):
-                    pass
+                _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
+                _r = await user_client.invoke(
+                    raw.functions.channels.GetChannels(
+                        id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+                    )
+                )
+                if _r.chats:
+                    _p = _r.chats[0]
+                    if hasattr(_p, 'access_hash') and _p.access_hash:
+                        _peer = raw.types.InputPeerChannel(
+                            channel_id=_raw_channel_id,
+                            access_hash=_p.access_hash
+                        )
+                        if hasattr(user_client, 'peers_by_id'):
+                            user_client.peers_by_id[pvt_chat_id] = _peer
+                        LOGGER.info(f"[v20] raw resolved and cached peer for -100{_raw_channel_id}")
             except Exception as e:
-                LOGGER.warning(f"[v20] get_dialogs refresh failed: {e}")
-
-            # 如果 pvt_chat_id 带 -100 前缀，尝试去掉前缀再试
-            _fetch_id = pvt_chat_id
-            _alt_id = None
-            chat_id_str = str(pvt_chat_id)
-            if chat_id_str.startswith('-100'):
-                _alt_id = int(f"-{chat_id_str[4:]}")
-            elif chat_id_str.startswith('-'):
-                _alt_id = int(f"-100{chat_id_str[1:]}")
+                LOGGER.warning(f"[v20] raw peer resolve failed: {e}")
 
             # 获取足够多的消息（count + 10 的余量）
             limit_needed = min(count * 2, 500)  # 最多500条，避免性能问题
             messages = []
-
-            # 尝试主 chat_id，失败则尝试备选
-            for cid in ([_fetch_id, _alt_id] if _alt_id else [_fetch_id]):
-                try:
-                    async for m in user_client.get_chat_history(
-                        chat_id=cid,
-                        limit=limit_needed,
-                    ):
-                        if m and not getattr(m, 'empty', False) and m.id:
-                            messages.append(m)
-                        if len(messages) >= count + 10:
-                            break
-                    if messages:
-                        _fetch_id = cid
+            try:
+                async for m in user_client.get_chat_history(
+                    chat_id=pvt_chat_id,
+                    limit=limit_needed,
+                ):
+                    if m and not getattr(m, 'empty', False) and m.id:
+                        messages.append(m)
+                    if len(messages) >= count + 10:
                         break
-                except Exception as e:
-                    LOGGER.warning(f"[v20] get_chat_history({cid}) failed: {e}")
-                    messages = []
-                    continue
+            except Exception as e:
+                LOGGER.warning(f"[v20] get_chat_history failed: {e}")
 
             # 默认是最新在前，我们反转成最旧在前（ID 升序）
             messages.reverse()
