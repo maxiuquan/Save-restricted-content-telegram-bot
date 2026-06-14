@@ -1265,6 +1265,40 @@ def setup_pbatch_handler(app: Client):
                         except Exception as e:
                             LOGGER.warning(f"[v20] raw fallback error {mid}: {e}")
 
+                    # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
+                    if not _has_media and not msg.text and _media_group_id:
+                        LOGGER.info(f"[v20] media group shell msg {mid}, searching for grouped media...")
+                        _found_group = False
+                        async for _gm in user_client.get_chat_history(chat_id=pvt_chat_id, limit=50):
+                            if getattr(_gm, 'media_group_id', None) == _media_group_id and _gm.media:
+                                LOGGER.info(f"[v20] found grouped media msg id={_gm.id} media={_gm.media}")
+                                _cap = _gm.caption.markdown if _gm.caption else ""
+                                _current_status = f"download {idx}/{total_msg_count}"
+                                _update_progress()
+                                try:
+                                    _gp = await user_client.download_media(
+                                        _gm,
+                                        file_name=f"dl_{_gm.id}_{int(time.time())}",
+                                        progress=Leaves.progress_for_pyrogram,
+                                        progress_args=progressArgs("downloading", status_message, start_ts),
+                                    )
+                                    if _gp and os.path.exists(_gp):
+                                        await _upload_to_saved(
+                                            user_client, _gm.media, _gp, _cap,
+                                            thumbnail_path, _gm.id
+                                        )
+                                        success_count += 1
+                                        try:
+                                            os.remove(_gp)
+                                        except Exception:
+                                            pass
+                                        _found_group = True
+                                except Exception as e:
+                                    LOGGER.warning(f"[v20] grouped media dl failed: {e}")
+                                break
+                        if _found_group:
+                            continue
+
                     # 无媒体无文字 → 跳过
                     LOGGER.warning(f"[v20] skip: {mid}")
                     fail_count += 1
