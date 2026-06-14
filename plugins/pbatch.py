@@ -1153,10 +1153,14 @@ def setup_pbatch_handler(app: Client):
                     _has_voice = bool(getattr(msg, 'voice', None))
                     _has_anim = bool(getattr(msg, 'animation', None))
                     _has_sticker = bool(getattr(msg, 'sticker', None))
+                    _grouped_id = getattr(msg, 'grouped_id', None)
+                    _media_group_id = getattr(msg, 'media_group_id', None)
+                    _is_scheduled = getattr(msg, 'from_scheduled', False)
                     LOGGER.info(
                         f"[v20] {idx}/{total_msg_count} id={mid} "
                         f"media={_has_media} v={_has_video} p={_has_photo} d={_has_doc} "
-                        f"a={_has_audio} vn={_has_vn} vo={_has_voice} an={_has_anim} s={_has_sticker}"
+                        f"a={_has_audio} vn={_has_vn} vo={_has_voice} an={_has_anim} s={_has_sticker} "
+                        f"grouped={_grouped_id} mgid={_media_group_id} sched={_is_scheduled}"
                     )
 
                     # 文字消息 → 直接发送
