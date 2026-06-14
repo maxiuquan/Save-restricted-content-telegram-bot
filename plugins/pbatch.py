@@ -1,7 +1,6 @@
-# ✅ v14.0 重构：raw MTProto + InputDocument → user_client.download_media()
-# ✅ 核心修复：msg.media=None 时，用 raw API 取 document，
-# ✅   构造 InputDocument 传给 download_media → 绕开 Pyrofork 解析 bug
-# ✅ 然后按 mime type 推断 media_type 上传到 Saved Messages
+# ✅ v15.0 重构：raw InputDocument + download_media(in_memory=True) + 手动写文件
+# ✅ 核心修复：in_memory=True 让 Pyrofork 返回 bytes，彻底绕开内部文件 I/O 的 int bug
+# ✅ 流程：channels.GetMessages → InputDocument → download_media(in_memory) → open().write()
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -965,7 +964,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v14.0: raw InputDocument for video download")
+        LOGGER.info(f"[PrivateBatch] v15.0: in_memory download for video")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1123,7 +1122,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v14.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v15.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1195,34 +1194,50 @@ def setup_pbatch_handler(app: Client):
                                         id=doc.id, access_hash=doc.access_hash,
                                         file_reference=doc.file_reference
                                     )
-                                    # Try downloading via file_id
-                                    file_path = await user_client.download_media(
-                                        file_id,
-                                        progress=Leaves.progress_for_pyrogram,
-                                        progress_args=progressArgs("downloading", status_message, start_ts),
-                                    )
-                                    if file_path and os.path.exists(file_path):
-                                        # Determine media_type by mime
-                                        mime = doc.mime_type or ""
-                                        if mime.startswith("video/"):
-                                            media_type = MessageMediaType.VIDEO
-                                        elif mime.startswith("audio/"):
-                                            # Check voice vs audio
-                                            is_voice = any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice
-                                                          for a in doc.attributes)
-                                            media_type = MessageMediaType.VOICE if is_voice else MessageMediaType.AUDIO
+                                    # v15.0: in_memory=True → Pyrofork 返回 bytes，我手动写文件
+                                    # 彻底绕开 Pyrofork 内部文件 I/O 的 'int has no write' bug
+                                    import tempfile as _tf
+                                    _ext = ".mp4"
+                                    _mime = doc.mime_type or ""
+                                    if "video/" in _mime: _ext = "." + _mime.split("/")[1].split(";")[0]
+                                    elif "audio/" in _mime:
+                                        is_voice = any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice for a in doc.attributes)
+                                        _ext = ".ogg" if is_voice else ".mp3"
+                                    else: _ext = ".bin"
+                                    file_path = os.path.join(_tf.gettempdir(), f"tgbot_v15_{msg_id}{_ext}")
+
+                                    try:
+                                        data_bytes = await user_client.download_media(
+                                            file_id, in_memory=True,
+                                        )
+                                        if data_bytes and len(data_bytes) > 0:
+                                            with open(file_path, 'wb') as _fw:
+                                                _fw.write(data_bytes)
+                                            LOGGER.info(f"[v15] ok {len(data_bytes)} bytes msg {msg_id}")
                                         else:
-                                            media_type = MessageMediaType.DOCUMENT
-                                        # Video note?
-                                        is_vnote = any(isinstance(a, raw_types.DocumentAttributeVideo) and a.round_message
-                                                      for a in doc.attributes)
-                                        if is_vnote:
-                                            media_type = MessageMediaType.VIDEO_NOTE
-                                        LOGGER.info(f"[raw] downloaded {os.path.getsize(file_path)} bytes msg {msg_id} type={media_type}")
-                                    else:
-                                        LOGGER.warning(f"[raw] download_media returned None for {msg_id}")
+                                            LOGGER.warning(f"[v15] empty data for msg {msg_id}")
+                                            fail_count += 1
+                                            continue
+                                    except Exception as de:
+                                        LOGGER.error(f"[v15] download_media(in_memory) failed {msg_id}: {type(de).__name__}: {de}")
                                         fail_count += 1
                                         continue
+
+                                    # Determine media_type by mime
+                                    mime = doc.mime_type or ""
+                                    if mime.startswith("video/"):
+                                        media_type = MessageMediaType.VIDEO
+                                    elif mime.startswith("audio/"):
+                                        is_voice = any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice
+                                                      for a in doc.attributes)
+                                        media_type = MessageMediaType.VOICE if is_voice else MessageMediaType.AUDIO
+                                    else:
+                                        media_type = MessageMediaType.DOCUMENT
+                                    # Video note?
+                                    is_vnote = any(isinstance(a, raw_types.DocumentAttributeVideo) and a.round_message
+                                                  for a in doc.attributes)
+                                    if is_vnote:
+                                        media_type = MessageMediaType.VIDEO_NOTE
                                 else:
                                     LOGGER.warning(f"[raw] non-document media for {msg_id}")
                                     fail_count += 1
