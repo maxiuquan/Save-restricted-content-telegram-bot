@@ -1,5 +1,5 @@
-# ✅ v6.0 重构：raw MTProto API 绕过 Pyrofork 媒体解析
-# ✅ 核心修复：Pyrofork 无法解析某些消息的视频属性 → 直接用 raw API
+# ✅ v7.0 重构：forward_messages 替代 raw MTProto（绕过 Pyrofork 媒体解析）
+# ✅ 核心修复：对无 media 但有 media_group_id 的消息，直接 forward 到 Saved Messages
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -934,164 +934,6 @@ def setup_pbatch_handler(app: Client):
             await user_client.send_document("me", file_path, caption=caption)
             LOGGER.info(f"[PrivateBatch] ok fallback msg {msg_id} type={media_type}")
 
-    # v6.0 helper: process media group via raw MTProto
-    async def _raw_download_and_upload(user_client, peer, msg_ids, bot, chat_id,
-                                        status_message, start_ts, thumb_path):
-        """Use raw MTProto to get messages, download media, upload to Saved Messages."""
-        from pyrogram.raw import functions as raw_funcs, types as raw_types
-
-        raw_result = await user_client.invoke(
-            raw_funcs.channels.GetMessages(channel=peer, id=[
-                raw_types.InputMessageID(id=mid) for mid in msg_ids
-            ])
-        )
-
-        if not raw_result or not raw_result.messages:
-            return False
-
-        success = True
-        for raw_msg in raw_result.messages:
-            if not isinstance(raw_msg, raw_types.Message) or not raw_msg.media:
-                LOGGER.warning(f"[PrivateBatch] raw msg {raw_msg.id} has no media")
-                continue
-
-            media = raw_msg.media
-            caption = raw_msg.message or ""
-
-            # Determine file to download
-            doc = None
-            photo = None
-            is_video = False
-            is_audio = False
-            is_voice = False
-            is_vnote = False
-
-            if isinstance(media, raw_types.MessageMediaDocument):
-                doc = media.document
-                for attr in doc.attributes:
-                    if isinstance(attr, raw_types.DocumentAttributeVideo):
-                        is_video = True
-                        if attr.round_message:
-                            is_vnote = True
-                    elif isinstance(attr, raw_types.DocumentAttributeAudio):
-                        if attr.voice:
-                            is_voice = True
-                        else:
-                            is_audio = True
-
-            elif isinstance(media, raw_types.MessageMediaPhoto):
-                photo = media.photo
-
-            if not doc and not photo:
-                continue
-
-            # Download via raw API
-            import tempfile
-            file_path = None
-            try:
-                if doc:
-                    ext = ".mp4" if is_video else ".ogg" if is_voice else ".mp3" if is_audio else ".bin"
-                    file_path = os.path.join(tempfile.gettempdir(), f"tgbot_raw_{raw_msg.id}{ext}")
-                    await _raw_download_file(user_client, doc, file_path)
-                elif photo:
-                    # Find largest photo size
-                    largest = max(photo.sizes, key=lambda s: getattr(s, 'w', 0) * getattr(s, 'h', 0)
-                                  if hasattr(s, 'w') and hasattr(s, 'h') else 0)
-                    file_path = os.path.join(tempfile.gettempdir(), f"tgbot_raw_{raw_msg.id}.jpg")
-                    await _raw_download_photo(user_client, largest, file_path)
-
-                if not file_path or not os.path.exists(file_path):
-                    continue
-
-                # Upload to Saved Messages
-                if is_video and not is_vnote:
-                    dur, _, _ = await get_media_info(file_path)
-                    w, h = await get_video_resolution(file_path)
-                    thumb = await get_video_thumbnail(file_path, dur)
-                    await user_client.send_video("me", file_path, caption=caption,
-                        duration=dur or 0, width=w, height=h, thumb=thumb, supports_streaming=True)
-                    LOGGER.info(f"[PrivateBatch] raw ok video msg {raw_msg.id}")
-                elif is_vnote:
-                    dur, _, _ = await get_media_info(file_path)
-                    await user_client.send_video_note("me", file_path, duration=dur or 0)
-                    LOGGER.info(f"[PrivateBatch] raw ok vnote msg {raw_msg.id}")
-                elif is_voice:
-                    await user_client.send_voice("me", file_path, caption=caption)
-                    LOGGER.info(f"[PrivateBatch] raw ok voice msg {raw_msg.id}")
-                elif is_audio:
-                    dur, artist, title = await get_media_info(file_path)
-                    await user_client.send_audio("me", file_path, caption=caption,
-                        duration=dur or 0, performer=artist, title=title)
-                    LOGGER.info(f"[PrivateBatch] raw ok audio msg {raw_msg.id}")
-                elif photo:
-                    await user_client.send_photo("me", file_path, caption=caption)
-                    LOGGER.info(f"[PrivateBatch] raw ok photo msg {raw_msg.id}")
-                else:
-                    await user_client.send_document("me", file_path, caption=caption)
-                    LOGGER.info(f"[PrivateBatch] raw ok doc msg {raw_msg.id}")
-
-            except FloodWait as fw:
-                w = fw.value if hasattr(fw, 'value') else 60
-                await asyncio.sleep(w + 2)
-                success = False
-            except Exception as e:
-                LOGGER.error(f"[PrivateBatch] raw upload failed msg {raw_msg.id}: {type(e).__name__}: {e}")
-                success = False
-            finally:
-                if file_path and os.path.exists(file_path):
-                    try: os.remove(file_path)
-                    except Exception: pass
-
-        return success
-
-    async def _raw_download_file(user_client, document, file_path):
-        """Download a document via raw MTProto upload.GetFile."""
-        from pyrogram.raw import functions as raw_funcs, types as raw_types
-        CHUNK = 1024 * 1024  # 1MB
-
-        location = raw_types.InputDocumentFileLocation(
-            id=document.id,
-            access_hash=document.access_hash,
-            file_reference=document.file_reference,
-            thumb_size=""
-        )
-        offset = 0
-        with open(file_path, 'wb') as f:
-            while True:
-                result = await user_client.invoke(
-                    raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
-                )
-                if not result or not result.bytes:
-                    break
-                f.write(result.bytes)
-                offset += len(result.bytes)
-                if len(result.bytes) < CHUNK:
-                    break
-
-    async def _raw_download_photo(user_client, photo_size, file_path):
-        """Download a photo size via raw MTProto upload.GetFile."""
-        from pyrogram.raw import functions as raw_funcs, types as raw_types
-        CHUNK = 1024 * 1024
-
-        location = raw_types.InputPhotoFileLocation(
-            id=photo_size.id if hasattr(photo_size, 'id') else 0,
-            access_hash=0,
-            file_reference=b'',
-            thumb_size=photo_size.type if hasattr(photo_size, 'type') else 'y'
-        )
-        offset = 0
-        with open(file_path, 'wb') as f:
-            while True:
-                result = await user_client.invoke(
-                    raw_funcs.upload.GetFile(location=location, offset=offset, limit=CHUNK)
-                )
-                if not result or not result.bytes:
-                    break
-                f.write(result.bytes)
-                offset += len(result.bytes)
-                if len(result.bytes) < CHUNK:
-                    break
-
     async def _apply_delay(idx):
         if idx < 25: t = 3
         elif idx < 50: t = 5
@@ -1107,7 +949,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] 🚀 v6.0 raw MTProto 模式启动（绕过 Pyrofork 媒体解析）")
+        LOGGER.info(f"[PrivateBatch] v7.0 forward_messages mode for media groups")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1136,7 +978,7 @@ def setup_pbatch_handler(app: Client):
         fail_count     = 0
         missing_count  = 0
         effective_total = count
-        _processed_groups = set()
+        processed_groups = set()
         _current_status = ""
         _file_progress = [0, 0]
 
@@ -1253,7 +1095,7 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v6.0：get_chat_history + raw MTProto fallback ──
+            # ── v7.0：get_chat_history + forward_messages for media groups ──
 
             all_messages = []
             async for msg in user_client.get_chat_history(
@@ -1265,7 +1107,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v6.0 raw MTProto: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v7.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1275,14 +1117,6 @@ def setup_pbatch_handler(app: Client):
                 _del_state(chat_id)
                 await safe_stop_client(user_client)
                 return
-
-            try:
-                _raw_ch = int(str(pvt_chat_id)[4:])
-                _peer = await user_client.resolve_peer(pvt_chat_id)
-            except Exception:
-                _peer = None
-
-            processed_groups = set()
 
             for msg in all_messages:
                 if cancel_flags.get(chat_id):
@@ -1345,22 +1179,21 @@ def setup_pbatch_handler(app: Client):
                     await _apply_delay(idx)
                     continue
 
-                # no media but has media_group_id: use raw MTProto
-                if _gid and _peer:
+                # no media but has media_group_id: forward to Saved Messages
+                if _gid:
                     group_ids = [m.id for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
-                    _current_status = f"raw {idx}/{total_msg_count}"
+                    _current_status = f"forward group {idx}/{total_msg_count}"
                     _update_progress()
                     try:
-                        ok = await _raw_download_and_upload(
-                            user_client, _peer, group_ids, bot, chat_id,
-                            status_message, start_ts, thumbnail_path,
+                        await user_client.forward_messages(
+                            chat_id="me",
+                            from_chat_id=pvt_chat_id,
+                            message_ids=group_ids,
                         )
-                        if ok:
-                            success_count += len(group_ids)
-                        else:
-                            fail_count += len(group_ids)
+                        success_count += len(group_ids)
+                        LOGGER.info(f"[PrivateBatch] forwarded group {_gid}: {len(group_ids)} msgs")
                     except Exception as e:
-                        LOGGER.error(f"[PrivateBatch] raw group {_gid} failed: {e}")
+                        LOGGER.error(f"[PrivateBatch] forward group {_gid} failed: {type(e).__name__}: {e}")
                         fail_count += len(group_ids)
                     processed_groups.add(_gid)
                     _update_progress()
