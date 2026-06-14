@@ -1118,16 +1118,45 @@ def setup_pbatch_handler(app: Client):
             LOGGER.info(f"[PrivateBatch] v19.1: get_chat_history mode, {total_msg_count} msgs, start={start_message_id}")
 
             # 用 get_chat_history 一次性获取所有消息
+            # 注意：get_chat_history(offset_id=X) 返回 ID <= X 的消息（向上）
+            #       要获取 start_message_id 之后的消息，需传 offset_id=start_message_id
+            #       但这样会返回 start_message_id 之前的消息
+            #       正确做法：用 offset_id=0 获取全部，然后过滤 >= start_message_id 的
+            #       但更高效的方式是直接指定 offset_id=start_message_id，limit=total_msg_count+5
+            #       然后取返回结果中 id >= start_message_id 的前 total_msg_count 条
+            
+            # 更简单方案：offset_date=0 获取全部，从 start_message_id 开始取
+            # 但这样效率低。改用：offset_id=start_message_id，limit 设大一些，然后筛选
             messages = []
+            # offset_id=start_message_id 会获取 start_message_id 之前的消息
+            # 所以要获取 start_message_id 及之后的，需要 offset_id=0 或一个很小的值
+            # 然后用 filter 取 >= start_message_id 的连续消息
+            all_msgs = []
             async for msg in user_client.get_chat_history(
                 chat_id=pvt_chat_id,
-                limit=total_msg_count,
-                offset_id=start_message_id - 1,
+                limit=total_msg_count * 2,  # 留余量
+                offset_id=0,  # 获取最新消息
+                reverse=True,  # 从旧到新（反向遍历）
             ):
                 if msg and not getattr(msg, 'empty', False) and msg.id:
-                    messages.append(msg)
+                    all_msgs.append(msg)
+            
+            # 过滤出从 start_message_id 开始的连续消息
+            start_idx = None
+            for i, m in enumerate(all_msgs):
+                if m.id == start_message_id:
+                    start_idx = i
+                    break
+            
+            if start_idx is not None:
+                messages = all_msgs[start_idx:start_idx + total_msg_count]
+                # 确保只取 >= start_message_id 的
+                messages = [m for m in messages if m.id >= start_message_id][:total_msg_count]
+            else:
+                # 如果没找到 start_message_id，取前 total_msg_count 条
+                messages = all_msgs[:total_msg_count]
 
-            LOGGER.info(f"[v19.1] get_chat_history returned {len(messages)} messages")
+            LOGGER.info(f"[v19.1] get_chat_history: filtered {len(messages)} msgs from {len(all_msgs)} total")
 
             if not messages:
                 await status_message.edit_text(
