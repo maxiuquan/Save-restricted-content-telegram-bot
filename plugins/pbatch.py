@@ -1097,6 +1097,23 @@ def setup_pbatch_handler(app: Client):
 
                 # ── 无媒体消息 ──
                 if not msg.media:
+                    # 诊断：为什么没有 media？记录消息实际属性
+                    _has_video = msg.video is not None
+                    _has_photo = msg.photo is not None
+                    _has_doc   = msg.document is not None
+                    _has_audio = msg.audio is not None
+                    _has_anim  = msg.animation is not None
+                    _has_vnote = msg.video_note is not None
+                    _has_voice = msg.voice is not None
+                    _has_text  = bool(msg.text or msg.caption)
+                    _has_media_raw = getattr(msg, '_raw', None)
+                    LOGGER.warning(
+                        f"[PrivateBatch] ⚠️ msg {msg_id} 无 media 枚举！"
+                        f" video={_has_video} photo={_has_photo} doc={_has_doc}"
+                        f" audio={_has_audio} anim={_has_anim} vnote={_has_vnote}"
+                        f" voice={_has_voice} text={_has_text}"
+                        f" raw_media={_has_media_raw is not None}"
+                    )
                     fail_count += 1
                     _update_progress()
                     await asyncio.sleep(1)
@@ -1104,6 +1121,7 @@ def setup_pbatch_handler(app: Client):
 
                 # ── 原版方式：用 msg.media 枚举检测媒体类型 ──
                 media_type = msg.media  # MessageMediaType enum
+                LOGGER.info(f"[PrivateBatch] 📋 msg {msg_id} media_type={media_type}")
                 caption_text = msg.caption.markdown if msg.caption else ""
                 file_path = None
 
