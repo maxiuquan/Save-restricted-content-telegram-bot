@@ -1,5 +1,5 @@
-# ✅ v8.0 重构：即使 msg.media 为 None 也尝试 msg.download()
-# ✅ 核心修复：Pyrofork 内部用 raw TL 数据下载，不依赖 msg.media 解析
+# ✅ v9.0 重构：用 client.download_media((chat, msg_id)) 绕过 msg.media=None 问题
+# ✅ 核心修复：元组形式让 Pyrofork 内部重新获取消息并解析媒体
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -949,7 +949,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time()
 
-        LOGGER.info(f"[PrivateBatch] v8.0: download even if msg.media is None")
+        LOGGER.info(f"[PrivateBatch] v9.0: client.download_media((chat, msg_id))")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1095,7 +1095,7 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v8.0：get_chat_history + download even without msg.media ──
+            # ── v9.0：get_chat_history + client.download_media((chat, msg_id)) ──
 
             all_messages = []
             async for msg in user_client.get_chat_history(
@@ -1107,7 +1107,7 @@ def setup_pbatch_handler(app: Client):
             all_messages.reverse()
             all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
             total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v8.0: {total_msg_count} messages")
+            LOGGER.info(f"[PrivateBatch] v9.0: {total_msg_count} messages")
 
             if not all_messages:
                 try:
@@ -1179,7 +1179,8 @@ def setup_pbatch_handler(app: Client):
                     await _apply_delay(idx)
                     continue
 
-                # no media but has media_group_id: try download (Pyrofork may still work)
+                # no media but has media_group_id: use client.download_media((chat, msg_id))
+                # 关键：用元组让 Pyrofork 内部重新获取消息，绕过 msg.media=None 的问题
                 if _gid:
                     group_msgs = [m for m in all_messages if getattr(m, 'media_group_id', None) == _gid]
                     group_ok = 0
@@ -1191,7 +1192,9 @@ def setup_pbatch_handler(app: Client):
                         _update_progress()
                         fpath = None
                         try:
-                            fpath = await gm.download(
+                            # 关键修复：用 (chat_id, msg_id) 元组，Pyrofork 会重新获取消息
+                            fpath = await user_client.download_media(
+                                (pvt_chat_id, gm.id),
                                 progress=Leaves.progress_for_pyrogram,
                                 progress_args=progressArgs("downloading", status_message, start_ts),
                             )
