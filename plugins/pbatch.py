@@ -1,7 +1,7 @@
-# ✅ v17.0 重构：raw MTProto + in_memory + 完整 traceback 诊断
-# ✅ 核心诊断：v16 确认所有属性为 NoneType → 必须用 raw API
-# ✅ download_media(in_memory=True) + 手动写文件到 os.getcwd()（不用 tempfile）
-# ✅ 完整 traceback 输出，精确定位 'int has no write' 的来源
+# ✅ v18.0 重构：完全按参考项目 Save-Restricted-Content-Bot-v3 模式
+# ✅ 参考：https://github.com/maxiuquan/Save-Restricted-Content-Bot-v3
+# ✅ 核心改动：get_dialogs() → get_messages() 逐条 → download_media() → 上传
+# ✅ 不用 get_chat_history，不用 raw MTProto，不用 forward_messages
 # ✅ 已修复：公开批量中 processMediaGroup 重复调用 bug
 
 import os
@@ -1111,168 +1111,112 @@ def setup_pbatch_handler(app: Client):
         _bg_task = asyncio.create_task(_bg_update())
 
         try:
-            # ── v9.0：get_chat_history + client.download_media((chat, msg_id)) ──
+            # ── v18.0：完全按参考项目 Save-Restricted-Content-Bot-v3 模式 ──
+            # 参考：https://github.com/maxiuquan/Save-Restricted-Content-Bot-v3/plugins/batch.py
+            # 核心改动：
+            #   1. 不用 get_chat_history，改用 get_messages 逐条获取
+            #   2. 先调 get_dialogs() 刷新缓存（关键！）
+            #   3. 按 msg_id 递增遍历：mid = start_message_id + j
+            #   4. 检查 m.video / m.photo / m.document 等具体属性
+            #   5. 用 user_client.download_media(m) 下载
 
-            all_messages = []
-            async for msg in user_client.get_chat_history(
-                chat_id=pvt_chat_id,
-                limit=count + 10,
-                offset_id=start_message_id + count,
-            ):
-                all_messages.append(msg)
-            all_messages.reverse()
-            all_messages = [m for m in all_messages if m and m.id and m.id >= start_message_id]
-            total_msg_count = len(all_messages)
-            LOGGER.info(f"[PrivateBatch] v17.0: {total_msg_count} messages")
+            total_msg_count = count
+            LOGGER.info(f"[PrivateBatch] v18.0: ref-bot-v3 mode, {total_msg_count} msgs, start={start_message_id}")
 
-            if not all_messages:
-                try:
-                    await status_message.edit_text("**FAIL: No messages.**", parse_mode=ParseMode.MARKDOWN)
-                except Exception:
-                    pass
-                _del_state(chat_id)
-                await safe_stop_client(user_client)
-                return
+            # Step 0: 刷新 dialogs 缓存（参考项目关键步骤）
+            async for _ in user_client.get_dialogs(limit=200):
+                pass
 
-            for msg in all_messages:
+            for j in range(total_msg_count):
                 if cancel_flags.get(chat_id):
                     break
 
-                idx = all_messages.index(msg) + 1
-                msg_id = msg.id
+                idx = j + 1
+                mid = start_message_id + j
 
-                # media group: skip already processed
-                _gid = getattr(msg, 'media_group_id', None)
-                if _gid and _gid in processed_groups:
-                    continue
+                try:
+                    # Step 1: 用 get_messages 逐条获取（不用 get_chat_history）
+                    msg = await user_client.get_messages(pvt_chat_id, mid)
 
-                # text-only message
-                if msg.text and not msg.media:
-                    _current_status = f"text {idx}/{total_msg_count}"
-                    try:
-                        _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
-                        await bot.send_message(chat_id=chat_id, text=_parsed, parse_mode=ParseMode.MARKDOWN)
-                        success_count += 1
-                    except Exception:
+                    if not msg or getattr(msg, 'empty', False) or not msg.id:
+                        LOGGER.warning(f"[v18] msg {mid}: empty/not found")
                         fail_count += 1
-                    _update_progress()
-                    await asyncio.sleep(1)
-                    continue
+                        continue
 
-                # 有 media 或有 media_group_id：都尝试 download+upload
-                if msg.media or _gid:
-                    media_type = msg.media
-                    caption_text = msg.caption.markdown if msg.caption else ""
-                    file_path = None
-                    try:
+                    # 诊断：打印消息属性概要
+                    _has_media = bool(msg.media)
+                    _has_video = bool(getattr(msg, 'video', None))
+                    _has_photo = bool(getattr(msg, 'photo', None))
+                    _has_doc = bool(getattr(msg, 'document', None))
+                    _from_sched = getattr(msg, 'from_scheduled', False)
+                    LOGGER.info(f"[v18] {idx}/{total_msg_count} msg={mid} media={_has_media} video={_has_video} photo={_has_photo} doc={_has_doc} from_sched={_from_sched}")
+
+                    # Step 2: 文字消息
+                    if msg.text and not msg.media:
+                        _current_status = f"text {idx}/{total_msg_count}"
+                        _update_progress()
+                        try:
+                            _parsed = await get_parsed_msg(msg.text, msg.entities or msg.caption_entities)
+                            await bot.send_message(chat_id=chat_id, text=_parsed, parse_mode=ParseMode.MARKDOWN)
+                            success_count += 1
+                        except Exception:
+                            fail_count += 1
+                        await asyncio.sleep(1)
+                        continue
+
+                    # Step 3: 媒体消息 — 按参考项目 process_msg 模式
+                    if msg.media:
+                        caption_text = msg.caption.markdown if msg.caption else ""
+                        file_path = None
+                        media_type = msg.media  # 默认用枚举
+
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
-                        # v17.0：raw MTProto 下载，带完整 traceback
-                        if not msg.media:
-                            import traceback
-                            try:
-                                from pyrogram.raw import functions as raw_funcs, types as raw_types
-                                peer = await user_client.resolve_peer(pvt_chat_id)
-                                result = await user_client.invoke(
-                                    raw_funcs.channels.GetMessages(channel=peer, id=[msg_id])
-                                )
-                                if not result or not result.messages:
-                                    LOGGER.warning(f"[v17] empty for {msg_id}")
-                                    fail_count += 1
-                                    continue
-                                raw_msg = result.messages[0]
-                                if not isinstance(raw_msg, raw_types.Message) or not raw_msg.media:
-                                    LOGGER.warning(f"[v17] no media raw {msg_id} type={type(raw_msg).__name__}")
-                                    fail_count += 1
-                                    continue
 
-                                if isinstance(raw_msg.media, raw_types.MessageMediaDocument):
-                                    doc = raw_msg.media.document
-                                    file_id_obj = raw_types.InputDocument(
-                                        id=doc.id, access_hash=doc.access_hash,
-                                        file_reference=doc.file_reference
-                                    )
-                                    mime = doc.mime_type or ""
-                                    # Determine type
-                                    if "video/" in mime:
-                                        media_type = MessageMediaType.VIDEO
-                                        _ext = ".mp4"
-                                    elif any(isinstance(a, raw_types.DocumentAttributeVideo) and a.round_message for a in doc.attributes):
-                                        media_type = MessageMediaType.VIDEO_NOTE
-                                        _ext = ".ogg"
-                                    elif any(isinstance(a, raw_types.DocumentAttributeAudio) and a.voice for a in doc.attributes):
-                                        media_type = MessageMediaType.VOICE
-                                        _ext = ".ogg"
-                                    elif "audio/" in mime:
-                                        media_type = MessageMediaType.AUDIO
-                                        _ext = ".mp3"
-                                    else:
-                                        media_type = MessageMediaType.DOCUMENT
-                                        _ext = ".bin"
+                        # 按参考项目方式下载
+                        file_path = await user_client.download_media(
+                            msg,
+                            file_name=f"{time.time()}",
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs("downloading", status_message, start_ts),
+                        )
 
-                                    file_path = os.path.join(os.getcwd(), f"dl_{msg_id}{_ext}")
-
-                                    # v17: 用 io.BytesIO 接收，手动写文件（绕开 Pyrofork 文件 I/O）
-                                    data = await user_client.download_media(file_id_obj, in_memory=True)
-                                    if data and hasattr(data, 'getbuffer'):
-                                        with open(file_path, 'wb') as f:
-                                            f.write(data.getbuffer())
-                                        LOGGER.info(f"[v17] OK {len(data.getbuffer())} bytes msg {msg_id} type={media_type}")
-                                    elif isinstance(data, (bytes, bytearray)):
-                                        with open(file_path, 'wb') as f:
-                                            f.write(data)
-                                        LOGGER.info(f"[v17] OK {len(data)} bytes msg {msg_id} type={media_type}")
-                                    elif isinstance(data, str) and os.path.exists(data):
-                                        file_path = data
-                                        LOGGER.info(f"[v17] OK path msg {msg_id} type={media_type}")
-                                    else:
-                                        LOGGER.error(f"[v17] unexpected dl type={type(data).__name__} val={data!r} msg {msg_id}")
-                                        fail_count += 1
-                                        continue
-                                else:
-                                    LOGGER.warning(f"[v17] non-doc media {type(raw_msg.media).__name__} msg {msg_id}")
-                                    fail_count += 1
-                                    continue
-                            except Exception as e:
-                                tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-                                LOGGER.error(f"[v17] FAIL msg {msg_id}:\n{tb_str}")
-                                fail_count += 1
-                                continue
-                        else:
-                            file_path = await msg.download(
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=progressArgs("downloading", status_message, start_ts),
-                            )
-                        if file_path and os.path.exists(file_path):
-                            _current_status = f"upload {idx}/{total_msg_count}"
-                            _update_progress()
-                            await _upload_to_saved(user_client, media_type, file_path, caption_text, thumbnail_path, msg_id)
-                            success_count += 1
-                            if _gid:
-                                processed_groups.add(_gid)
-                        else:
+                        if not file_path or not os.path.exists(file_path):
+                            LOGGER.warning(f"[v18] download returned None/missing for msg {mid}")
                             fail_count += 1
-                    except FloodWait as fw:
-                        w = fw.value if hasattr(fw, 'value') else 60
-                        await asyncio.sleep(w + 2)
-                        fail_count += 1
-                    except Exception as e:
-                        LOGGER.error(f"[PrivateBatch] Failed msg {msg_id}: {type(e).__name__}: {e}")
-                        fail_count += 1
-                    finally:
-                        if file_path and os.path.exists(file_path):
-                            try: os.remove(file_path)
-                            except Exception: pass
-                    _update_progress()
-                    await _apply_delay(idx)
-                    continue
+                            continue
 
-                # v10.0：删除 v8.0 重复的 group 处理块（已合并到主分支）
-                # no media, no group: skip
-                LOGGER.warning(f"[PrivateBatch] skip msg {msg_id}: no media, no group")
-                fail_count += 1
-                _update_progress()
-                await asyncio.sleep(1)
+                        # 按参考项目方式上传（根据 m.video / m.photo 等）
+                        _current_status = f"upload {idx}/{total_msg_count}"
+                        _update_progress()
+
+                        await _upload_to_saved(user_client, media_type, file_path, caption_text, thumbnail_path, mid)
+                        success_count += 1
+
+                        # 清理临时文件
+                        if os.path.exists(file_path):
+                            try:
+                                os.remove(file_path)
+                            except Exception:
+                                pass
+
+                        _update_progress()
+                        await _apply_delay(idx)
+                        continue
+
+                    # 无媒体无文字
+                    LOGGER.warning(f"[v18] skip msg {mid}: no media, no text")
+                    fail_count += 1
+                    _update_progress()
+
+                except FloodWait as fw:
+                    w = fw.value if hasattr(fw, 'value') else 60
+                    LOGGER.warning(f"[v18] FloodWait {w}s at msg {mid}")
+                    await asyncio.sleep(w + 2)
+                    fail_count += 1
+                except Exception as e:
+                    LOGGER.error(f"[v18] error msg {mid}: {type(e).__name__}: {e}")
+                    fail_count += 1
 
         except Exception as e:
             LOGGER.error(f"[PrivateBatch] Unexpected error: {e}")
