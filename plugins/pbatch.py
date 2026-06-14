@@ -1143,11 +1143,24 @@ def setup_pbatch_handler(app: Client):
                 mid = msg.id
 
                 try:
-                    # 日志
-                    LOGGER.info(f"[v20] {idx}/{total_msg_count} id={mid} has_media={bool(msg.media)} text={bool(msg.text)}")
+                    # 详细诊断
+                    _has_media = bool(msg.media)
+                    _has_video = bool(getattr(msg, 'video', None))
+                    _has_photo = bool(getattr(msg, 'photo', None))
+                    _has_doc = bool(getattr(msg, 'document', None))
+                    _has_audio = bool(getattr(msg, 'audio', None))
+                    _has_vn = bool(getattr(msg, 'video_note', None))
+                    _has_voice = bool(getattr(msg, 'voice', None))
+                    _has_anim = bool(getattr(msg, 'animation', None))
+                    _has_sticker = bool(getattr(msg, 'sticker', None))
+                    LOGGER.info(
+                        f"[v20] {idx}/{total_msg_count} id={mid} "
+                        f"media={_has_media} v={_has_video} p={_has_photo} d={_has_doc} "
+                        f"a={_has_audio} vn={_has_vn} vo={_has_voice} an={_has_anim} s={_has_sticker}"
+                    )
 
                     # 文字消息 → 直接发送
-                    if msg.text and not msg.media:
+                    if msg.text and not _has_media and not (_has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice):
                         _current_status = f"text {idx}/{total_msg_count}"
                         _update_progress()
                         try:
@@ -1159,14 +1172,15 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(1)
                         continue
 
-                    # 媒体消息 → 下载 + 上传
-                    if msg.media:
+                    # 媒体消息：同时检查 msg.media 和具体属性（解决 msg.media 为 None 但实际有媒体的问题）
+                    if _has_media or _has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice or _has_anim or _has_sticker:
                         caption_text = msg.caption.markdown if msg.caption else ""
-                        media_type = msg.media
+                        media_type = msg.media  # 可能为 None，_upload_to_saved 会 fallback 到文件扩展名判断
 
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
 
+                        # 如果 msg.media 为 None 但有具体视频/文档属性，强制构造 InputMedia
                         file_path = await user_client.download_media(
                             msg,
                             file_name=f"dl_{mid}_{int(time.time())}",
