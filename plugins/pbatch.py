@@ -1210,6 +1210,57 @@ def setup_pbatch_handler(app: Client):
                         await _apply_delay(idx)
                         continue
 
+                    # 无媒体无文字 → raw API 回退：尝试获取原始 TL 消息诊断
+                    if not _has_media and not msg.text:
+                        LOGGER.info(f"[v20] raw fallback for {mid}")
+                        try:
+                            _raw_result = await user_client.invoke(
+                                raw.functions.messages.GetMessages(
+                                    id=[raw.types.InputMessageID(id=mid)]
+                                )
+                            )
+                            if _raw_result.messages:
+                                _rm = _raw_result.messages[0]
+                                _rm_type = type(_rm).__name__
+                                _rm_has_media = bool(getattr(_rm, 'media', None))
+                                LOGGER.info(f"[v20] raw msg type={_rm_type} has_media={_rm_has_media}")
+                                if _rm_has_media:
+                                    _rm_media = _rm.media
+                                    LOGGER.info(f"[v20] raw media type={type(_rm_media).__name__}")
+                                    # Check document attributes
+                                    _doc = getattr(_rm_media, 'document', None) or \
+                                           getattr(_rm_media, 'photo', None) or \
+                                           getattr(_rm_media, 'video', None)
+                                    if _doc:
+                                        _mime = getattr(_doc, 'mime_type', '?')
+                                        LOGGER.info(f"[v20] raw doc mime={_mime}")
+                                    # Try to download from raw TL
+                                    try:
+                                        _rl_path = await user_client.download_media(
+                                            msg,
+                                            file_name=f"dl_{mid}_{int(time.time())}",
+                                        )
+                                        if _rl_path and os.path.exists(_rl_path):
+                                            LOGGER.info(f"[v20] raw download OK: {_rl_path}")
+                                            # 上传
+                                            _current_status = f"upload {idx}/{total_msg_count}"
+                                            _update_progress()
+                                            await _upload_to_saved(
+                                                user_client, None, _rl_path,
+                                                msg.caption.markdown if msg.caption else "",
+                                                thumbnail_path, mid
+                                            )
+                                            success_count += 1
+                                            try:
+                                                os.remove(_rl_path)
+                                            except Exception:
+                                                pass
+                                            continue
+                                    except Exception as e2:
+                                        LOGGER.warning(f"[v20] raw download failed: {e2}")
+                        except Exception as e:
+                            LOGGER.warning(f"[v20] raw fallback error {mid}: {e}")
+
                     # 无媒体无文字 → 跳过
                     LOGGER.warning(f"[v20] skip: {mid}")
                     fail_count += 1
