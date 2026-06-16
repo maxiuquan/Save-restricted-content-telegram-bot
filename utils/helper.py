@@ -941,11 +941,21 @@ async def processMediaGroup(
     progress_message = await message.reply("**📥 下载媒体组中...**")
     LOGGER.info(f"下载媒体组，共 {len(media_group_messages)} 项...")
 
-    # ── 关键修复: 使用 msg.video / msg.photo / msg.document / msg.audio 直接判断
-    # tawhid120 原版: if msg.photo or msg.video or msg.document or msg.audio
-    # 这样 get_media_group() 返回的对象就有完整 media 属性 — 视频能被正确识别
+    # ── 关键修复（恢复 jun4 之前的有效实现）:
+    # 1. 先尝试 send_media_group + file_id（快速路径，不需要重新下载和上传）
+    #    file_id 是 Telegram 的内部引用，不会出现 PHOTO_EXT_INVALID/VIDEO_EXT_INVALID 错误
+    # 2. 如果 forwards_restricted 失败，回退到下载+上传（带 file_name 修复以避免扩展名错误）
+    valid_media  = []
+    temp_paths   = []
+    auto_thumbs  = []
+    invalid_paths = []
+
+    start_time       = time()
+    progress_message = await message.reply("**📥 下载媒体组中...**")
+    LOGGER.info(f"下载媒体组，共 {len(media_group_messages)} 项...")
+
     for msg in media_group_messages:
-        # 详细日志: 记录每条消息的 media 属性
+        # 详细日志
         _has_p = bool(msg.photo) if hasattr(msg, 'photo') else False
         _has_v = bool(msg.video) if hasattr(msg, 'video') else False
         _has_d = bool(msg.document) if hasattr(msg, 'document') else False
@@ -954,71 +964,82 @@ async def processMediaGroup(
             f"[MediaGroup]  id={msg.id} p={_has_p} v={_has_v} d={_has_d} a={_has_a}"
         )
         if msg.photo or msg.video or msg.document or msg.audio:
-            media_path = None
+            # ✅ 快速路径：使用 file_id，不需要下载和重新上传
             try:
-                # 关键修复: 使用正确的 file_name 避免 PHOTO_EXT_INVALID/VIDEO_EXT_INVALID
-                _dl_name = _build_dl_filename(msg, msg.id, msg.media)
-                if _dl_name:
-                    media_path = await msg.download(
-                        file_name=_dl_name,
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
-                    )
-                else:
-                    media_path = await msg.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
-                    )
-                temp_paths.append(media_path)
                 caption_text = await get_parsed_msg(
                     msg.caption or "", msg.caption_entities
                 )
-
                 if msg.photo:
                     valid_media.append(
-                        InputMediaPhoto(media=media_path, caption=caption_text)
+                        InputMediaPhoto(media=msg.photo.file_id, caption=caption_text)
                     )
-
                 elif msg.video:
-                    duration, _, _ = await get_media_info(media_path)
-                    vid_width, vid_height = await get_video_resolution(media_path)
-                    LOGGER.info(
-                        f"[MediaGroup] 视频分辨率: "
-                        f"{vid_width}x{vid_height}, duration={duration}s"
-                    )
-                    thumb = await get_video_thumbnail(media_path, duration)
-                    if thumb:
-                        auto_thumbs.append(thumb)
                     valid_media.append(InputMediaVideo(
-                        media=media_path,
+                        media=msg.video.file_id,
                         caption=caption_text,
-                        duration=duration or 0,
-                        width=vid_width,
-                        height=vid_height,
-                        thumb=thumb,
+                        duration=msg.video.duration or 0,
+                        width=msg.video.width or 0,
+                        height=msg.video.height or 0,
                         supports_streaming=True,
                     ))
-
                 elif msg.document:
                     valid_media.append(
-                        InputMediaDocument(media=media_path, caption=caption_text)
+                        InputMediaDocument(media=msg.document.file_id, caption=caption_text)
                     )
-
                 elif msg.audio:
-                    duration, artist, title = await get_media_info(media_path)
                     valid_media.append(InputMediaAudio(
-                        media=media_path,
+                        media=msg.audio.file_id,
                         caption=caption_text,
-                        duration=duration or 0,
-                        performer=artist,
-                        title=title,
+                        duration=msg.audio.duration or 0,
+                        performer=msg.audio.performer or "",
+                        title=msg.audio.title or "",
                     ))
-
             except Exception as e:
-                LOGGER.info(f"下载媒体错误: {e}")
-                if media_path and os.path.exists(media_path):
-                    invalid_paths.append(media_path)
-                continue
+                LOGGER.warning(f"[MediaGroup] file_id 失败，下载重传: {e}")
+                # 退路：用下载+上传方式处理
+                try:
+                    _dl_name = _build_dl_filename(msg, msg.id, msg.media)
+                    if _dl_name:
+                        media_path = await msg.download(
+                            file_name=_dl_name,
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                        )
+                    else:
+                        media_path = await msg.download(
+                            progress=Leaves.progress_for_pyrogram,
+                            progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                        )
+                    temp_paths.append(media_path)
+                    caption_text = await get_parsed_msg(
+                        msg.caption or "", msg.caption_entities
+                    )
+                    if msg.photo:
+                        valid_media.append(InputMediaPhoto(media=media_path, caption=caption_text))
+                    elif msg.video:
+                        duration, _, _ = await get_media_info(media_path)
+                        vid_width, vid_height = await get_video_resolution(media_path)
+                        thumb = await get_video_thumbnail(media_path, duration)
+                        if thumb:
+                            auto_thumbs.append(thumb)
+                        valid_media.append(InputMediaVideo(
+                            media=media_path,
+                            caption=caption_text,
+                            duration=duration or 0,
+                            width=vid_width, height=vid_height,
+                            thumb=thumb, supports_streaming=True,
+                        ))
+                    elif msg.document:
+                        valid_media.append(InputMediaDocument(media=media_path, caption=caption_text))
+                    elif msg.audio:
+                        duration, artist, title = await get_media_info(media_path)
+                        valid_media.append(InputMediaAudio(
+                            media=media_path, caption=caption_text,
+                            duration=duration or 0, performer=artist, title=title,
+                        ))
+                except Exception as e2:
+                    LOGGER.warning(f"[MediaGroup] 下载重传也失败: {e2}")
+                    continue
 
     LOGGER.info(f"有效媒体数量: {len(valid_media)}")
 
@@ -1026,6 +1047,7 @@ async def processMediaGroup(
         upload_client = user_client if user_client else bot
         upload_target = "me" if user_client else message.chat.id
 
+        # ✅ 快速路径: send_media_group + file_id (jun4 之前的有效实现)
         try:
             await upload_client.send_media_group(
                 chat_id=upload_target, media=valid_media
@@ -1034,7 +1056,6 @@ async def processMediaGroup(
                 await progress_message.delete()
             except Exception:
                 pass
-
             if user_client:
                 await bot.send_message(
                     chat_id=message.chat.id,
@@ -1049,7 +1070,6 @@ async def processMediaGroup(
         except Exception as e:
             err_str = str(e).lower()
             if "topics" in err_str or "messages.init" in err_str:
-                # Pyrofork false positive
                 try:
                     await progress_message.delete()
                 except Exception:
@@ -1060,7 +1080,7 @@ async def processMediaGroup(
                         text="**✅ 媒体组已成功发送到你的收藏夹！**",
                     )
                 return True
-            # 其他错误 — 尝试单独发送每条 (tawhid120 fallback)
+            # 如果是 forwards_restricted 或其他错误,尝试逐条发送
             LOGGER.warning(f"[MediaGroup] send_media_group failed: {e}, 改为单条发送")
             success_count = 0
             for i, m_item in enumerate(valid_media):
@@ -1084,6 +1104,16 @@ async def processMediaGroup(
                         )
                     )
                 return True
+
+    # 清理临时文件
+    for _p in temp_paths:
+        if _p and os.path.exists(_p):
+            try: os.remove(_p)
+            except: pass
+    for _t in auto_thumbs:
+        if _t and os.path.exists(_t):
+            try: os.remove(_t)
+            except: pass
 
     try:
         await progress_message.delete()
