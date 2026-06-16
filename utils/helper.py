@@ -865,11 +865,13 @@ async def processMediaGroup(
     # ✅ 关键补充: 用 raw API 重新检查媒体组中是否漏掉了 video
     # Pyrogram 的 get_media_group 在某些情况下不会返回所有消息，
     # 特别是在用户 session 受限的情况下，video 可能被过滤掉。
+    _raw_client = user_client or bot
+    _raw_videos = []  # raw API 找到但 Pyrogram 漏掉的视频消息
     try:
         _mgid = getattr(chat_message, 'media_group_id', None)
-        if _mgid and client is not None:
-            _peer = await client.resolve_peer(chat_message.chat.id)
-            _r = await client.invoke(
+        if _mgid and _raw_client is not None:
+            _peer = await _raw_client.resolve_peer(chat_message.chat.id)
+            _r = await _raw_client.invoke(
                 raw.functions.messages.GetHistory(
                     peer=_peer,
                     offset_id=0,
@@ -890,6 +892,7 @@ async def processMediaGroup(
                     f"[MediaGroup] raw API 找到 {len(_raw_extra)} 条 mgid={_mgid} 消息 "
                     f"(Pyrogram 找到 {len(media_group_messages)} 条)"
                 )
+                # 找出 raw API 里的视频消息
                 for _rm in _raw_extra:
                     _rm_media = getattr(_rm, 'media', None)
                     if _rm_media is None:
@@ -902,8 +905,27 @@ async def processMediaGroup(
                             f"[MediaGroup] ⚠ raw 发现视频! msg_id={_rm_mid} "
                             f"type={_rm_mtype} (Pyrogram 漏掉了它!)"
                         )
+                        _raw_videos.append(_rm_mid)
+                # 关键: 如果 raw 找到了 Pyrogram 漏掉的视频，
+                # 用 get_messages(chat_id, message_ids=...) 单独获取这些消息
+                if _raw_videos:
+                    try:
+                        _extra_msgs = await _raw_client.get_messages(
+                            chat_id=chat_message.chat.id,
+                            message_ids=_raw_videos,
+                        )
+                        for _em in (_extra_msgs or []):
+                            if _em and (getattr(_em, 'video', None) or getattr(_em, 'media', None)):
+                                media_group_messages.append(_em)
+                                LOGGER.info(
+                                    f"[MediaGroup] ✅ 已添加 Pyrogram 漏掉的视频 msg_id={_em.id}"
+                                )
+                    except Exception as _extra_err:
+                        LOGGER.warning(
+                            f"[MediaGroup] 补充视频失败: {_extra_err}"
+                        )
     except Exception as _raw_err:
-        LOGGER.debug(f"[MediaGroup] raw API verify skipped: {_raw_err}")
+        LOGGER.warning(f"[MediaGroup] raw API verify failed: {_raw_err}")
 
     LOGGER.info(
         f"[MediaGroup] tawhid120 原版: get_media_group 找到 "
