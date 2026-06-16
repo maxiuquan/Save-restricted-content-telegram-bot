@@ -1315,13 +1315,38 @@ def setup_pbatch_handler(app: Client):
             target_message_ids = list(range(start_message_id, start_message_id + count))
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
-            # 关键修复: 不在循环外获取所有消息 — 改为按 ID 单独获取（devgaganin 模式）
-            # 原因: get_messages(ids=[...]) 批量获取时 Pyrogram 可能不会为所有消息加载完整 media
-            # 单独获取每条消息确保 media 属性正确加载
-            messages = None
-            # 不预先获取 - 在循环中单独获取每条
+            # ✅ tawhid120 原版: 批量获取（每批 200）— get_messages(chat_id, message_ids=chunk_ids)
+            # 不要改成单条获取 — 批量获取 + 后续用 chat_message.get_media_group() 处理媒体组是正确的
+            all_messages = []
+            CHUNK = 200
+            try:
+                for i in range(0, len(target_message_ids), CHUNK):
+                    chunk_ids = target_message_ids[i:i + CHUNK]
+                    try:
+                        chunk_msgs = await user_client.get_messages(
+                            chat_id=pvt_chat_id, message_ids=chunk_ids
+                        )
+                        if chunk_msgs:
+                            if not isinstance(chunk_msgs, list):
+                                chunk_msgs = [chunk_msgs]
+                            for m in chunk_msgs:
+                                if m and not getattr(m, 'empty', False) and m.id:
+                                    all_messages.append(m)
+                    except Exception as e:
+                        LOGGER.warning(f"[v20] chunk fetch failed: {e}")
+            except Exception as e:
+                LOGGER.warning(f"[v20] get_messages failed: {e}")
 
-            if not target_message_ids:
+            # 按 ID 升序排序
+            all_messages.sort(key=lambda m: m.id)
+
+            if all_messages:
+                got_ids = [m.id for m in all_messages]
+                LOGGER.info(f"[v20] got message ids: {got_ids}")
+
+            messages = all_messages
+
+            if not messages:
                 await status_message.edit_text(
                     f"**❌ 无法获取消息。**\n\n"
                     f"**🔢 请求：** `{count}` 条\n"
@@ -1332,35 +1357,18 @@ def setup_pbatch_handler(app: Client):
                 _del_state(chat_id)
                 return
 
-            total_msg_count = len(target_message_ids)
-            LOGGER.info(f"[v20] will process {total_msg_count} msgs individually")
+            total_msg_count = len(messages)
+            LOGGER.info(f"[v20] got {total_msg_count} msgs")
 
-            # ── 遍历处理每一条消息（devgaganin 模式: 每条单独获取）──
-            for j, mid in enumerate(target_message_ids, 1):
+            # ── 遍历处理每一条消息（tawhid120 模式 + get_media_group 处理媒体组）──
+            for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
                     break
 
                 idx = j
-                msg = None
+                mid = msg.id
 
-                # 关键: 单独获取每条消息 — 确保 media 属性正确加载
-                # 这是 devgaganin 项目的核心模式 (process_msg)
-                try:
-                    _single = await user_client.get_messages(
-                        chat_id=pvt_chat_id,
-                        message_ids=mid,
-                    )
-                    if _single and not isinstance(_single, list):
-                        msg = _single
-                except Exception as e:
-                    LOGGER.warning(f"[v20] get_messages({mid}) failed: {e}")
-
-                if not msg:
-                    LOGGER.warning(f"[v20] {idx}/{total_msg_count} id={mid} 获取失败")
-                    fail_count += 1
-                    continue
-
-                # 跳过已通过 "media group shell" fallback 处理过的消息
+                # 跳过已通过 grouped fallback 处理过的消息
                 if mid in _handled_by_grouped_fallback:
                     LOGGER.info(f"[v20] skip {mid} — already handled by grouped fallback")
                     continue
@@ -1439,61 +1447,30 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # devgaganin 模式: 用 get_messages 单独获取媒体组内的所有消息
+                    # ✅ tawhid120 模式: 直接调用 processMediaGroup — 它内部用 chat_message.get_media_group()
+                    #    来正确加载组内所有消息的 media 属性（包括 video）
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] media group shell msg {mid}, searching for grouped media via get_messages...")
-                        _found_group = False
-                        # 用 get_messages 单独获取媒体组内前后 10 条消息
-                        _grouped_ids = list(range(max(1, mid - 10), mid + 11))
-                        _grp_msgs = await user_client.get_messages(
-                            chat_id=pvt_chat_id,
-                            message_ids=_grouped_ids,
-                        )
-                        if _grp_msgs and not isinstance(_grp_msgs, list):
-                            _grp_msgs = [_grp_msgs]
+                        LOGGER.info(f"[v20] media group shell msg {mid}, calling processMediaGroup...")
+                        _current_status = f"group {idx}/{total_msg_count}"
+                        _update_progress()
+                        try:
+                            result = await processMediaGroup(
+                                msg, bot, status_message,
+                                user_client=user_client,
+                                thumbnail_path=thumbnail_path,
+                            )
+                            if result:
+                                success_count += 1
+                                # 标记壳消息为已处理
+                                _handled_by_grouped_fallback.add(mid)
+                            else:
+                                fail_count += 1
+                        except Exception as e:
+                            LOGGER.warning(f"[v20] processMediaGroup failed: {e}")
+                            fail_count += 1
+                        continue
 
-                        _grouped_media_msgs = []
-                        for _gm in (_grp_msgs or []):
-                            if _gm and getattr(_gm, 'media_group_id', None) == _media_group_id and _gm.media:
-                                _grouped_media_msgs.append(_gm)
-                        # 按 id 排序
-                        _grouped_media_msgs.sort(key=lambda x: x.id)
-
-                        LOGGER.info(f"[v20] grouped media count for mgid={_media_group_id}: {len(_grouped_media_msgs)}")
-
-                        # 处理媒体组内所有消息
-                        for _gm in _grouped_media_msgs:
-                            LOGGER.info(f"[v20] processing grouped media msg id={_gm.id} media={_gm.media}")
-                            _cap = _gm.caption.markdown if _gm.caption else ""
-                            _current_status = f"download {idx}/{total_msg_count}"
-                            _update_progress()
-                            try:
-                                _gp_name = _build_dl_filename(_gm, _gm.id, _gm.media)
-                                _gp = await user_client.download_media(
-                                    _gm,
-                                    file_name=_gp_name,
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("downloading", status_message, start_ts),
-                                )
-                                if _gp and os.path.exists(_gp):
-                                    await _upload_to_saved(
-                                        user_client, _gm.media, _gp, _cap,
-                                        thumbnail_path, _gm.id
-                                    )
-                                    success_count += 1
-                                    _handled_by_grouped_fallback.add(_gm.id)
-                                    _handled_by_grouped_fallback.add(mid)
-                                    try:
-                                        os.remove(_gp)
-                                    except Exception:
-                                        pass
-                                    _found_group = True
-                            except Exception as e:
-                                LOGGER.warning(f"[v20] grouped media dl failed: {e}")
-                        if _found_group:
-                            continue
-
-                    # 无媒体无文字 → 跳过
+                    # 无媒体无文字且不在媒体组中 → 跳过
                     LOGGER.warning(f"[v20] skip: {mid}")
                     fail_count += 1
                     _update_progress()

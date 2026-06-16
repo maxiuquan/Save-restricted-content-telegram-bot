@@ -739,276 +739,188 @@ async def processMediaGroup(
     thumbnail_path=None,
 ):
     """
-    完全重写 — 严格遵循 devgaganin 的 process_msg 模式：
-    - 单条消息逐条处理（不用 send_media_group）
-    - 用 client.get_messages(chat_id, message_ids=ids) 显式获取每条消息
-    - 检查 m.media 是否存在，存在则下载+上传
-    - 用 client.send_video / send_photo / send_document 等独立方法
+    完全恢复 tawhid120 的原始实现 — 关键是用 chat_message.get_media_group()
+    而不是 get_chat_history / get_messages(range)
+
+    ✅ tawhid120 原版核心:
+        media_group_messages = await chat_message.get_media_group()
+        for msg in media_group_messages:
+            if msg.photo or msg.video or msg.document or msg.audio:
+                media_path = await msg.download(...)
+                ...
     """
-    client = user_client or bot
-    media_group_id = chat_message.media_group_id
-    start_msg_id = chat_message.id
-
-    # ── 关键: 用 get_messages 显式获取消息组内的所有消息 ID ──
-    # 参考 devgaganin 模式: x.get_messages(chat_id=Z[uid]['cid'], message_ids=i)
-    # 对每个消息 ID 单独获取，确保 media 属性正确加载
-    target_msg_ids = []
-
-    if media_group_id:
-        # 媒体组: 先获取组内所有消息 ID
-        try:
-            # 向前向后各搜索 10 条
-            search_range = list(range(max(1, start_msg_id - 10), start_msg_id + 11))
-            _msgs = await client.get_messages(
-                chat_id=chat_message.chat.id,
-                message_ids=search_range,
-            )
-            if _msgs:
-                if not isinstance(_msgs, list):
-                    _msgs = [_msgs]
-                for m in _msgs:
-                    if m and getattr(m, 'media_group_id', None) == media_group_id:
-                        target_msg_ids.append(m.id)
-            target_msg_ids.sort()
-            LOGGER.info(f"[MediaGroup] get_messages 找到 {len(target_msg_ids)} 条同组消息: {target_msg_ids}")
-        except Exception as e:
-            LOGGER.warning(f"[MediaGroup] get_messages 找同组失败: {e}")
-            # 兜底: 假设媒体组最多 10 条
-            target_msg_ids = list(range(start_msg_id, start_msg_id + 10))
-    else:
-        # 单条消息
-        target_msg_ids = [start_msg_id]
-
-    if not target_msg_ids:
-        await message.reply("**❌ 未找到有效媒体。**")
+    # ════════════════════════════════════════════════════════════════
+    # 关键: tawhid120 原版直接用 chat_message.get_media_group()
+    # 这个调用会正确加载组内每条消息的 media 属性（包括 video、photo 等）
+    # 之前我们改成 get_chat_history 或 get_messages(range) 是错误的 —
+    # 那些方式不会加载 media 属性，导致只能下载图片
+    # ════════════════════════════════════════════════════════════════
+    try:
+        media_group_messages = await chat_message.get_media_group()
+    except Exception as e:
+        LOGGER.warning(f"[MediaGroup] get_media_group failed: {e}")
         return False
 
-    # ── 下载进度消息 ──
-    progress_message = await message.reply(
-        f"**📥 下载媒体组中... (共 {len(target_msg_ids)} 条)**"
+    if not media_group_messages:
+        LOGGER.warning("[MediaGroup] 媒体组为空")
+        return False
+
+    LOGGER.info(
+        f"[MediaGroup] tawhid120 原版: get_media_group 找到 "
+        f"{len(media_group_messages)} 条消息"
     )
-    start_time = time()
-    upload_client = user_client if user_client else bot
-    upload_target = "me" if user_client else message.chat.id
 
-    success_count = 0
-    fail_count = 0
-    temp_paths = []
+    valid_media  = []
+    temp_paths   = []
+    auto_thumbs  = []
+    invalid_paths = []
 
-    # ── 逐条处理（devgaganin 模式）──
-    for idx, mid in enumerate(target_msg_ids, 1):
-        media_path = None
-        msg = None
-        try:
-            # 关键: 用 get_messages 单独获取该消息 — 这样 media 属性会正确加载
+    start_time       = time()
+    progress_message = await message.reply("**📥 下载媒体组中...**")
+    LOGGER.info(f"下载媒体组，共 {len(media_group_messages)} 项...")
+
+    # ── 关键修复: 使用 msg.video / msg.photo / msg.document / msg.audio 直接判断
+    # tawhid120 原版: if msg.photo or msg.video or msg.document or msg.audio
+    # 这样 get_media_group() 返回的对象就有完整 media 属性 — 视频能被正确识别
+    for msg in media_group_messages:
+        if msg.photo or msg.video or msg.document or msg.audio:
+            media_path = None
             try:
-                _got = await client.get_messages(
-                    chat_id=chat_message.chat.id,
-                    message_ids=mid,
+                # 关键修复: 使用正确的 file_name 避免 PHOTO_EXT_INVALID/VIDEO_EXT_INVALID
+                _dl_name = _build_dl_filename(msg, msg.id, msg.media)
+                if _dl_name:
+                    media_path = await msg.download(
+                        file_name=_dl_name,
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                    )
+                else:
+                    media_path = await msg.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                    )
+                temp_paths.append(media_path)
+                caption_text = await get_parsed_msg(
+                    msg.caption or "", msg.caption_entities
                 )
-                if _got and not isinstance(_got, list):
-                    msg = _got
-            except Exception as e:
-                LOGGER.warning(f"[MediaGroup] get_messages({mid}) 失败: {e}")
 
-            if not msg or not getattr(msg, 'media', None):
-                LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] msg {mid} 无媒体，跳过")
+                if msg.photo:
+                    valid_media.append(
+                        InputMediaPhoto(media=media_path, caption=caption_text)
+                    )
+
+                elif msg.video:
+                    duration, _, _ = await get_media_info(media_path)
+                    vid_width, vid_height = await get_video_resolution(media_path)
+                    LOGGER.info(
+                        f"[MediaGroup] 视频分辨率: "
+                        f"{vid_width}x{vid_height}, duration={duration}s"
+                    )
+                    thumb = await get_video_thumbnail(media_path, duration)
+                    if thumb:
+                        auto_thumbs.append(thumb)
+                    valid_media.append(InputMediaVideo(
+                        media=media_path,
+                        caption=caption_text,
+                        duration=duration or 0,
+                        width=vid_width,
+                        height=vid_height,
+                        thumb=thumb,
+                        supports_streaming=True,
+                    ))
+
+                elif msg.document:
+                    valid_media.append(
+                        InputMediaDocument(media=media_path, caption=caption_text)
+                    )
+
+                elif msg.audio:
+                    duration, artist, title = await get_media_info(media_path)
+                    valid_media.append(InputMediaAudio(
+                        media=media_path,
+                        caption=caption_text,
+                        duration=duration or 0,
+                        performer=artist,
+                        title=title,
+                    ))
+
+            except Exception as e:
+                LOGGER.info(f"下载媒体错误: {e}")
+                if media_path and os.path.exists(media_path):
+                    invalid_paths.append(media_path)
                 continue
 
-            # ── 构造 file_name（devgaganin 模式: m.video.file_name）──
-            _dl_file_name = None
+    LOGGER.info(f"有效媒体数量: {len(valid_media)}")
+
+    if valid_media:
+        upload_client = user_client if user_client else bot
+        upload_target = "me" if user_client else message.chat.id
+
+        try:
+            await upload_client.send_media_group(
+                chat_id=upload_target, media=valid_media
+            )
             try:
-                if getattr(msg, 'video', None) and msg.video:
-                    fname = getattr(msg.video, 'file_name', None)
-                    if fname:
-                        _dl_file_name = fname
-                    else:
-                        mime = (getattr(msg.video, 'mime_type', '') or '').lower()
-                        _dl_file_name = f"dl_{msg.id}_{int(time.time())}.webm" if 'webm' in mime else f"dl_{msg.id}_{int(time.time())}.mp4"
-                elif getattr(msg, 'audio', None) and msg.audio:
-                    fname = getattr(msg.audio, 'file_name', None)
-                    if fname:
-                        _dl_file_name = fname
-                    else:
-                        mime = (getattr(msg.audio, 'mime_type', '') or '').lower()
-                        if 'flac' in mime:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.flac"
-                        elif 'wav' in mime:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.wav"
-                        else:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp3"
-                elif getattr(msg, 'document', None) and msg.document:
-                    fname = getattr(msg.document, 'file_name', None)
-                    if fname:
-                        _dl_file_name = fname
-                    else:
-                        mime = (getattr(msg.document, 'mime_type', '') or '').lower()
-                        if 'mp4' in mime:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp4"
-                        elif 'pdf' in mime:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.pdf"
-                        else:
-                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.bin"
-                elif getattr(msg, 'voice', None) and msg.voice:
-                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.ogg"
-                elif getattr(msg, 'video_note', None) and msg.video_note:
-                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp4"
-                elif getattr(msg, 'animation', None) and msg.animation:
-                    fname = getattr(msg.animation, 'file_name', None)
-                    _dl_file_name = fname or f"dl_{msg.id}_{int(time.time())}.mp4"
-                elif getattr(msg, 'sticker', None) and msg.sticker:
-                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.webp"
+                await progress_message.delete()
             except Exception:
                 pass
 
-            # ── 下载 ──
-            dl_kwargs = dict(
-                progress=Leaves.progress_for_pyrogram,
-                progress_args=progressArgs(
-                    f"📥 [{idx}/{len(target_msg_ids)}]", progress_message, start_time
-                ),
-            )
-            if _dl_file_name:
-                dl_kwargs['file_name'] = _dl_file_name
-
-            media_path = await msg.download(**dl_kwargs)
-            if not media_path or not os.path.exists(media_path):
-                LOGGER.warning(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] msg {mid} 下载失败")
-                fail_count += 1
-                continue
-
-            temp_paths.append(media_path)
-            caption_text = await get_parsed_msg(
-                msg.caption or "", msg.caption_entities
-            )
-
-            # ── 独立发送（不用 send_media_group）──
-            try:
-                # 视频
-                if getattr(msg, 'video', None) and msg.video:
-                    duration, _, _ = await get_media_info(media_path)
-                    vid_width, vid_height = await get_video_resolution(media_path)
-                    thumb = None
-                    try:
-                        thumb = await get_video_thumbnail(media_path, duration)
-                    except Exception:
-                        thumb = None
-                    try:
-                        await upload_client.send_video(
-                            upload_target, media_path,
-                            caption=caption_text,
-                            duration=duration or 0,
-                            width=vid_width, height=vid_height,
-                            thumb=thumb, supports_streaming=True,
-                        )
-                        LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 视频 msg {mid} ✓")
-                    except Exception as ve:
-                        LOGGER.warning(f"[MediaGroup] send_video 失败 {mid}: {ve}, 降级为 document")
-                        await upload_client.send_document(
-                            upload_target, media_path,
-                            caption=caption_text, thumb=thumb,
-                        )
-                        LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 视频降级 document msg {mid} ✓")
-                    success_count += 1
-                # 图片
-                elif getattr(msg, 'photo', None) and msg.photo:
-                    await upload_client.send_photo(
-                        upload_target, media_path,
-                        caption=caption_text,
+            if user_client:
+                await bot.send_message(
+                    chat_id=message.chat.id,
+                    text=(
+                        "**✅ 媒体组已成功发送到"
+                        "你的收藏夹！🚀**\n\n"
+                        "📂 打开 **Telegram → 收藏夹** 查找"
+                        "你的文件。"
                     )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 图片 msg {mid} ✓")
-                    success_count += 1
-                # 音频
-                elif getattr(msg, 'audio', None) and msg.audio:
-                    duration, artist, title = await get_media_info(media_path)
-                    await upload_client.send_audio(
-                        upload_target, media_path,
-                        caption=caption_text,
-                        duration=duration or 0,
-                        performer=artist, title=title,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)})音频 msg {mid} ✓")
-                    success_count += 1
-                # 语音
-                elif getattr(msg, 'voice', None) and msg.voice:
-                    await upload_client.send_voice(
-                        upload_target, media_path,
-                        caption=caption_text,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 语音 msg {mid} ✓")
-                    success_count += 1
-                # 视频便签
-                elif getattr(msg, 'video_note', None) and msg.video_note:
-                    await upload_client.send_video_note(
-                        upload_target, media_path,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 视频便签 msg {mid} ✓")
-                    success_count += 1
-                # 动图
-                elif getattr(msg, 'animation', None) and msg.animation:
-                    await upload_client.send_animation(
-                        upload_target, media_path,
-                        caption=caption_text,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 动图 msg {mid} ✓")
-                    success_count += 1
-                # 贴纸
-                elif getattr(msg, 'sticker', None) and msg.sticker:
-                    await upload_client.send_sticker(
-                        upload_target, media_path,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 贴纸 msg {mid} ✓")
-                    success_count += 1
-                # 文档
-                else:
-                    await upload_client.send_document(
-                        upload_target, media_path,
-                        caption=caption_text,
-                    )
-                    LOGGER.info(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 文档 msg {mid} ✓")
-                    success_count += 1
-            except Exception as send_err:
-                LOGGER.warning(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] 发送 msg {mid} 失败: {send_err}")
-                fail_count += 1
+                )
+            return True
         except Exception as e:
-            LOGGER.warning(f"[MediaGroup] [{idx}/{len(target_msg_ids)}] msg {mid} 处理失败: {e}")
-            fail_count += 1
-        finally:
-            # 清理临时文件
-            if media_path and os.path.exists(media_path):
+            err_str = str(e).lower()
+            if "topics" in err_str or "messages.init" in err_str:
+                # Pyrofork false positive
                 try:
-                    os.remove(media_path)
+                    await progress_message.delete()
                 except Exception:
                     pass
+                if user_client:
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text="**✅ 媒体组已成功发送到你的收藏夹！**",
+                    )
+                return True
+            # 其他错误 — 尝试单独发送每条 (tawhid120 fallback)
+            LOGGER.warning(f"[MediaGroup] send_media_group failed: {e}, 改为单条发送")
+            success_count = 0
+            for i, m_item in enumerate(valid_media):
+                try:
+                    await upload_client.send_media_group(
+                        chat_id=upload_target, media=[m_item]
+                    )
+                    success_count += 1
+                except Exception as e2:
+                    LOGGER.warning(f"[MediaGroup] single send failed: {e2}")
+            if success_count > 0:
+                try:
+                    await progress_message.delete()
+                except Exception:
+                    pass
+                if user_client:
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text=(
+                            f"**✅ {success_count}/{len(valid_media)} 个文件已发送到收藏夹！**"
+                        )
+                    )
+                return True
 
-    # ── 总结 ──
     try:
         await progress_message.delete()
     except Exception:
         pass
-
-    if success_count > 0:
-        if user_client:
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=(
-                    f"**✅ 媒体组已成功发送到你的收藏夹！🚀**\n\n"
-                    f"📊 成功: {success_count}/{len(target_msg_ids)}"
-                    + (f"，失败: {fail_count}" if fail_count else "")
-                    + "\n\n📂 打开 **Telegram → 收藏夹** 查找你的文件。"
-                )
-            )
-        else:
-            await message.reply(
-                f"**✅ 成功 {success_count}/{len(target_msg_ids)} 个文件**"
-            )
-        return True
-    else:
-        await message.reply(
-            f"**❌ 媒体组下载失败 (0/{len(target_msg_ids)})。**\n"
-            f"可能原因: 用户客户端无访问权限，或文件过大/已过期。"
-        )
-        return False
+    await message.reply("**❌ 未找到有效媒体。**")
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
