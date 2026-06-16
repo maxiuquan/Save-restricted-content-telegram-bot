@@ -706,6 +706,7 @@ def setup_autolink_handler(app: Client):
                     source_message,
                     client,
                     message,
+                    user_client=client,
                     log_group_id=LOG_GROUP_ID,
                     log_user=user,
                     log_url=url,

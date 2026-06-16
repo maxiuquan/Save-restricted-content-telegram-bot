@@ -860,6 +860,7 @@ async def processMediaGroup(
     )
 
     valid_media  = []
+    original_msgs = []  # 保存原始消息，供 CHAT_FORWARDS_RESTRICTED 回退时下载用
     temp_paths   = []
     auto_thumbs  = []
     invalid_paths = []
@@ -930,6 +931,7 @@ async def processMediaGroup(
                         performer=msg.audio.performer or "",
                         title=msg.audio.title or "",
                     ))
+                original_msgs.append(msg)  # 保存原始消息，供 CHAT_FORWARDS_RESTRICTED 回退用
             except Exception as e:
                 LOGGER.warning(f"[MediaGroup] file_id 失败，下载重传: {e}")
                 # 退路：用下载+上传方式处理
@@ -1055,13 +1057,57 @@ async def processMediaGroup(
                             title=getattr(m_item, 'title', '') or '',
                         )
                     else:
-                        # 未知类型，尝试 send_media_group 单条
                         await upload_client.send_media_group(
                             chat_id=upload_target, media=[m_item]
                         )
                     success_count += 1
                 except Exception as e2:
-                    LOGGER.warning(f"[MediaGroup] single send failed: {e2}")
+                    err2 = str(e2).lower()
+                    # CHAT_FORWARDS_RESTRICTED: file_id 来自限制频道，下载后重传
+                    if "forwards_restricted" in err2 and i < len(original_msgs):
+                        LOGGER.warning(f"[MediaGroup] file_id 转发被拒，尝试下载后重传 msg #{i}")
+                        try:
+                            orig_msg = original_msgs[i]
+                            dl_name = _build_dl_filename(orig_msg, orig_msg.id)
+                            dl_path = await orig_msg.download(file_name=dl_name)
+                            temp_paths.append(dl_path)
+                            if orig_msg.photo:
+                                await upload_client.send_photo(
+                                    chat_id=upload_target, photo=dl_path,
+                                    caption=caption,
+                                )
+                            elif orig_msg.video:
+                                dur, _, _ = await get_media_info(dl_path)
+                                w, h = await get_video_resolution(dl_path)
+                                thumb = await get_video_thumbnail(dl_path, dur)
+                                if thumb:
+                                    auto_thumbs.append(thumb)
+                                await upload_client.send_video(
+                                    chat_id=upload_target, video=dl_path,
+                                    caption=caption,
+                                    duration=dur or 0, width=w, height=h,
+                                    thumb=thumb, supports_streaming=True,
+                                )
+                            elif orig_msg.document:
+                                await upload_client.send_document(
+                                    chat_id=upload_target, document=dl_path,
+                                    caption=caption,
+                                )
+                            elif orig_msg.audio:
+                                dur, artist, title = await get_media_info(dl_path)
+                                await upload_client.send_audio(
+                                    chat_id=upload_target, audio=dl_path,
+                                    caption=caption,
+                                    duration=dur or 0,
+                                    performer=artist or '',
+                                    title=title or '',
+                                )
+                            success_count += 1
+                            LOGGER.info(f"[MediaGroup] 下载重传成功 msg #{i}")
+                        except Exception as e3:
+                            LOGGER.warning(f"[MediaGroup] 下载重传也失败 msg #{i}: {e3}")
+                    else:
+                        LOGGER.warning(f"[MediaGroup] single send failed: {e2}")
             if success_count > 0:
                 try:
                     await progress_message.delete()
