@@ -898,66 +898,86 @@ def setup_pbatch_handler(app: Client):
     # ────────────────────────────────────────────────────────────────────
 
     # 关键修复: 从消息中获取正确的文件扩展名（避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 错误）
+    # 参考 devgaganin/Save-Restricted-Content-Bot-v3 的实现
     def _get_file_ext(msg, media_type):
         """从消息对象中提取正确的文件扩展名"""
         try:
-            # 1) 优先从 document.file_name 获取（适用于 document 类型的附件）
-            if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'file_name', None):
-                fname = msg.document.file_name
-                ext = os.path.splitext(fname)[1].lower()
-                if ext:
-                    return ext
+            # 1) 视频：优先从 msg.video.file_name 获取（参考项目的实现）
+            if hasattr(msg, 'video') and msg.video:
+                fname = getattr(msg.video, 'file_name', None)
+                if fname:
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext:
+                        return ext
+                # 从 mime_type 推断
+                mime = getattr(msg.video, 'mime_type', None)
+                if mime:
+                    mime = mime.lower()
+                    video_map = {'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov'}
+                    if mime in video_map:
+                        return video_map[mime]
+                # 视频默认 .mp4
+                return '.mp4'
 
-            # 2) 从 document.mime_type 推断
-            if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'mime_type', None):
-                mime = msg.document.mime_type.lower()
-                mime_map = {
-                    'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png',
-                    'image/webp': '.webp', 'image/bmp': '.bmp',
-                    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
-                    'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg',
-                    'audio/x-wav': '.wav', 'audio/flac': '.flac',
-                }
-                if mime in mime_map:
-                    return mime_map[mime]
-
-            # 3) 关键修复: 检查 video / photo / audio / voice / video_note 对象的 mime_type
-            # 视频：msg.video.mime_type
-            if hasattr(msg, 'video') and msg.video and getattr(msg.video, 'mime_type', None):
-                mime = msg.video.mime_type.lower()
-                video_map = {'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov'}
-                if mime in video_map:
-                    return video_map[mime]
-                return '.mp4'  # 视频默认 mp4
-
-            # 音频：msg.audio.mime_type
-            if hasattr(msg, 'audio') and msg.audio and getattr(msg.audio, 'mime_type', None):
-                mime = msg.audio.mime_type.lower()
-                audio_map = {'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/x-wav': '.wav', 'audio/flac': '.flac'}
-                if mime in audio_map:
-                    return audio_map[mime]
+            # 2) 音频：优先从 msg.audio.file_name 获取
+            if hasattr(msg, 'audio') and msg.audio:
+                fname = getattr(msg.audio, 'file_name', None)
+                if fname:
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext:
+                        return ext
+                mime = getattr(msg.audio, 'mime_type', None)
+                if mime:
+                    mime = mime.lower()
+                    audio_map = {'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/x-wav': '.wav', 'audio/flac': '.flac'}
+                    if mime in audio_map:
+                        return audio_map[mime]
                 return '.mp3'
 
-            # 语音：msg.voice.mime_type
-            if hasattr(msg, 'voice') and msg.voice and getattr(msg.voice, 'mime_type', None):
+            # 3) 文档：msg.document.file_name
+            if hasattr(msg, 'document') and msg.document:
+                fname = getattr(msg.document, 'file_name', None)
+                if fname:
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext:
+                        return ext
+                # 从 mime_type 推断
+                mime = getattr(msg.document, 'mime_type', None)
+                if mime:
+                    mime = mime.lower()
+                    mime_map = {
+                        'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png',
+                        'image/webp': '.webp', 'image/bmp': '.bmp',
+                        'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+                        'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg',
+                        'audio/x-wav': '.wav', 'audio/flac': '.flac',
+                    }
+                    if mime in mime_map:
+                        return mime_map[mime]
+
+            # 4) 语音：msg.voice
+            if hasattr(msg, 'voice') and msg.voice:
+                mime = getattr(msg.voice, 'mime_type', None)
+                if mime and 'opus' in mime.lower():
+                    return '.opus'
                 return '.ogg'
 
-            # 视频便签：msg.video_note
+            # 5) 视频便签：msg.video_note
             if hasattr(msg, 'video_note') and msg.video_note:
                 return '.mp4'
 
-            # 动图：msg.animation.mime_type
-            if hasattr(msg, 'animation') and msg.animation and getattr(msg.animation, 'mime_type', None):
-                mime = msg.animation.mime_type.lower()
-                if 'mp4' in mime:
-                    return '.mp4'
+            # 6) 动图：msg.animation
+            if hasattr(msg, 'animation') and msg.animation:
+                mime = getattr(msg.animation, 'mime_type', None)
+                if mime and 'webm' in mime.lower():
+                    return '.webm'
                 return '.mp4'
 
-            # 贴纸：msg.sticker（WEBP 格式）
+            # 7) 贴纸：msg.sticker（WEBP 格式）
             if hasattr(msg, 'sticker') and msg.sticker:
                 return '.webp'
 
-            # 4) 根据 media_type 推断默认扩展名
+            # 8) 根据 media_type 推断默认扩展名
             if media_type == MessageMediaType.PHOTO:
                 return '.jpg'
             elif media_type == MessageMediaType.VIDEO:
@@ -975,6 +995,67 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
         return ''
+
+    # 关键修复: 构建带正确扩展名的 file_name（参考 devgaganin 项目）
+    def _build_dl_filename(msg, mid, media_type):
+        """
+        为 download_media 构建 file_name。
+        优先使用消息自带的 file_name（包含原始扩展名），
+        否则根据媒体类型生成 "dl_{mid}_{ts}{ext}"。
+        """
+        try:
+            # 1) 视频：使用 msg.video.file_name（参考 devgaganin）
+            if hasattr(msg, 'video') and msg.video:
+                fname = getattr(msg.video, 'file_name', None)
+                if fname:
+                    return fname
+                ext = _get_file_ext(msg, media_type) or '.mp4'
+                return f"dl_{mid}_{int(time.time())}{ext}"
+
+            # 2) 音频：使用 msg.audio.file_name
+            if hasattr(msg, 'audio') and msg.audio:
+                fname = getattr(msg.audio, 'file_name', None)
+                if fname:
+                    return fname
+                ext = _get_file_ext(msg, media_type) or '.mp3'
+                return f"dl_{mid}_{int(time.time())}{ext}"
+
+            # 3) 文档：使用 msg.document.file_name
+            if hasattr(msg, 'document') and msg.document:
+                fname = getattr(msg.document, 'file_name', None)
+                if fname:
+                    return fname
+                # 没有 file_name 时使用时间戳+ext
+                ext = _get_file_ext(msg, media_type) or ''
+                return f"dl_{mid}_{int(time.time())}{ext}"
+
+            # 4) 语音
+            if hasattr(msg, 'voice') and msg.voice:
+                ext = _get_file_ext(msg, media_type) or '.ogg'
+                return f"dl_{mid}_{int(time.time())}{ext}"
+
+            # 5) 视频便签
+            if hasattr(msg, 'video_note') and msg.video_note:
+                return f"dl_{mid}_{int(time.time())}.mp4"
+
+            # 6) 动图
+            if hasattr(msg, 'animation') and msg.animation:
+                fname = getattr(msg.animation, 'file_name', None)
+                if fname:
+                    return fname
+                ext = _get_file_ext(msg, media_type) or '.mp4'
+                return f"dl_{mid}_{int(time.time())}{ext}"
+
+            # 7) 贴纸
+            if hasattr(msg, 'sticker') and msg.sticker:
+                return f"dl_{mid}_{int(time.time())}.webp"
+
+            # 8) 照片 / 其他：使用 ext
+            ext = _get_file_ext(msg, media_type) or '.jpg'
+            return f"dl_{mid}_{int(time.time())}{ext}"
+        except Exception:
+            pass
+        return f"dl_{mid}_{int(time.time())}"
 
     # v6.0 helper: upload media to Saved Messages by type
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
@@ -1303,10 +1384,9 @@ def setup_pbatch_handler(app: Client):
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
 
-                        # 如果 msg.media 为 None 但有具体视频/文档属性，强制构造 InputMedia
-                        # 关键修复: 使用正确的文件扩展名避免 PHOTO_EXT_INVALID
-                        _dl_ext = _get_file_ext(msg, media_type)
-                        _dl_name = f"dl_{mid}_{int(time.time())}{_dl_ext}"
+                        # 关键修复: 使用正确的文件扩展名（参考 devgaganin 项目的实现）
+                        # 先确定 file_name（Telegram 原始文件名），再 download
+                        _dl_name = _build_dl_filename(msg, mid, media_type)
                         file_path = await user_client.download_media(
                             msg,
                             file_name=_dl_name,
@@ -1362,11 +1442,11 @@ def setup_pbatch_handler(app: Client):
                                         LOGGER.info(f"[v20] raw doc mime={_mime}")
                                     # Try to download from raw TL
                                     try:
-                                        # 关键修复: 使用正确的文件扩展名
-                                        _rl_ext = _get_file_ext(msg, media_type)
+                                        # 关键修复: 使用正确的 file_name（参考 devgaganin）
+                                        _rl_name = _build_dl_filename(msg, mid, media_type)
                                         _rl_path = await user_client.download_media(
                                             msg,
-                                            file_name=f"dl_{mid}_{int(time.time())}{_rl_ext}",
+                                            file_name=_rl_name,
                                         )
                                         if _rl_path and os.path.exists(_rl_path):
                                             LOGGER.info(f"[v20] raw download OK: {_rl_path}")
@@ -1400,11 +1480,11 @@ def setup_pbatch_handler(app: Client):
                                 _current_status = f"download {idx}/{total_msg_count}"
                                 _update_progress()
                                 try:
-                                    # 关键修复: 使用正确的文件扩展名
-                                    _gp_ext = _get_file_ext(_gm, _gm.media)
+                                    # 关键修复: 使用正确的 file_name（参考 devgaganin）
+                                    _gp_name = _build_dl_filename(_gm, _gm.id, _gm.media)
                                     _gp = await user_client.download_media(
                                         _gm,
-                                        file_name=f"dl_{_gm.id}_{int(time.time())}{_gp_ext}",
+                                        file_name=_gp_name,
                                         progress=Leaves.progress_for_pyrogram,
                                         progress_args=progressArgs("downloading", status_message, start_ts),
                                     )
