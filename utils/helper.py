@@ -779,15 +779,77 @@ async def processMediaGroup(
     for msg in media_group_messages:
         media_path = None
         try:
+            # 关键修复: 检查消息是否有可下载的媒体（跳过壳消息）
+            if not getattr(msg, 'media', None):
+                LOGGER.info(f"[MediaGroup] 跳过无媒体消息 {msg.id}")
+                continue
+
+            # 关键修复: 为下载的文件提供正确的 file_name（带扩展名）
+            # 避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 等错误
+            _dl_file_name = None
+            try:
+                # 视频
+                if getattr(msg, 'video', None) and msg.video:
+                    fname = getattr(msg.video, 'file_name', None)
+                    if fname:
+                        _dl_file_name = fname
+                    else:
+                        # 根据 mime_type 推断
+                        mime = (getattr(msg.video, 'mime_type', '') or '').lower()
+                        if 'webm' in mime:
+                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.webm"
+                        else:
+                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp4"
+                # 音频
+                elif getattr(msg, 'audio', None) and msg.audio:
+                    fname = getattr(msg.audio, 'file_name', None)
+                    if fname:
+                        _dl_file_name = fname
+                    else:
+                        mime = (getattr(msg.audio, 'mime_type', '') or '').lower()
+                        if 'flac' in mime:
+                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.flac"
+                        elif 'wav' in mime:
+                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.wav"
+                        else:
+                            _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp3"
+                # 文档
+                elif getattr(msg, 'document', None) and msg.document:
+                    fname = getattr(msg.document, 'file_name', None)
+                    if fname:
+                        _dl_file_name = fname
+                # 语音
+                elif getattr(msg, 'voice', None) and msg.voice:
+                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.ogg"
+                # 视频便签
+                elif getattr(msg, 'video_note', None) and msg.video_note:
+                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp4"
+                # 动图
+                elif getattr(msg, 'animation', None) and msg.animation:
+                    fname = getattr(msg.animation, 'file_name', None)
+                    if fname:
+                        _dl_file_name = fname
+                    else:
+                        _dl_file_name = f"dl_{msg.id}_{int(time.time())}.mp4"
+                # 贴纸
+                elif getattr(msg, 'sticker', None) and msg.sticker:
+                    _dl_file_name = f"dl_{msg.id}_{int(time.time())}.webp"
+            except Exception:
+                pass
+
             # 关键修复：不检查 msg.photo/msg.video 等属性，
             # 因为 Pyrofork 可能不加载这些属性但 msg.download() 仍能工作
             # （download 内部用的是 raw MTProto 数据）
-            media_path = await msg.download(
+            dl_kwargs = dict(
                 progress=Leaves.progress_for_pyrogram,
                 progress_args=progressArgs(
                     "📥 下载中", progress_message, start_time
                 ),
             )
+            if _dl_file_name:
+                dl_kwargs['file_name'] = _dl_file_name
+
+            media_path = await msg.download(**dl_kwargs)
             if not media_path or not os.path.exists(media_path):
                 continue
 
