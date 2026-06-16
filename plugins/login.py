@@ -22,7 +22,21 @@ from pyrogram.errors import (
     MessageNotModified,
     FloodWait,
 )
-from config import COMMAND_PREFIX, API_ID, API_HASH
+# 强制加载 .env 文件并重读环境变量
+try:
+    from dotenv import load_dotenv as _load_dotenv_login
+    _load_dotenv_login(override=True)
+    # 重载 config 模块以应用新环境变量
+    import importlib as _il
+    import config as _cfg_mod
+    _il.reload(_cfg_mod)
+    from config import COMMAND_PREFIX, API_ID as _AID, API_HASH as _AHS
+    API_ID = _AID
+    API_HASH = _AHS
+    LOGGER_TMP = __import__("utils.logging_setup", fromlist=["LOGGER"]).LOGGER
+    LOGGER_TMP.info(f"[login] reloaded API_ID={API_ID!r} API_HASH_set={bool(API_HASH)}")
+except Exception as _reload_err:
+    from config import COMMAND_PREFIX, API_ID, API_HASH
 from utils.logging_setup import LOGGER
 from core import prem_plan1, prem_plan2, prem_plan3, user_sessions
 from datetime import datetime
@@ -362,10 +376,35 @@ def setup_login_handler(app: Client):
         session_id = str(uuid.uuid4())
         session_name = f"temp_session_{user_id}_{session_id}"
 
+        # 防御: 如果 config 里 API_ID/API_HASH 缺失,尝试从运行中的 bot client 获取
+        _api_id   = API_ID
+        _api_hash = API_HASH
+        if not _api_id or not _api_hash:
+            try:
+                _api_id   = client.api_id   # 当前 bot client 的 api_id
+                _api_hash = client.api_hash # 当前 bot client 的 api_hash
+                LOGGER.info(
+                    f"[login] fallback to bot client api_id={_api_id} "
+                    f"api_hash_set={bool(_api_hash)}"
+                )
+            except Exception as _fb_err:
+                LOGGER.error(f"[login] failed to fallback api_id/api_hash: {_fb_err}")
+
+        if not _api_id or not _api_hash:
+            await _safe_edit(
+                status_msg,
+                "**❌ 服务器配置错误。**\n\n"
+                "机器人的 `API_ID` 或 `API_HASH` 未配置，"
+                "无法创建用户会话。\n\n"
+                "请联系管理员在 `.env` 文件中设置 `API_ID` 和 `API_HASH`。"
+            )
+            _clear_state(chat_id)
+            return
+
         user_client = Client(
             session_name,
-            api_id=API_ID,
-            api_hash=API_HASH,
+            api_id=_api_id,
+            api_hash=_api_hash,
         )
 
         try:
@@ -429,10 +468,19 @@ def setup_login_handler(app: Client):
 
         except Exception as e:
             LOGGER.error(f"OTP send error for user {user_id}: {e}")
-            await _safe_edit(
-                status_msg,
-                f"**❌ 发送验证码失败。**\n\n错误：`{str(e)[:100]}`",
-            )
+            _err_str = str(e)
+            # 详细提示: 如果是 API key 缺失错误
+            if "API key" in _err_str or "api_id" in _err_str.lower():
+                _hint = (
+                    "**❌ 服务器 API 配置错误。**\n\n"
+                    "机器人的 `API_ID` / `API_HASH` 未正确配置，"
+                    "无法发送验证码。\n\n"
+                    f"错误信息: `{_err_str[:150]}`\n\n"
+                    "请联系管理员修复配置。"
+                )
+            else:
+                _hint = f"**❌ 发送验证码失败。**\n\n错误：`{_err_str[:200]}`"
+            await _safe_edit(status_msg, _hint)
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
