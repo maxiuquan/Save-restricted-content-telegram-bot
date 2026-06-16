@@ -742,27 +742,59 @@ async def processMediaGroup(
     按 tawhid120 原版完全重写 — 直接下载文件后用文件路径上传，
     不依赖 msg.video / msg.photo 等 Pyrofork 媒体属性（Pyrofork 可能加载失败）。
     """
-    # 关键修复：不用 get_media_group()（内部调 get_messages，对 from_scheduled 消息不加载媒体）
-    # 改用 get_chat_history 获取附近消息，按 media_group_id 过滤
+    # 关键修复: 优先用 get_media_group() — 它能正确加载所有消息的 media 属性
+    # get_chat_history 返回的消息经常缺少 media 属性（导致"跳过无媒体消息"误判）
+    # 仅当 get_media_group 失败时才回退到 get_chat_history
     client = user_client or bot
     media_group_id = chat_message.media_group_id
 
     if media_group_id:
-        # 用 get_chat_history 获取消息 — 它能正确加载 from_scheduled 消息的媒体
         media_group_messages = []
         try:
-            async for msg in client.get_chat_history(
-                chat_id=chat_message.chat.id,
-                limit=20,
-                offset_id=chat_message.id + 10,
-            ):
-                if getattr(msg, 'media_group_id', None) == media_group_id:
-                    media_group_messages.append(msg)
-            media_group_messages.reverse()  # 按消息 ID 升序
-            LOGGER.info(f"[MediaGroup] get_chat_history 获取到 {len(media_group_messages)} 条同组消息")
+            # 主路径: get_media_group — Pyrogram 内部用 get_messages + media_group_id
+            # 它会返回组内所有消息，并正确加载每个消息的完整 media 属性
+            _grp = await chat_message.get_media_group()
+            if _grp:
+                media_group_messages = list(_grp)
+                # 按 id 升序
+                media_group_messages.sort(key=lambda m: m.id)
+                LOGGER.info(f"[MediaGroup] get_media_group 获取到 {len(media_group_messages)} 条同组消息")
+            else:
+                raise RuntimeError("get_media_group returned empty")
         except Exception as e:
-            LOGGER.warning(f"[MediaGroup] get_chat_history 失败: {e}，回退到 get_media_group")
-            media_group_messages = await chat_message.get_media_group()
+            LOGGER.warning(f"[MediaGroup] get_media_group 失败: {e}，回退到 get_chat_history")
+            try:
+                async for msg in client.get_chat_history(
+                    chat_id=chat_message.chat.id,
+                    limit=20,
+                    offset_id=chat_message.id + 10,
+                ):
+                    if getattr(msg, 'media_group_id', None) == media_group_id:
+                        media_group_messages.append(msg)
+                media_group_messages.sort(key=lambda m: m.id)  # 按消息 ID 升序
+                LOGGER.info(f"[MediaGroup] get_chat_history 获取到 {len(media_group_messages)} 条同组消息")
+            except Exception as e2:
+                LOGGER.warning(f"[MediaGroup] get_chat_history 也失败: {e2}，回退到 get_messages")
+                try:
+                    # 最后回退: 用 get_messages 显式获取前后 10 条消息并按 media_group_id 过滤
+                    _search_ids = list(range(
+                        max(1, chat_message.id - 10),
+                        chat_message.id + 11
+                    ))
+                    _msgs = await client.get_messages(
+                        chat_id=chat_message.chat.id,
+                        message_ids=_search_ids,
+                    )
+                    if _msgs:
+                        if not isinstance(_msgs, list):
+                            _msgs = [_msgs]
+                        for m in _msgs:
+                            if m and getattr(m, 'media_group_id', None) == media_group_id:
+                                media_group_messages.append(m)
+                        media_group_messages.sort(key=lambda m: m.id)
+                    LOGGER.info(f"[MediaGroup] get_messages 获取到 {len(media_group_messages)} 条同组消息")
+                except Exception as e3:
+                    LOGGER.error(f"[MediaGroup] 所有方法都失败: {e3}")
     else:
         media_group_messages = [chat_message]
     valid_media  = []
@@ -779,10 +811,10 @@ async def processMediaGroup(
     for msg in media_group_messages:
         media_path = None
         try:
-            # 关键修复: 检查消息是否有可下载的媒体（跳过壳消息）
-            if not getattr(msg, 'media', None):
-                LOGGER.info(f"[MediaGroup] 跳过无媒体消息 {msg.id}")
-                continue
+            # 关键修复: 不跳过任何消息，尝试用 msg.download() 下载
+            # 关键修复: 即使 msg.media 为 None（即壳消息），msg.download() 仍可能工作
+            # 因为 download 内部使用 raw MTProto 数据，可以获取到真实的 media 位置
+            # 仅在连续 2 个无 media 消息时才认为这组已结束
 
             # 关键修复: 为下载的文件提供正确的 file_name（带扩展名）
             # 避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 等错误
@@ -851,7 +883,41 @@ async def processMediaGroup(
 
             media_path = await msg.download(**dl_kwargs)
             if not media_path or not os.path.exists(media_path):
-                continue
+                # 关键修复: 如果下载失败, 用 get_messages 重新加载该消息的完整 media
+                # 适用于 get_chat_history 返回的消息缺少 media 属性的情况
+                try:
+                    _fresh = await client.get_messages(
+                        chat_id=chat_message.chat.id,
+                        message_ids=msg.id,
+                    )
+                    if _fresh and not isinstance(_fresh, list):
+                        _fresh = _fresh
+                    if _fresh:
+                        # 重建 file_name
+                        _fresh_dl_kwargs = dict(progress=Leaves.progress_for_pyrogram,
+                                                progress_args=progressArgs("📥 重试下载", progress_message, start_time))
+                        if _dl_file_name:
+                            _fresh_dl_kwargs['file_name'] = _dl_file_name
+                        # 重新构造 file_name based on fresh message
+                        if getattr(_fresh, 'video', None) and _fresh.video:
+                            fn2 = getattr(_fresh.video, 'file_name', None) or f"dl_{msg.id}_{int(time.time())}.mp4"
+                            _fresh_dl_kwargs['file_name'] = fn2
+                        elif getattr(_fresh, 'audio', None) and _fresh.audio:
+                            fn2 = getattr(_fresh.audio, 'file_name', None) or f"dl_{msg.id}_{int(time.time())}.mp3"
+                            _fresh_dl_kwargs['file_name'] = fn2
+                        elif getattr(_fresh, 'document', None) and _fresh.document:
+                            fn2 = getattr(_fresh.document, 'file_name', None) or f"dl_{msg.id}_{int(time.time())}.bin"
+                            _fresh_dl_kwargs['file_name'] = fn2
+                        elif getattr(_fresh, 'photo', None) and _fresh.photo:
+                            _fresh_dl_kwargs['file_name'] = f"dl_{msg.id}_{int(time.time())}.jpg"
+                        media_path = await _fresh.download(**_fresh_dl_kwargs)
+                        if media_path and os.path.exists(media_path):
+                            # 用新消息替换
+                            msg = _fresh
+                except Exception as _retry_err:
+                    LOGGER.debug(f"[MediaGroup] 重试下载 {msg.id} 失败: {_retry_err}")
+                if not media_path or not os.path.exists(media_path):
+                    continue
 
             temp_paths.append(media_path)
             caption_text = await get_parsed_msg(
