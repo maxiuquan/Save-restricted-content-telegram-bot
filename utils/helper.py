@@ -960,9 +960,12 @@ async def processMediaGroup(
         _has_v = bool(msg.video) if hasattr(msg, 'video') else False
         _has_d = bool(msg.document) if hasattr(msg, 'document') else False
         _has_a = bool(msg.audio) if hasattr(msg, 'audio') else False
+        _has_media_obj = bool(getattr(msg, 'media', None))
         LOGGER.info(
-            f"[MediaGroup]  id={msg.id} p={_has_p} v={_has_v} d={_has_d} a={_has_a}"
+            f"[MediaGroup]  id={msg.id} p={_has_p} v={_has_v} d={_has_d} a={_has_a} "
+            f"media_obj={_has_media_obj}"
         )
+
         if msg.photo or msg.video or msg.document or msg.audio:
             # ✅ 快速路径：使用 file_id，不需要下载和重新上传
             try:
@@ -1040,6 +1043,52 @@ async def processMediaGroup(
                 except Exception as e2:
                     LOGGER.warning(f"[MediaGroup] 下载重传也失败: {e2}")
                     continue
+
+        elif _has_media_obj:
+            # ✅ Pyrogram 不识别的 media 类型 (MessageMediaUnsupported)
+            # raw API 显示 msg_id=2271 是 MessageMediaUnsupported —
+            # 可能是版权受限视频，Telegram 把 media 字段标记为 unsupported
+            # 但 message.media 对象本身非空
+            # 直接尝试 msg.download() — Pyrogram 会用 raw bytes 下载
+            LOGGER.info(
+                f"[MediaGroup] Pyrogram 不识别的 media 类型 msg_id={msg.id}, "
+                f"尝试直接下载"
+            )
+            try:
+                caption_text = await get_parsed_msg(
+                    msg.caption or "", msg.caption_entities
+                )
+                _dl_name = _build_dl_filename(msg, msg.id, msg.media)
+                if _dl_name:
+                    media_path = await msg.download(
+                        file_name=_dl_name,
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                    )
+                else:
+                    media_path = await msg.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
+                    )
+                if media_path and os.path.exists(media_path):
+                    temp_paths.append(media_path)
+                    # 不知道具体类型,统一用 InputMediaDocument (通用)
+                    valid_media.append(
+                        InputMediaDocument(media=media_path, caption=caption_text or "")
+                    )
+                    LOGGER.info(
+                        f"[MediaGroup] ✅ unsupported media 已下载 msg {msg.id} "
+                        f"-> {os.path.basename(str(media_path))}"
+                    )
+                else:
+                    LOGGER.warning(
+                        f"[MediaGroup] unsupported media 下载失败 msg {msg.id}: "
+                        f"path={media_path}"
+                    )
+            except Exception as e3:
+                LOGGER.warning(
+                    f"[MediaGroup] unsupported media 下载异常 msg {msg.id}: {e3}"
+                )
 
     LOGGER.info(f"有效媒体数量: {len(valid_media)}")
 
