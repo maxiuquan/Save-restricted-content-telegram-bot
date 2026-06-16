@@ -22,6 +22,8 @@ from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
 from pyrogram.errors import FloodWait
 from pyrogram.enums import ParseMode
+from pyrogram import raw as _raw_mod
+raw = _raw_mod
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -859,6 +861,49 @@ async def processMediaGroup(
     if not media_group_messages:
         LOGGER.warning("[MediaGroup] 媒体组为空")
         return False
+
+    # ✅ 关键补充: 用 raw API 重新检查媒体组中是否漏掉了 video
+    # Pyrogram 的 get_media_group 在某些情况下不会返回所有消息，
+    # 特别是在用户 session 受限的情况下，video 可能被过滤掉。
+    try:
+        _mgid = getattr(chat_message, 'media_group_id', None)
+        if _mgid and client is not None:
+            _peer = await client.resolve_peer(chat_message.chat.id)
+            _r = await client.invoke(
+                raw.functions.messages.GetHistory(
+                    peer=_peer,
+                    offset_id=0,
+                    offset_date=0,
+                    add_offset=0,
+                    limit=20,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
+            _raw_extra = []
+            for _rm in (getattr(_r, 'messages', None) or []):
+                if getattr(_rm, 'grouped_id', None) == _mgid:
+                    _raw_extra.append(_rm)
+            if _raw_extra:
+                LOGGER.info(
+                    f"[MediaGroup] raw API 找到 {len(_raw_extra)} 条 mgid={_mgid} 消息 "
+                    f"(Pyrogram 找到 {len(media_group_messages)} 条)"
+                )
+                for _rm in _raw_extra:
+                    _rm_media = getattr(_rm, 'media', None)
+                    if _rm_media is None:
+                        continue
+                    _rm_mid = getattr(_rm, 'id', None)
+                    _rm_mtype = type(_rm_media).__name__
+                    LOGGER.info(f"[MediaGroup] raw msg id={_rm_mid} type={_rm_mtype}")
+                    if 'Video' in _rm_mtype:
+                        LOGGER.info(
+                            f"[MediaGroup] ⚠ raw 发现视频! msg_id={_rm_mid} "
+                            f"type={_rm_mtype} (Pyrogram 漏掉了它!)"
+                        )
+    except Exception as _raw_err:
+        LOGGER.debug(f"[MediaGroup] raw API verify skipped: {_raw_err}")
 
     LOGGER.info(
         f"[MediaGroup] tawhid120 原版: get_media_group 找到 "
