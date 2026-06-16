@@ -376,27 +376,64 @@ def setup_login_handler(app: Client):
         session_id = str(uuid.uuid4())
         session_name = f"temp_session_{user_id}_{session_id}"
 
-        # 防御: 如果 config 里 API_ID/API_HASH 缺失,尝试从运行中的 bot client 获取
-        _api_id   = API_ID
-        _api_hash = API_HASH
-        if not _api_id or not _api_hash:
+        # ── 获取 API_ID / API_HASH（按优先级尝试 4 种来源）──
+        def _resolve_api_creds():
+            """返回 (api_id, api_hash) 元组，或 (None, None)。"""
+            # 1. 直接从 os.environ 读取（绕过模块缓存）
+            _id  = os.environ.get("API_ID")
+            _hsh = os.environ.get("API_HASH")
+            if _id and _hsh:
+                LOGGER.info("[login] creds: os.environ")
+                return int(_id), _hsh
+            # 2. 从 .env 文件读
+            for _p in (".env", os.path.join(os.path.dirname(__file__), "..", ".env")):
+                _abs = os.path.abspath(_p)
+                if os.path.isfile(_abs):
+                    try:
+                        from dotenv import dotenv_values
+                        _v = dotenv_values(_abs)
+                        _i2, _h2 = _v.get("API_ID"), _v.get("API_HASH")
+                        if _i2 and _h2:
+                            LOGGER.info(f"[login] creds: {_abs}")
+                            return int(_i2), _h2
+                    except Exception:
+                        pass
+            # 3. 重载 config 模块
             try:
-                _api_id   = client.api_id   # 当前 bot client 的 api_id
-                _api_hash = client.api_hash # 当前 bot client 的 api_hash
-                LOGGER.info(
-                    f"[login] fallback to bot client api_id={_api_id} "
-                    f"api_hash_set={bool(_api_hash)}"
-                )
-            except Exception as _fb_err:
-                LOGGER.error(f"[login] failed to fallback api_id/api_hash: {_fb_err}")
+                from dotenv import load_dotenv
+                load_dotenv(override=True)
+                import importlib as _il2
+                import config as _cfg2
+                _il2.reload(_cfg2)
+                if _cfg2.API_ID and _cfg2.API_HASH:
+                    LOGGER.info("[login] creds: config (reloaded)")
+                    return int(_cfg2.API_ID), _cfg2.API_HASH
+            except Exception:
+                pass
+            # 4. bot client 属性
+            try:
+                _i3 = getattr(client, "api_id", None) or getattr(client, "_api_id", None)
+                _h3 = getattr(client, "api_hash", None) or getattr(client, "_api_hash", None)
+                if _i3 and _h3:
+                    LOGGER.info("[login] creds: bot client")
+                    return int(_i3), _h3
+            except Exception:
+                pass
+            return None, None
+
+        _api_id, _api_hash = _resolve_api_creds()
 
         if not _api_id or not _api_hash:
             await _safe_edit(
                 status_msg,
-                "**❌ 服务器配置错误。**\n\n"
-                "机器人的 `API_ID` 或 `API_HASH` 未配置，"
-                "无法创建用户会话。\n\n"
-                "请联系管理员在 `.env` 文件中设置 `API_ID` 和 `API_HASH`。"
+                "**❌ 服务器 API 配置错误。**\n\n"
+                "`API_ID` 或 `API_HASH` 未正确配置。\n\n"
+                "请确保 `.env` 文件中已设置以下字段：\n"
+                "```\n"
+                "API_ID=12345\n"
+                "API_HASH=你的哈希值\n"
+                "```\n"
+                "设置后请**重启机器人**。"
             )
             _clear_state(chat_id)
             return
