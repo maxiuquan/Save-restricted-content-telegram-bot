@@ -1315,39 +1315,13 @@ def setup_pbatch_handler(app: Client):
             target_message_ids = list(range(start_message_id, start_message_id + count))
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
-            messages = []
-            CHUNK = 200
-            try:
-                for i in range(0, len(target_message_ids), CHUNK):
-                    chunk_ids = target_message_ids[i:i + CHUNK]
-                    try:
-                        chunk_msgs = await user_client.get_messages(
-                            chat_id=pvt_chat_id,
-                            message_ids=chunk_ids,
-                        )
-                        if chunk_msgs:
-                            if not isinstance(chunk_msgs, list):
-                                chunk_msgs = [chunk_msgs]
-                            for m in chunk_msgs:
-                                if m and not getattr(m, 'empty', False) and m.id:
-                                    messages.append(m)
-                    except Exception as chunk_err:
-                        LOGGER.warning(f"[v20] get_messages chunk failed: {chunk_err}")
-            except Exception as e:
-                LOGGER.warning(f"[v20] get_messages failed: {e}")
+            # 关键修复: 不在循环外获取所有消息 — 改为按 ID 单独获取（devgaganin 模式）
+            # 原因: get_messages(ids=[...]) 批量获取时 Pyrogram 可能不会为所有消息加载完整 media
+            # 单独获取每条消息确保 media 属性正确加载
+            messages = None
+            # 不预先获取 - 在循环中单独获取每条
 
-            # 按 ID 升序排序
-            messages.sort(key=lambda m: m.id)
-
-            # 调试：记录获取到的消息 ID
-            if messages:
-                got_ids = [m.id for m in messages]
-                LOGGER.info(f"[v20] got message ids: {got_ids}")
-
-            total_msg_count = len(messages)
-            LOGGER.info(f"[v20] got {total_msg_count} msgs")
-
-            if not messages:
+            if not target_message_ids:
                 await status_message.edit_text(
                     f"**❌ 无法获取消息。**\n\n"
                     f"**🔢 请求：** `{count}` 条\n"
@@ -1358,13 +1332,33 @@ def setup_pbatch_handler(app: Client):
                 _del_state(chat_id)
                 return
 
-            # ── 遍历处理每一条消息 ──
-            for j, msg in enumerate(messages, 1):
+            total_msg_count = len(target_message_ids)
+            LOGGER.info(f"[v20] will process {total_msg_count} msgs individually")
+
+            # ── 遍历处理每一条消息（devgaganin 模式: 每条单独获取）──
+            for j, mid in enumerate(target_message_ids, 1):
                 if cancel_flags.get(chat_id):
                     break
 
                 idx = j
-                mid = msg.id
+                msg = None
+
+                # 关键: 单独获取每条消息 — 确保 media 属性正确加载
+                # 这是 devgaganin 项目的核心模式 (process_msg)
+                try:
+                    _single = await user_client.get_messages(
+                        chat_id=pvt_chat_id,
+                        message_ids=mid,
+                    )
+                    if _single and not isinstance(_single, list):
+                        msg = _single
+                except Exception as e:
+                    LOGGER.warning(f"[v20] get_messages({mid}) failed: {e}")
+
+                if not msg:
+                    LOGGER.warning(f"[v20] {idx}/{total_msg_count} id={mid} 获取失败")
+                    fail_count += 1
+                    continue
 
                 # 跳过已通过 "media group shell" fallback 处理过的消息
                 if mid in _handled_by_grouped_fallback:
@@ -1414,7 +1408,6 @@ def setup_pbatch_handler(app: Client):
                         _update_progress()
 
                         # 关键修复: 使用正确的文件扩展名（参考 devgaganin 项目的实现）
-                        # 先确定 file_name（Telegram 原始文件名），再 download
                         _dl_name = _build_dl_filename(msg, mid, media_type)
                         file_path = await user_client.download_media(
                             msg,
@@ -1445,79 +1438,36 @@ def setup_pbatch_handler(app: Client):
                         await _apply_delay(idx)
                         continue
 
-                    # 无媒体无文字 → raw API 回退：尝试获取原始 TL 消息诊断
-                    if not _has_media and not msg.text:
-                        LOGGER.info(f"[v20] raw fallback for {mid}")
-                        try:
-                            _raw_result = await user_client.invoke(
-                                raw.functions.messages.GetMessages(
-                                    id=[raw.types.InputMessageID(id=mid)]
-                                )
-                            )
-                            if _raw_result.messages:
-                                _rm = _raw_result.messages[0]
-                                _rm_type = type(_rm).__name__
-                                _rm_has_media = bool(getattr(_rm, 'media', None))
-                                LOGGER.info(f"[v20] raw msg type={_rm_type} has_media={_rm_has_media}")
-                                if _rm_has_media:
-                                    _rm_media = _rm.media
-                                    LOGGER.info(f"[v20] raw media type={type(_rm_media).__name__}")
-                                    # Check document attributes
-                                    _doc = getattr(_rm_media, 'document', None) or \
-                                           getattr(_rm_media, 'photo', None) or \
-                                           getattr(_rm_media, 'video', None)
-                                    if _doc:
-                                        _mime = getattr(_doc, 'mime_type', '?')
-                                        LOGGER.info(f"[v20] raw doc mime={_mime}")
-                                    # Try to download from raw TL
-                                    try:
-                                        # 关键修复: 使用正确的 file_name（参考 devgaganin）
-                                        _rl_name = _build_dl_filename(msg, mid, media_type)
-                                        _rl_path = await user_client.download_media(
-                                            msg,
-                                            file_name=_rl_name,
-                                        )
-                                        if _rl_path and os.path.exists(_rl_path):
-                                            LOGGER.info(f"[v20] raw download OK: {_rl_path}")
-                                            # 上传
-                                            _current_status = f"upload {idx}/{total_msg_count}"
-                                            _update_progress()
-                                            await _upload_to_saved(
-                                                user_client, None, _rl_path,
-                                                msg.caption.markdown if msg.caption else "",
-                                                thumbnail_path, mid
-                                            )
-                                            success_count += 1
-                                            try:
-                                                os.remove(_rl_path)
-                                            except Exception:
-                                                pass
-                                            continue
-                                    except Exception as e2:
-                                        LOGGER.warning(f"[v20] raw download failed: {e2}")
-                        except Exception as e:
-                            LOGGER.warning(f"[v20] raw fallback error {mid}: {e}")
-
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
+                    # devgaganin 模式: 用 get_messages 单独获取媒体组内的所有消息
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] media group shell msg {mid}, searching for grouped media...")
+                        LOGGER.info(f"[v20] media group shell msg {mid}, searching for grouped media via get_messages...")
                         _found_group = False
-                        # 关键修复: 收集媒体组内所有有 media 的消息（不只取第一个）
+                        # 用 get_messages 单独获取媒体组内前后 10 条消息
+                        _grouped_ids = list(range(max(1, mid - 10), mid + 11))
+                        _grp_msgs = await user_client.get_messages(
+                            chat_id=pvt_chat_id,
+                            message_ids=_grouped_ids,
+                        )
+                        if _grp_msgs and not isinstance(_grp_msgs, list):
+                            _grp_msgs = [_grp_msgs]
+
                         _grouped_media_msgs = []
-                        async for _gm in user_client.get_chat_history(chat_id=pvt_chat_id, limit=200):
-                            if getattr(_gm, 'media_group_id', None) == _media_group_id and _gm.media:
+                        for _gm in (_grp_msgs or []):
+                            if _gm and getattr(_gm, 'media_group_id', None) == _media_group_id and _gm.media:
                                 _grouped_media_msgs.append(_gm)
+                        # 按 id 排序
+                        _grouped_media_msgs.sort(key=lambda x: x.id)
 
                         LOGGER.info(f"[v20] grouped media count for mgid={_media_group_id}: {len(_grouped_media_msgs)}")
 
-                        # 处理媒体组内所有消息（修复：原来只处理第一个）
+                        # 处理媒体组内所有消息
                         for _gm in _grouped_media_msgs:
                             LOGGER.info(f"[v20] processing grouped media msg id={_gm.id} media={_gm.media}")
                             _cap = _gm.caption.markdown if _gm.caption else ""
                             _current_status = f"download {idx}/{total_msg_count}"
                             _update_progress()
                             try:
-                                # 关键修复: 使用正确的 file_name（参考 devgaganin）
                                 _gp_name = _build_dl_filename(_gm, _gm.id, _gm.media)
                                 _gp = await user_client.download_media(
                                     _gm,
@@ -1532,7 +1482,6 @@ def setup_pbatch_handler(app: Client):
                                     )
                                     success_count += 1
                                     _handled_by_grouped_fallback.add(_gm.id)
-                                    # 关键修复: 也标记壳消息本身，避免外层循环重新处理
                                     _handled_by_grouped_fallback.add(mid)
                                     try:
                                         os.remove(_gp)
