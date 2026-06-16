@@ -777,7 +777,7 @@ def _build_dl_filename(msg, mid, media_type=None):
             if fname:
                 return fname
             ext = _get_file_ext(msg, media_type) or '.mp4'
-            return f"dl_{mid}_{int(time.time())}{ext}"
+            return f"dl_{mid}_{int(time())}{ext}"
 
         # 2) 音频
         if hasattr(msg, 'audio') and msg.audio:
@@ -785,7 +785,7 @@ def _build_dl_filename(msg, mid, media_type=None):
             if fname:
                 return fname
             ext = _get_file_ext(msg, media_type) or '.mp3'
-            return f"dl_{mid}_{int(time.time())}{ext}"
+            return f"dl_{mid}_{int(time())}{ext}"
 
         # 3) 文档
         if hasattr(msg, 'document') and msg.document:
@@ -793,16 +793,16 @@ def _build_dl_filename(msg, mid, media_type=None):
             if fname:
                 return fname
             ext = _get_file_ext(msg, media_type) or ''
-            return f"dl_{mid}_{int(time.time())}{ext}"
+            return f"dl_{mid}_{int(time())}{ext}"
 
         # 4) 语音
         if hasattr(msg, 'voice') and msg.voice:
             ext = _get_file_ext(msg, media_type) or '.ogg'
-            return f"dl_{mid}_{int(time.time())}{ext}"
+            return f"dl_{mid}_{int(time())}{ext}"
 
         # 5) 视频便签
         if hasattr(msg, 'video_note') and msg.video_note:
-            return f"dl_{mid}_{int(time.time())}.mp4"
+            return f"dl_{mid}_{int(time())}.mp4"
 
         # 6) 动图
         if hasattr(msg, 'animation') and msg.animation:
@@ -810,18 +810,18 @@ def _build_dl_filename(msg, mid, media_type=None):
             if fname:
                 return fname
             ext = _get_file_ext(msg, media_type) or '.mp4'
-            return f"dl_{mid}_{int(time.time())}{ext}"
+            return f"dl_{mid}_{int(time())}{ext}"
 
         # 7) 贴纸
         if hasattr(msg, 'sticker') and msg.sticker:
-            return f"dl_{mid}_{int(time.time())}.webp"
+            return f"dl_{mid}_{int(time())}.webp"
 
         # 8) 照片 / 其他
         ext = _get_file_ext(msg, media_type) or '.jpg'
-        return f"dl_{mid}_{int(time.time())}{ext}"
+        return f"dl_{mid}_{int(time())}{ext}"
     except Exception:
         pass
-    return f"dl_{mid}_{int(time.time())}"
+    return f"dl_{mid}_{int(time())}"
 
 async def processMediaGroup(
     chat_message,
