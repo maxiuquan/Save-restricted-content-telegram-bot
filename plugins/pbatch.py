@@ -651,6 +651,7 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.error(f"[PublicBatch] Fetch chunk failed: {e}")
                 fail_count += len(chunk_ids)
 
+        total_msg_count = len(all_messages)
         missing_count = count - total_msg_count
         effective_total = total_msg_count
 

@@ -358,12 +358,12 @@ async def _exec_ytdlp(
     user_id: int,
 ):
     """
-    ytdl.py → _handle_single_video_initiate_public()
+    ytdl.py → handle_single_video_initiate()
     """
     try:
-        from plugins.ytdl import _handle_single_video_initiate_public
+        from plugins.ytdl import handle_single_video_initiate
 
-        LOGGER.info(f"[AutoRouter] → ytdl._handle_single_video_initiate_public() | url={url[:60]}")
+        LOGGER.info(f"[AutoRouter] → ytdl.handle_single_video_initiate() | url={url[:60]}")
 
         # Optional helpers — 没有也可以
         try:
@@ -390,7 +390,7 @@ async def _exec_ytdlp(
         except (ImportError, AttributeError):
             pass
 
-        await _handle_single_video_initiate_public(
+        await handle_single_video_initiate(
             client, message, url_clean, user_id, is_prem, referer
         )
 
@@ -464,13 +464,35 @@ async def _exec_directdl(
 
 async def _exec_urldl(client: Client, message: Message, url: str):
     """
-    urldl.py → _process_url_download(client, message, url)
+    urldl.py → handles simple HTTP download
+    urldl.py 在 group=2 中已自行处理通用 URL，
+    此函数仅在 urldl.py 未加载时作为 fallback 使用。
     """
     try:
-        from plugins.urldl import _process_url_download
+        from plugins.urldl import _process_url_download, _is_premium, _get_file_info, _check_cooldown
 
-        LOGGER.info(f"[AutoRouter] → urldl._process_url_download() | url={url[:60]}")
-        await _process_url_download(client, message, url)
+        LOGGER.info(f"[AutoRouter] → urldl fallback | url={url[:60]}")
+
+        user_id = message.from_user.id
+        is_premium = await _is_premium(user_id)
+
+        remaining = await _check_cooldown(user_id, is_premium)
+        if remaining > 0:
+            mins, secs = divmod(remaining, 60)
+            await message.reply_text(
+                f"⏳ **请等待 {mins}分{secs}秒后再试。**",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        file_size, filename = await _get_file_info(url)
+        status_msg = await message.reply_text(
+            f"⬇️ **开始下载...**\n📄 `{filename}`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        await _process_url_download(
+            client, message, url, filename, status_msg, is_premium,
+        )
 
     except ImportError as e:
         LOGGER.error(f"[AutoRouter] urldl import failed: {e}")

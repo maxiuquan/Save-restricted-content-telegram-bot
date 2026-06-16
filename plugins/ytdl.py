@@ -60,6 +60,15 @@ except ImportError:
     PYBALT_AVAILABLE = False
 
 
+# 检查 bgutil pot provider 是否可用
+BGUTIL_AVAILABLE = False
+try:
+    import bgutil_ytdlp_pot_provider
+    BGUTIL_AVAILABLE = True
+except ImportError:
+    pass
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 常量
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -187,14 +196,17 @@ def _build_ydl_opts(
         "extractor_retries":   3,
         "fragment_retries":    5,      # HLS 片段重试（对 m3u8 很重要）
         "http_headers":        http_headers,
-        "extractor_args": {
-            "youtubepot-bgutilhttp": {
-                "base_url": [BGUTIL_POT_URL],
-            },
-        },
         "buffersize":                    1024 * 16,
         "concurrent_fragment_downloads": 1,
     }
+
+    # 仅当 bgutil pot provider 可用时才添加 YouTube bot 绕过
+    if BGUTIL_AVAILABLE:
+        opts["extractor_args"] = {
+            "youtubepot-bgutilhttp": {
+                "base_url": [BGUTIL_POT_URL],
+            },
+        }
 
     # ── 代理 ─────────────────────────────────────────────────────────────
     if use_proxy and _is_warp_available():
@@ -1106,6 +1118,97 @@ async def _upload_video_file(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 公开函数：单视频下载入口
+# 供 auto_router.py 和 /ytdl 命令调用
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def handle_single_video_initiate(
+    client: Client,
+    message: Message,
+    url: str,
+    user_id: int,
+    is_premium: bool,
+    referer: str = None,
+):
+    """
+    获取视频信息并显示画质选择键盘。
+
+    供 auto_router.py 和 /ytdl 命令调用。
+    实际下载在用户选择画质后由 ytdl_callback 处理。
+    """
+    if not YTDLP_AVAILABLE:
+        await message.reply_text(
+            "❌ **yt-dlp 未安装！**",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    warp_ok = _is_warp_available()
+    referer_txt = " | 🔗 Referer 已启用" if referer else ""
+    status_msg = await message.reply_text(
+        f"🔍 **正在分析视频...**\n"
+        f"_{'🟢 WARP 已激活' if warp_ok else '🟡 直接连接'}{referer_txt}_",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    # 在 executor 中运行同步的 get_single_video_info
+    loop = asyncio.get_event_loop()
+    info, error_msg = await loop.run_in_executor(
+        None,
+        lambda: get_single_video_info(url, referer),
+    )
+
+    if not info:
+        asyncio.create_task(
+            _log_ytdl_failed(
+                client, message.from_user, url,
+                error_msg or "Video info fetch failed",
+                referer=referer,
+            )
+        )
+        try:
+            await status_msg.edit_text(
+                f"❌ **视频分析失败！**\n\n"
+                f"{_friendly_error(error_msg) if error_msg else '未知错误'}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        except Exception:
+            pass
+        return
+
+    # 存储会话数据供回调使用
+    cleanup_expired_sessions()
+    ytdl_sessions[message.chat.id] = {
+        "user_id":    user_id,
+        "url":        url,
+        "info":       info,
+        "message_id": message.id,
+        "created_at": time(),
+        "user_obj":   message.from_user,
+        "type":       "single",
+        "referer":    referer,
+    }
+
+    title        = (info.get("title") or "Unknown")[:60]
+    duration     = info.get("duration", 0) or 0
+    duration_str = get_readable_time(int(duration)) if duration else "Unknown"
+    uploader     = (info.get("uploader") or info.get("channel") or "Unknown")[:50]
+
+    try:
+        await status_msg.edit_text(
+            f"📹 **{title}**\n\n"
+            f"👤 **频道：** {uploader}\n"
+            f"⏱ **时长：** {duration_str}\n\n"
+            f"👇 **选择画质：**",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=build_quality_keyboard(info, message.chat.id, is_playlist=False),
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        pass
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 主设置函数
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1242,136 +1345,9 @@ def setup_ytdl_handler(app: Client):
                 client, message, url, user_id, is_premium, referer
             )
         else:
-            await _handle_single_video_initiate(
+            await handle_single_video_initiate(
                 client, message, url, user_id, is_premium, referer
             )
-
-    # ─────────────────────────────────────────────────────────────────────
-    # 单个视频：信息获取 → 画质键盘
-    # ─────────────────────────────────────────────────────────────────────
-
-    async def _handle_single_video_initiate(
-        client, message, url, user_id, is_premium, referer=None
-    ):
-        """
-        Single video info fetch করে quality keyboard দেখায়।
-        referer থাকলে HLS/CDN stream-এও info পাওয়া যাবে।
-        """
-        warp_ok = _is_warp_available()
-        referer_hint = f" | 🔗 Referer：`{referer[:40]}...`" if referer else ""
-
-        status_msg = await message.reply_text(
-            f"🔍 **正在分析...**\n"
-            f"_{'🟢 WARP 已激活' if warp_ok else '🟡 直接连接'}"
-            f"{referer_hint}_",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-
-        loop = asyncio.get_event_loop()
-        # 使用 Referer 获取信息
-        info, error_msg = await loop.run_in_executor(
-            None,
-            lambda: get_single_video_info(url, referer),
-        )
-
-        if not info:
-            # ── 信息获取失败 ──────────────────────────────────────────
-            asyncio.create_task(
-                _log_ytdl_failed(
-                    client, message.from_user, url,
-                    error_msg or "Info fetch failed",
-                    referer=referer,
-                )
-            )
-
-            # HLS URL 遇到 403 时建议使用 Referer
-            error_lower = (error_msg or "").lower()
-            if (is_hls_url(url) or is_protected_cdn_url(url)) and (
-                "403" in error_lower or "forbidden" in error_lower
-            ) and not referer:
-                await status_msg.edit_text(
-                    "❌ **403 禁止访问 — 访问被拒绝！**\n\n"
-                    "这个受保护的流需要 **Referer**。\n\n"
-                    "**请使用 Referer 重试：**\n"
-                    f"`/ytdl {url} referer:<网站链接>`\n\n"
-                    "**示例：**\n"
-                    f"`/ytdl {url} referer:https://example.com`",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-                return
-
-            # pybalt 回退（非 HLS URL）
-            if PYBALT_AVAILABLE and not is_hls_url(url):
-                cleanup_expired_sessions()
-                ytdl_sessions[message.chat.id] = {
-                    "user_id":    user_id,
-                    "url":        url,
-                    "info":       {},
-                    "message_id": message.id,
-                    "created_at": time(),
-                    "use_pybalt": True,
-                    "user_obj":   message.from_user,
-                    "type":       "single",
-                    "referer":    referer,
-                }
-                await status_msg.edit_text(
-                    "📹 **视频已找到（Cobalt 引擎）**\n\n"
-                    "👇 **选择画质：**",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(
-                            "🎬 最佳画质",
-                            callback_data=f"ytdl_v_{message.chat.id}_best",
-                        )],
-                        [InlineKeyboardButton(
-                            "🎵 仅音频",
-                            callback_data=f"ytdl_a_{message.chat.id}",
-                        )],
-                        [InlineKeyboardButton(
-                            "❌ 取消",
-                            callback_data=f"ytdl_cancel_{message.chat.id}",
-                        )],
-                    ]),
-                )
-                return
-
-            # 所有回退结束 — 显示错误
-            await status_msg.edit_text(
-                f"❌ **下载失败！**\n\n"
-                f"{_friendly_error(error_msg) if error_msg else '未知错误'}",
-                parse_mode=ParseMode.MARKDOWN,
-            )
-            return
-
-        # ── 信息获取成功 → 显示画质键盘 ──────────────────────────────
-        title        = (info.get("title", "Unknown") or "Unknown")[:60]
-        duration     = info.get("duration", 0) or 0
-        uploader     = info.get("uploader", "Unknown") or "Unknown"
-        duration_str = get_readable_time(int(duration)) if duration else "Unknown"
-        referer_info = f"\n🔗 **Referer：** `{referer[:50]}`" if referer else ""
-
-        cleanup_expired_sessions()
-        ytdl_sessions[message.chat.id] = {
-            "user_id":    user_id,
-            "url":        url,
-            "info":       info,
-            "message_id": message.id,
-            "created_at": time(),
-            "user_obj":   message.from_user,
-            "type":       "single",
-            "referer":    referer,   # 在会话中存储 Referer
-        }
-
-        await status_msg.edit_text(
-            f"📹 **{title}**\n\n"
-            f"👤 **频道：** {uploader}\n"
-            f"⏱ **时长：** {duration_str}"
-            f"{referer_info}\n\n"
-            f"👇 **选择画质：**",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=build_quality_keyboard(info, message.chat.id, is_playlist=False),
-            disable_web_page_preview=True,
-        )
 
     # ─────────────────────────────────────────────────────────────────────
     # 播放列表：信息获取 → 画质键盘 或 阻止（免费用户）

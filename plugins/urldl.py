@@ -420,13 +420,68 @@ async def _process_url_download(
 
 def setup_urldl_handler(app: Client):
 
+    # domani che vengono gestiti da altri plugin (ytdlp, directdl, gdrive)
+    # urldl deve ignorarli per evitare conflitti con l'auto_router
+    _SKIP_DOMAINS = {
+        # yt-dlp domains
+        "youtube.com", "youtu.be", "m.youtube.com", "music.youtube.com",
+        "vimeo.com", "dailymotion.com", "twitch.tv", "tiktok.com",
+        "vm.tiktok.com", "instagram.com", "twitter.com", "x.com", "t.co",
+        "facebook.com", "fb.watch", "soundcloud.com", "bandcamp.com",
+        "reddit.com", "v.redd.it", "bilibili.com", "b23.tv",
+        "nicovideo.jp", "nico.ms", "mixcloud.com", "vk.com", "rumble.com",
+        "odysee.com", "ok.ru", "coub.com", "streamable.com", "ted.com",
+        # directdl domains
+        "mediafire.com", "gofile.io", "pixeldrain.com", "1fichier.com",
+        "streamtape.com", "wetransfer.com", "swisstransfer.com", "qiwi.gg",
+        "mp4upload.com", "buzzheavier.com", "send.cm", "linkbox.to",
+        "krakenfiles.com", "solidfiles.com", "upload.ee", "tmpsend.com",
+        "easyupload.io", "streamvid.net", "streamhub.ink", "streamhub.to",
+        "berkasdrive.com", "akmfiles.com", "hxfile.co", "osdn.net",
+        "yadi.sk", "disk.yandex.com", "disk.yandex.ru", "devuploads.com",
+        "uploadhaven.com", "fuckingfast.co", "mediafile.cc", "lulacloud.com",
+        "shrdsk.me", "transfer.it", "terabox.com", "nephobox.com",
+        "4funbox.com", "teraboxapp.com", "1024tera.com", "freeterabox.com",
+        "filelions.co", "filelions.site", "filelions.live",
+        "streamwish.to", "embedwish.com", "dood.watch", "doodstream.com",
+        "dood.to", "dood.so", "ds2play.com", "dood.cx", "racaty.net",
+        "racaty.io",
+        # gdrive
+        "drive.google.com", "docs.google.com",
+    }
+
+    def _get_domain_simple(url: str) -> str:
+        """从 URL 中提取域名（去 www）。"""
+        try:
+            from urllib.parse import urlparse
+            host = (urlparse(url).hostname or "").lower()
+            if host.startswith("www."):
+                host = host[4:]
+            return host
+        except Exception:
+            return ""
+
+    def _should_skip_url(url: str) -> bool:
+        """检查 URL 是否应该被 urldl 跳过（由其他插件处理）。"""
+        domain = _get_domain_simple(url)
+        if not domain:
+            return False
+        for skip_domain in _SKIP_DOMAINS:
+            if domain == skip_domain or domain.endswith(f".{skip_domain}"):
+                return True
+        # 检查 HLS / m3u8 流（yt-dlp 处理）
+        if re.search(r"\.m3u8(\?.*)?$", url, re.IGNORECASE):
+            return True
+        return False
+
     @app.on_message(
         filters.text & (filters.private | filters.group) &
         filters.create(lambda _, __, msg: (
             msg.text and URL_REGEX.search(msg.text) and
             not msg.text.strip().startswith("/") and
             "t.me" not in msg.text and
-            "telegram.me" not in msg.text
+            "telegram.me" not in msg.text and
+            not _should_skip_url(URL_REGEX.search(msg.text).group(0).strip())
         )),
         group=2
     )
