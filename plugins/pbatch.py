@@ -897,6 +897,43 @@ def setup_pbatch_handler(app: Client):
     # 私密批量下载
     # ────────────────────────────────────────────────────────────────────
 
+    # 关键修复: 从消息中获取正确的文件扩展名（避免 PHOTO_EXT_INVALID 错误）
+    def _get_file_ext(msg, media_type):
+        """从消息对象中提取正确的文件扩展名"""
+        try:
+            # 优先从 document.file_name 获取
+            if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'file_name', None):
+                fname = msg.document.file_name
+                ext = os.path.splitext(fname)[1].lower()
+                if ext:
+                    return ext
+            # 从 mime_type 推断
+            if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'mime_type', None):
+                mime = msg.document.mime_type.lower()
+                mime_map = {
+                    'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png',
+                    'image/webp': '.webp', 'image/bmp': '.bmp',
+                    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+                    'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg',
+                    'audio/x-wav': '.wav', 'audio/flac': '.flac',
+                }
+                if mime in mime_map:
+                    return mime_map[mime]
+            # 根据 media_type 推断默认扩展名
+            if media_type == MessageMediaType.PHOTO:
+                return '.jpg'
+            elif media_type == MessageMediaType.VIDEO:
+                return '.mp4'
+            elif media_type == MessageMediaType.AUDIO:
+                return '.mp3'
+            elif media_type == MessageMediaType.VOICE:
+                return '.ogg'
+            elif media_type == MessageMediaType.VIDEO_NOTE:
+                return '.mp4'
+        except Exception:
+            pass
+        return ''
+
     # v6.0 helper: upload media to Saved Messages by type
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
         # If media_type is None (Pyrofork couldn't parse), sniff from file ext
@@ -913,17 +950,48 @@ def setup_pbatch_handler(app: Client):
             else:
                 media_type = MessageMediaType.DOCUMENT
             LOGGER.info(f"[PrivateBatch] sniffed media_type={media_type} for msg {msg_id} from ext")
+
+        # 关键修复: 如果文件没有扩展名或扩展名不匹配 media_type，使用 send_document 兜底
+        # 避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 等错误
+        ext = os.path.splitext(file_path)[1].lower()
+        if media_type == MessageMediaType.PHOTO and ext not in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
+            # 检查文件实际是否为图片（通过 ffprobe）
+            try:
+                media_info = await get_media_info(file_path)
+                # 如果 get_media_info 成功识别为视频/音频等，跳过兜底
+                LOGGER.info(f"[PrivateBatch] msg {msg_id} photo ext invalid, falling back to document")
+                media_type = MessageMediaType.DOCUMENT
+            except Exception:
+                media_type = MessageMediaType.DOCUMENT
+        elif media_type == MessageMediaType.VIDEO and ext not in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
+            LOGGER.info(f"[PrivateBatch] msg {msg_id} video ext invalid, falling back to document")
+            media_type = MessageMediaType.DOCUMENT
+        elif media_type == MessageMediaType.AUDIO and ext not in ('.mp3', '.m4a', '.wav', '.flac', '.aac'):
+            media_type = MessageMediaType.DOCUMENT
+        elif media_type == MessageMediaType.VOICE and ext not in ('.ogg', '.oga', '.opus'):
+            media_type = MessageMediaType.DOCUMENT
+
         if media_type == MessageMediaType.VIDEO:
             duration, _, _ = await get_media_info(file_path)
             width, height = await get_video_resolution(file_path)
             thumb = await get_video_thumbnail(file_path, duration)
-            await user_client.send_video("me", file_path, caption=caption,
-                duration=duration or 0, width=width, height=height,
-                thumb=thumb, supports_streaming=True)
-            LOGGER.info(f"[PrivateBatch] ok video msg {msg_id}")
+            try:
+                await user_client.send_video("me", file_path, caption=caption,
+                    duration=duration or 0, width=width, height=height,
+                    thumb=thumb, supports_streaming=True)
+                LOGGER.info(f"[PrivateBatch] ok video msg {msg_id}")
+            except Exception as video_err:
+                LOGGER.warning(f"[PrivateBatch] send_video failed for {msg_id}: {video_err}, fallback to document")
+                await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
+                LOGGER.info(f"[PrivateBatch] ok document (fallback from video) msg {msg_id}")
         elif media_type == MessageMediaType.PHOTO:
-            await user_client.send_photo("me", file_path, caption=caption)
-            LOGGER.info(f"[PrivateBatch] ok photo msg {msg_id}")
+            try:
+                await user_client.send_photo("me", file_path, caption=caption)
+                LOGGER.info(f"[PrivateBatch] ok photo msg {msg_id}")
+            except Exception as photo_err:
+                LOGGER.warning(f"[PrivateBatch] send_photo failed for {msg_id}: {photo_err}, fallback to document")
+                await user_client.send_document("me", file_path, caption=caption)
+                LOGGER.info(f"[PrivateBatch] ok document (fallback from photo) msg {msg_id}")
         elif media_type == MessageMediaType.DOCUMENT:
             thumb = None
             ext = os.path.splitext(file_path)[1].lower()
@@ -1194,9 +1262,12 @@ def setup_pbatch_handler(app: Client):
                         _update_progress()
 
                         # 如果 msg.media 为 None 但有具体视频/文档属性，强制构造 InputMedia
+                        # 关键修复: 使用正确的文件扩展名避免 PHOTO_EXT_INVALID
+                        _dl_ext = _get_file_ext(msg, media_type)
+                        _dl_name = f"dl_{mid}_{int(time.time())}{_dl_ext}"
                         file_path = await user_client.download_media(
                             msg,
-                            file_name=f"dl_{mid}_{int(time.time())}",
+                            file_name=_dl_name,
                             progress=Leaves.progress_for_pyrogram,
                             progress_args=progressArgs("downloading", status_message, start_ts),
                         )
@@ -1249,9 +1320,11 @@ def setup_pbatch_handler(app: Client):
                                         LOGGER.info(f"[v20] raw doc mime={_mime}")
                                     # Try to download from raw TL
                                     try:
+                                        # 关键修复: 使用正确的文件扩展名
+                                        _rl_ext = _get_file_ext(msg, media_type)
                                         _rl_path = await user_client.download_media(
                                             msg,
-                                            file_name=f"dl_{mid}_{int(time.time())}",
+                                            file_name=f"dl_{mid}_{int(time.time())}{_rl_ext}",
                                         )
                                         if _rl_path and os.path.exists(_rl_path):
                                             LOGGER.info(f"[v20] raw download OK: {_rl_path}")
@@ -1285,9 +1358,11 @@ def setup_pbatch_handler(app: Client):
                                 _current_status = f"download {idx}/{total_msg_count}"
                                 _update_progress()
                                 try:
+                                    # 关键修复: 使用正确的文件扩展名
+                                    _gp_ext = _get_file_ext(_gm, _gm.media)
                                     _gp = await user_client.download_media(
                                         _gm,
-                                        file_name=f"dl_{_gm.id}_{int(time.time())}",
+                                        file_name=f"dl_{_gm.id}_{int(time.time())}{_gp_ext}",
                                         progress=Leaves.progress_for_pyrogram,
                                         progress_args=progressArgs("downloading", status_message, start_ts),
                                     )
