@@ -880,6 +880,25 @@ async def processMediaGroup(
             f"media_obj={_has_media_obj}"
         )
 
+        # ✅ 壳消息修复：get_media_group() 对限制频道的壳消息不填充 media 属性，
+        #    但 Telegram 客户端可以正常查看。单独用 get_messages() 重新获取，
+        #    可以正确拿到隐藏的视频/图片等媒体。
+        if not (msg.photo or msg.video or msg.document or msg.audio):
+            if user_client and hasattr(msg, 'chat') and msg.chat and msg.id:
+                try:
+                    refetched = await user_client.get_messages(
+                        chat_id=msg.chat.id, message_ids=msg.id
+                    )
+                    if refetched and (refetched.photo or refetched.video or refetched.document or refetched.audio):
+                        LOGGER.info(
+                            f"[MediaGroup] 壳消息 id={msg.id} 重取成功: "
+                            f"p={bool(refetched.photo)} v={bool(refetched.video)} "
+                            f"d={bool(refetched.document)} a={bool(refetched.audio)}"
+                        )
+                        msg = refetched  # 用重取到的消息替换
+                except Exception as refetch_e:
+                    LOGGER.warning(f"[MediaGroup] 壳消息 id={msg.id} 重取失败: {refetch_e}")
+
         if msg.photo or msg.video or msg.document or msg.audio:
             # ✅ 快速路径：使用 file_id，不需要下载和重新上传
             try:
