@@ -11,19 +11,11 @@ from time import time
 from typing import Optional
 from asyncio import create_subprocess_exec, create_subprocess_shell, wait_for
 from pyrogram.errors import FloodWait
-
-try:
-    from pyrogram.errors import PeerStorageLimitReached
-except ImportError:
-    PeerStorageLimitReached = None
 from PIL import Image
 from pyleaves import Leaves
 from pyrogram.parser import Parser
 from pyrogram.utils import get_channel_id
-from pyrogram.errors import FloodWait
 from pyrogram.enums import ParseMode
-from pyrogram import raw as _raw_mod
-raw = _raw_mod
 from pyrogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
@@ -862,89 +854,11 @@ async def processMediaGroup(
         LOGGER.warning("[MediaGroup] 媒体组为空")
         return False
 
-    # ✅ 关键补充: 用 raw API 重新检查媒体组中是否漏掉了 video
-    # Pyrogram 的 get_media_group 在某些情况下不会返回所有消息，
-    # 特别是在用户 session 受限的情况下，video 可能被过滤掉。
-    _raw_client = user_client or bot
-    _raw_videos = []  # raw API 找到但 Pyrogram 漏掉的视频消息
-    try:
-        _mgid = getattr(chat_message, 'media_group_id', None)
-        if _mgid and _raw_client is not None:
-            _peer = await _raw_client.resolve_peer(chat_message.chat.id)
-            _r = await _raw_client.invoke(
-                raw.functions.messages.GetHistory(
-                    peer=_peer,
-                    offset_id=0,
-                    offset_date=0,
-                    add_offset=0,
-                    limit=20,
-                    max_id=0,
-                    min_id=0,
-                    hash=0,
-                )
-            )
-            _raw_extra = []
-            for _rm in (getattr(_r, 'messages', None) or []):
-                if getattr(_rm, 'grouped_id', None) == _mgid:
-                    _raw_extra.append(_rm)
-            if _raw_extra:
-                LOGGER.info(
-                    f"[MediaGroup] raw API 找到 {len(_raw_extra)} 条 mgid={_mgid} 消息 "
-                    f"(Pyrogram 找到 {len(media_group_messages)} 条)"
-                )
-                # 找出 raw API 里的视频消息
-                for _rm in _raw_extra:
-                    _rm_media = getattr(_rm, 'media', None)
-                    if _rm_media is None:
-                        continue
-                    _rm_mid = getattr(_rm, 'id', None)
-                    _rm_mtype = type(_rm_media).__name__
-                    LOGGER.info(f"[MediaGroup] raw msg id={_rm_mid} type={_rm_mtype}")
-                    if 'Video' in _rm_mtype:
-                        LOGGER.info(
-                            f"[MediaGroup] ⚠ raw 发现视频! msg_id={_rm_mid} "
-                            f"type={_rm_mtype} (Pyrogram 漏掉了它!)"
-                        )
-                        _raw_videos.append(_rm_mid)
-                # 关键: 如果 raw 找到了 Pyrogram 漏掉的视频，
-                # 用 get_messages(chat_id, message_ids=...) 单独获取这些消息
-                if _raw_videos:
-                    try:
-                        _extra_msgs = await _raw_client.get_messages(
-                            chat_id=chat_message.chat.id,
-                            message_ids=_raw_videos,
-                        )
-                        for _em in (_extra_msgs or []):
-                            if _em and (getattr(_em, 'video', None) or getattr(_em, 'media', None)):
-                                media_group_messages.append(_em)
-                                LOGGER.info(
-                                    f"[MediaGroup] ✅ 已添加 Pyrogram 漏掉的视频 msg_id={_em.id}"
-                                )
-                    except Exception as _extra_err:
-                        LOGGER.warning(
-                            f"[MediaGroup] 补充视频失败: {_extra_err}"
-                        )
-    except Exception as _raw_err:
-        LOGGER.warning(f"[MediaGroup] raw API verify failed: {_raw_err}")
-
     LOGGER.info(
         f"[MediaGroup] tawhid120 原版: get_media_group 找到 "
         f"{len(media_group_messages)} 条消息"
     )
 
-    valid_media  = []
-    temp_paths   = []
-    auto_thumbs  = []
-    invalid_paths = []
-
-    start_time       = time()
-    progress_message = await message.reply("**📥 下载媒体组中...**")
-    LOGGER.info(f"下载媒体组，共 {len(media_group_messages)} 项...")
-
-    # ── 关键修复（恢复 jun4 之前的有效实现）:
-    # 1. 先尝试 send_media_group + file_id（快速路径，不需要重新下载和上传）
-    #    file_id 是 Telegram 的内部引用，不会出现 PHOTO_EXT_INVALID/VIDEO_EXT_INVALID 错误
-    # 2. 如果 forwards_restricted 失败，回退到下载+上传（带 file_name 修复以避免扩展名错误）
     valid_media  = []
     temp_paths   = []
     auto_thumbs  = []
@@ -1043,52 +957,6 @@ async def processMediaGroup(
                 except Exception as e2:
                     LOGGER.warning(f"[MediaGroup] 下载重传也失败: {e2}")
                     continue
-
-        elif _has_media_obj:
-            # ✅ Pyrogram 不识别的 media 类型 (MessageMediaUnsupported)
-            # raw API 显示 msg_id=2271 是 MessageMediaUnsupported —
-            # 可能是版权受限视频，Telegram 把 media 字段标记为 unsupported
-            # 但 message.media 对象本身非空
-            # 直接尝试 msg.download() — Pyrogram 会用 raw bytes 下载
-            LOGGER.info(
-                f"[MediaGroup] Pyrogram 不识别的 media 类型 msg_id={msg.id}, "
-                f"尝试直接下载"
-            )
-            try:
-                caption_text = await get_parsed_msg(
-                    msg.caption or "", msg.caption_entities
-                )
-                _dl_name = _build_dl_filename(msg, msg.id, msg.media)
-                if _dl_name:
-                    media_path = await msg.download(
-                        file_name=_dl_name,
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
-                    )
-                else:
-                    media_path = await msg.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", progress_message, start_time),
-                    )
-                if media_path and os.path.exists(media_path):
-                    temp_paths.append(media_path)
-                    # 不知道具体类型,统一用 InputMediaDocument (通用)
-                    valid_media.append(
-                        InputMediaDocument(media=media_path, caption=caption_text or "")
-                    )
-                    LOGGER.info(
-                        f"[MediaGroup] ✅ unsupported media 已下载 msg {msg.id} "
-                        f"-> {os.path.basename(str(media_path))}"
-                    )
-                else:
-                    LOGGER.warning(
-                        f"[MediaGroup] unsupported media 下载失败 msg {msg.id}: "
-                        f"path={media_path}"
-                    )
-            except Exception as e3:
-                LOGGER.warning(
-                    f"[MediaGroup] unsupported media 下载异常 msg {msg.id}: {e3}"
-                )
 
     LOGGER.info(f"有效媒体数量: {len(valid_media)}")
 

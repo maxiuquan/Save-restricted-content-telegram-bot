@@ -35,6 +35,13 @@ from utils import (
     LOGGER,
 )
 from utils.helper import safe_stop_client
+from utils.tdl_helper import (
+    is_tdl_installed,
+    pyrogram_session_to_tdl,
+    get_tdl_session_path,
+    build_message_link,
+    download_with_tdl,
+)
 from core import (
     daily_limit,
     prem_plan1,
@@ -140,6 +147,67 @@ def extract_video_metadata(chat_message) -> dict:
         f"duration={metadata['duration']}s"
     )
     return metadata
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# tdl 下载辅助函数：优先使用 tdl，失败则回退到 Pyrogram
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _download_via_tdl(
+    chat_message,
+    user_client,
+    user_id: int,
+    session_id: str,
+    progress_message,
+    start_time: float,
+    download_dir: str = "downloads",
+):
+    """
+    使用 tdl 下载媒体文件。失败时回退到 Pyrogram。
+
+    返回:
+        (media_path, used_tdl) — 下载的文件路径和是否使用了 tdl
+    """
+    if not is_tdl_installed():
+        return None, False
+
+    tdl_session = get_tdl_session_path(user_id)
+    if not tdl_session:
+        try:
+            session_str = await user_client.export_session_string()
+            tdl_session = pyrogram_session_to_tdl(session_str, user_id)
+        except Exception as e:
+            LOGGER.warning(f"[tdl] 无法创建 tdl 会话: {e}")
+            return None, False
+
+    if not tdl_session:
+        return None, False
+
+    msg_id = chat_message.id
+    chat_id = chat_message.chat.id
+    is_private = str(chat_id).startswith("-100")
+    message_link = build_message_link(chat_id, msg_id, is_private)
+
+    os.makedirs(download_dir, exist_ok=True)
+
+    LOGGER.info(
+        f"[tdl] 尝试下载: link={message_link} "
+        f"session={tdl_session} dir={download_dir}"
+    )
+
+    media_path = await download_with_tdl(
+        message_link=message_link,
+        session_file=tdl_session,
+        download_dir=download_dir,
+        timeout=600,
+    )
+
+    if media_path and os.path.exists(media_path):
+        LOGGER.info(f"[tdl] 下载成功: {media_path}")
+        return media_path, True
+
+    LOGGER.warning("[tdl] 下载失败，回退到 Pyrogram")
+    return None, False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -432,10 +500,16 @@ def setup_autolink_handler(app: Client):
                 except Exception:
                     pass
 
-                media_path = await chat_message.download(
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progressArgs("📥 下载中", processing_msg, start_time)
+                # ── 优先使用 tdl 下载，失败则回退到 Pyrogram ──────────
+                media_path, used_tdl = await _download_via_tdl(
+                    chat_message, user_client, user_id, session_id,
+                    processing_msg, start_time
                 )
+                if not media_path:
+                    media_path = await chat_message.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", processing_msg, start_time)
+                    )
 
                 try:
                     user_data = await asyncio.wait_for(
@@ -1154,10 +1228,16 @@ def setup_autolink_handler(app: Client):
                 except Exception:
                     pass
 
-                media_path = await chat_message.download(
-                    progress=Leaves.progress_for_pyrogram,
-                    progress_args=progressArgs("📥 下载中", processing_msg, start_time)
+                # ── 优先使用 tdl 下载，失败则回退到 Pyrogram ──────────
+                media_path, used_tdl = await _download_via_tdl(
+                    chat_message, user_client, user_id, session_id,
+                    processing_msg, start_time
                 )
+                if not media_path:
+                    media_path = await chat_message.download(
+                        progress=Leaves.progress_for_pyrogram,
+                        progress_args=progressArgs("📥 下载中", processing_msg, start_time)
+                    )
 
                 try:
                     user_data = await asyncio.wait_for(

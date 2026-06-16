@@ -8,7 +8,6 @@
 import os
 import uuid
 import asyncio
-import time
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -22,21 +21,7 @@ from pyrogram.errors import (
     MessageNotModified,
     FloodWait,
 )
-# 强制加载 .env 文件并重读环境变量
-try:
-    from dotenv import load_dotenv as _load_dotenv_login
-    _load_dotenv_login(override=True)
-    # 重载 config 模块以应用新环境变量
-    import importlib as _il
-    import config as _cfg_mod
-    _il.reload(_cfg_mod)
-    from config import COMMAND_PREFIX, API_ID as _AID, API_HASH as _AHS
-    API_ID = _AID
-    API_HASH = _AHS
-    LOGGER_TMP = __import__("utils.logging_setup", fromlist=["LOGGER"]).LOGGER
-    LOGGER_TMP.info(f"[login] reloaded API_ID={API_ID!r} API_HASH_set={bool(API_HASH)}")
-except Exception as _reload_err:
-    from config import COMMAND_PREFIX, API_ID, API_HASH
+from config import COMMAND_PREFIX, API_ID, API_HASH
 from utils.logging_setup import LOGGER
 from core import prem_plan1, prem_plan2, prem_plan3, user_sessions
 from datetime import datetime
@@ -48,32 +33,6 @@ DB_TIMEOUT = 5.0    # 数据库超时
 
 # 内存会话状态: { chat_id: {...} }
 session_data = {}
-
-# 会话清理：删除超过超时的过期会话
-_CLEANUP_INTERVAL = 300  # 5分钟检查一次
-_LOGIN_TIMEOUT = 600  # 10分钟会话超时
-
-async def _cleanup_expired_sessions():
-    """清理过期的登录会话"""
-    while True:
-        await asyncio.sleep(_CLEANUP_INTERVAL)
-        now = time.time()
-        expired = []
-        for chat_id, data in session_data.items():
-            # 检查会话是否超过超时时间
-            created_at = data.get("_created_at", 0)
-            if now - created_at > _LOGIN_TIMEOUT:
-                expired.append(chat_id)
-        for chat_id in expired:
-            try:
-                # 取消定时任务（如果存在）
-                cancel_task = session_data[chat_id].get("_cancel_task")
-                if cancel_task and not cancel_task.done():
-                    cancel_task.cancel()
-            except Exception:
-                pass
-            del session_data[chat_id]
-
 
 def setup_login_handler(app: Client):
 
@@ -376,72 +335,26 @@ def setup_login_handler(app: Client):
         session_id = str(uuid.uuid4())
         session_name = f"temp_session_{user_id}_{session_id}"
 
-        # ── 获取 API_ID / API_HASH（按优先级尝试 4 种来源）──
-        def _resolve_api_creds():
-            """返回 (api_id, api_hash) 元组，或 (None, None)。"""
-            # 1. 直接从 os.environ 读取（绕过模块缓存）
-            _id  = os.environ.get("API_ID")
-            _hsh = os.environ.get("API_HASH")
-            if _id and _hsh:
-                LOGGER.info("[login] creds: os.environ")
-                return int(_id), _hsh
-            # 2. 从 .env 文件读
-            for _p in (".env", os.path.join(os.path.dirname(__file__), "..", ".env")):
-                _abs = os.path.abspath(_p)
-                if os.path.isfile(_abs):
-                    try:
-                        from dotenv import dotenv_values
-                        _v = dotenv_values(_abs)
-                        _i2, _h2 = _v.get("API_ID"), _v.get("API_HASH")
-                        if _i2 and _h2:
-                            LOGGER.info(f"[login] creds: {_abs}")
-                            return int(_i2), _h2
-                    except Exception:
-                        pass
-            # 3. 重载 config 模块
-            try:
-                from dotenv import load_dotenv
-                load_dotenv(override=True)
-                import importlib as _il2
-                import config as _cfg2
-                _il2.reload(_cfg2)
-                if _cfg2.API_ID and _cfg2.API_HASH:
-                    LOGGER.info("[login] creds: config (reloaded)")
-                    return int(_cfg2.API_ID), _cfg2.API_HASH
-            except Exception:
-                pass
-            # 4. bot client 属性
-            try:
-                _i3 = getattr(client, "api_id", None) or getattr(client, "_api_id", None)
-                _h3 = getattr(client, "api_hash", None) or getattr(client, "_api_hash", None)
-                if _i3 and _h3:
-                    LOGGER.info("[login] creds: bot client")
-                    return int(_i3), _h3
-            except Exception:
-                pass
-            return None, None
-
-        _api_id, _api_hash = _resolve_api_creds()
-
-        if not _api_id or not _api_hash:
+        # ── 前置校验：确保 API 凭证已正确配置 ──────────────────────
+        if not API_ID or not API_HASH:
+            LOGGER.error(
+                f"[login] API 凭证缺失: API_ID={API_ID}, API_HASH={'***' if API_HASH else 'EMPTY'}"
+            )
             await _safe_edit(
                 status_msg,
                 "**❌ 服务器 API 配置错误。**\n\n"
                 "`API_ID` 或 `API_HASH` 未正确配置。\n\n"
-                "请确保 `.env` 文件中已设置以下字段：\n"
-                "```\n"
-                "API_ID=12345\n"
-                "API_HASH=你的哈希值\n"
-                "```\n"
-                "设置后请**重启机器人**。"
+                "请检查 `.env` 文件中是否填写了正确的值：\n"
+                "```\nAPI_ID=你的API_ID\nAPI_HASH=你的API_HASH\n```\n\n"
+                "__修改后需重启机器人。__",
             )
             _clear_state(chat_id)
             return
 
         user_client = Client(
             session_name,
-            api_id=_api_id,
-            api_hash=_api_hash,
+            api_id=API_ID,
+            api_hash=API_HASH,
         )
 
         try:
@@ -492,6 +405,27 @@ def setup_login_handler(app: Client):
             except Exception:
                 pass
 
+        except ValueError as e:
+            err_msg = str(e)
+            if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower():
+                LOGGER.error(f"[login] API 凭证无效: {err_msg}")
+                await _safe_edit(
+                    status_msg,
+                    "**❌ API 凭证无效。**\n\n"
+                    "请检查 `.env` 文件中的 `API_ID` 和 `API_HASH` 是否正确。\n"
+                    "__修改后需重启机器人。__",
+                )
+            else:
+                await _safe_edit(
+                    status_msg,
+                    f"**❌ 发送验证码失败。**\n\n错误：`{err_msg[:100]}`",
+                )
+            _clear_state(chat_id)
+            try:
+                await user_client.disconnect()
+            except Exception:
+                pass
+
         except FloodWait as e:
             await _safe_edit(
                 status_msg,
@@ -505,19 +439,10 @@ def setup_login_handler(app: Client):
 
         except Exception as e:
             LOGGER.error(f"OTP send error for user {user_id}: {e}")
-            _err_str = str(e)
-            # 详细提示: 如果是 API key 缺失错误
-            if "API key" in _err_str or "api_id" in _err_str.lower():
-                _hint = (
-                    "**❌ 服务器 API 配置错误。**\n\n"
-                    "机器人的 `API_ID` / `API_HASH` 未正确配置，"
-                    "无法发送验证码。\n\n"
-                    f"错误信息: `{_err_str[:150]}`\n\n"
-                    "请联系管理员修复配置。"
-                )
-            else:
-                _hint = f"**❌ 发送验证码失败。**\n\n错误：`{_err_str[:200]}`"
-            await _safe_edit(status_msg, _hint)
+            await _safe_edit(
+                status_msg,
+                f"**❌ 发送验证码失败。**\n\n错误：`{str(e)[:100]}`",
+            )
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
@@ -820,10 +745,3 @@ def setup_login_handler(app: Client):
                 pass
         except Exception as e:
             LOGGER.error(f"Message edit error: {e}")
-
-
-def cleanup_session_data():
-    """清理所有登录会话数据"""
-    global session_data
-    session_data.clear()
-    LOGGER.info("[Login] 会话数据已清理")

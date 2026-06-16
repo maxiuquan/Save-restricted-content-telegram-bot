@@ -3,10 +3,16 @@
 支持 .env 文件和环境变量两种方式
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# 加载 .env 文件（如果存在）
-load_dotenv()
+# 加载 .env 文件（使用绝对路径，确保无论从哪个目录启动都能找到）
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    # 回退：从当前工作目录及父目录搜索 .env
+    load_dotenv()
 
 
 def get_int(name: str, default: int = 0) -> int:
