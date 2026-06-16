@@ -1373,6 +1373,8 @@ def setup_pbatch_handler(app: Client):
                                         )
                                         success_count += 1
                                         _handled_by_grouped_fallback.add(_gm.id)
+                                        # 关键修复: 也标记壳消息本身，避免外层循环重新处理
+                                        _handled_by_grouped_fallback.add(mid)
                                         try:
                                             os.remove(_gp)
                                         except Exception:
