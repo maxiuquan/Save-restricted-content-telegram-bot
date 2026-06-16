@@ -728,6 +728,101 @@ async def send_media_to_saved(
 # 每个视频的实际分辨率通过 ffprobe 获取
 # ═══════════════════════════════════════════════════════════════════════════
 
+# 辅助函数：给消息生成正确扩展名的 file_name（避免 PHOTO_EXT_INVALID/VIDEO_EXT_INVALID）
+def _get_file_ext(msg, media_type=None):
+    """根据媒体类型返回文件扩展名（含 .）。"""
+    try:
+        if hasattr(msg, 'video') and msg.video:
+            mime = (getattr(msg.video, 'mime_type', '') or '').lower()
+            if 'webm' in mime: return '.webm'
+            return '.mp4'
+        if hasattr(msg, 'audio') and msg.audio:
+            mime = (getattr(msg.audio, 'mime_type', '') or '').lower()
+            if 'flac' in mime: return '.flac'
+            if 'wav' in mime: return '.wav'
+            if 'm4a' in mime: return '.m4a'
+            return '.mp3'
+        if hasattr(msg, 'voice') and msg.voice:
+            return '.ogg'
+        if hasattr(msg, 'video_note') and msg.video_note:
+            return '.mp4'
+        if hasattr(msg, 'sticker') and msg.sticker:
+            return '.webp'
+        if hasattr(msg, 'animation') and msg.animation:
+            return '.mp4'
+        if hasattr(msg, 'document') and msg.document:
+            mime = (getattr(msg.document, 'mime_type', '') or '').lower()
+            if 'mp4' in mime: return '.mp4'
+            if 'pdf' in mime: return '.pdf'
+            if 'zip' in mime: return '.zip'
+            if 'x-zip' in mime: return '.zip'
+            return '.bin'
+        if hasattr(msg, 'photo') and msg.photo:
+            return '.jpg'
+    except Exception:
+        pass
+    return '.bin'
+
+
+def _build_dl_filename(msg, mid, media_type=None):
+    """
+    为 download_media / msg.download 构建 file_name。
+    优先使用消息自带的 file_name（包含原始扩展名），
+    否则根据媒体类型生成 "dl_{mid}_{ts}{ext}"。
+    """
+    try:
+        # 1) 视频
+        if hasattr(msg, 'video') and msg.video:
+            fname = getattr(msg.video, 'file_name', None)
+            if fname:
+                return fname
+            ext = _get_file_ext(msg, media_type) or '.mp4'
+            return f"dl_{mid}_{int(time.time())}{ext}"
+
+        # 2) 音频
+        if hasattr(msg, 'audio') and msg.audio:
+            fname = getattr(msg.audio, 'file_name', None)
+            if fname:
+                return fname
+            ext = _get_file_ext(msg, media_type) or '.mp3'
+            return f"dl_{mid}_{int(time.time())}{ext}"
+
+        # 3) 文档
+        if hasattr(msg, 'document') and msg.document:
+            fname = getattr(msg.document, 'file_name', None)
+            if fname:
+                return fname
+            ext = _get_file_ext(msg, media_type) or ''
+            return f"dl_{mid}_{int(time.time())}{ext}"
+
+        # 4) 语音
+        if hasattr(msg, 'voice') and msg.voice:
+            ext = _get_file_ext(msg, media_type) or '.ogg'
+            return f"dl_{mid}_{int(time.time())}{ext}"
+
+        # 5) 视频便签
+        if hasattr(msg, 'video_note') and msg.video_note:
+            return f"dl_{mid}_{int(time.time())}.mp4"
+
+        # 6) 动图
+        if hasattr(msg, 'animation') and msg.animation:
+            fname = getattr(msg.animation, 'file_name', None)
+            if fname:
+                return fname
+            ext = _get_file_ext(msg, media_type) or '.mp4'
+            return f"dl_{mid}_{int(time.time())}{ext}"
+
+        # 7) 贴纸
+        if hasattr(msg, 'sticker') and msg.sticker:
+            return f"dl_{mid}_{int(time.time())}.webp"
+
+        # 8) 照片 / 其他
+        ext = _get_file_ext(msg, media_type) or '.jpg'
+        return f"dl_{mid}_{int(time.time())}{ext}"
+    except Exception:
+        pass
+    return f"dl_{mid}_{int(time.time())}"
+
 async def processMediaGroup(
     chat_message,
     bot,
