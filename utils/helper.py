@@ -885,10 +885,16 @@ async def processMediaGroup(
         #    但 Telegram 客户端可以正常查看。单独用 get_messages() 重新获取，
         #    可以正确拿到隐藏的视频/图片等媒体。
         if not (msg.photo or msg.video or msg.document or msg.audio):
-            if user_client and hasattr(msg, 'chat') and msg.chat and msg.id:
+            # 确定 chat_id：优先用 msg.chat，回退到 chat_message.chat
+            _chat_id = None
+            if hasattr(msg, 'chat') and msg.chat:
+                _chat_id = msg.chat.id
+            elif hasattr(chat_message, 'chat') and chat_message.chat:
+                _chat_id = chat_message.chat.id
+            if _chat_id and msg.id and user_client:
                 try:
                     refetched = await user_client.get_messages(
-                        chat_id=msg.chat.id, message_ids=msg.id
+                        chat_id=_chat_id, message_ids=msg.id
                     )
                     if refetched and (refetched.photo or refetched.video or refetched.document or refetched.audio):
                         LOGGER.info(
@@ -899,6 +905,11 @@ async def processMediaGroup(
                         msg = refetched  # 用重取到的消息替换
                 except Exception as refetch_e:
                     LOGGER.warning(f"[MediaGroup] 壳消息 id={msg.id} 重取失败: {refetch_e}")
+            else:
+                LOGGER.info(
+                    f"[MediaGroup] 壳消息 id={msg.id} 跳过重取: "
+                    f"chat_id={_chat_id} user_client={bool(user_client)}"
+                )
 
         if msg.photo or msg.video or msg.document or msg.audio:
             # ✅ 快速路径：使用 file_id，不需要下载和重新上传
