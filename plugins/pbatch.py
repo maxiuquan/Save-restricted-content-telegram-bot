@@ -1264,12 +1264,13 @@ def setup_pbatch_handler(app: Client):
         _handled_by_grouped_fallback: set = set()
 
         try:
-            # ── v20.0 核心：get_chat_history 一次性获取所有消息 ──
-            # get_chat_history 比 get_messages 更可靠——它从数据库直接加载完整的消息对象
+            # ── v20.0 核心：使用 get_messages 按 ID 列表获取（与公共批量一致） ──
+            # 关键修复: get_chat_history 可能会漏掉 start_message_id（视频等大文件有时不会在首次返回）
+            # 改用 get_messages + 显式 message_ids，更可靠且能确保 start_message_id 包含在内
             LOGGER.info(f"[v20] start={start_message_id} count={count}")
 
             # 关键步骤：用 raw API 获取 channel access_hash 并注入 peer 缓存
-            # 临时创建的客户端没有私密频道的 peer 缓存，直接 get_chat_history 会报 Peer id invalid
+            # 临时创建的客户端没有私密频道的 peer 缓存，直接 get_messages 会报 Peer id invalid
             try:
                 _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
                 _r = await user_client.invoke(
@@ -1290,30 +1291,39 @@ def setup_pbatch_handler(app: Client):
             except Exception as e:
                 LOGGER.warning(f"[v20] raw peer resolve failed: {e}")
 
-            # 获取足够多的消息：从 start_message_id 往后取 count 条
-            # get_chat_history 默认最新在前，用 offset_id 跳过比 start_message_id 新的消息
-            # offset_id 含义：只返回 id < offset_id 的消息
-            # 所以 offset_id=start_message_id+count 能确保包含我们的目标范围
-            limit_needed = min(count * 2 + 10, 500)
+            # 关键修复: 使用 get_messages 显式获取 [start, start+count) 范围的消息
+            # 这与公共批量 (/batch) 的逻辑一致，确保 start_message_id 一定被包含
+            target_message_ids = list(range(start_message_id, start_message_id + count))
+            LOGGER.info(f"[v20] target message ids: {target_message_ids}")
+
             messages = []
+            CHUNK = 200
             try:
-                async for m in user_client.get_chat_history(
-                    chat_id=pvt_chat_id,
-                    offset_id=start_message_id + count + 5,
-                    limit=limit_needed,
-                ):
-                    if m and not getattr(m, 'empty', False) and m.id:
-                        messages.append(m)
-                    if len(messages) >= count * 2:
-                        break
+                for i in range(0, len(target_message_ids), CHUNK):
+                    chunk_ids = target_message_ids[i:i + CHUNK]
+                    try:
+                        chunk_msgs = await user_client.get_messages(
+                            chat_id=pvt_chat_id,
+                            message_ids=chunk_ids,
+                        )
+                        if chunk_msgs:
+                            if not isinstance(chunk_msgs, list):
+                                chunk_msgs = [chunk_msgs]
+                            for m in chunk_msgs:
+                                if m and not getattr(m, 'empty', False) and m.id:
+                                    messages.append(m)
+                    except Exception as chunk_err:
+                        LOGGER.warning(f"[v20] get_messages chunk failed: {chunk_err}")
             except Exception as e:
-                LOGGER.warning(f"[v20] get_chat_history failed: {e}")
+                LOGGER.warning(f"[v20] get_messages failed: {e}")
 
-            # 默认最新在前 → 反转成 ID 升序
-            messages.reverse()
+            # 按 ID 升序排序
+            messages.sort(key=lambda m: m.id)
 
-            # 从 start_message_id 开始取
-            messages = [m for m in messages if m.id >= start_message_id][:count]
+            # 调试：记录获取到的消息 ID
+            if messages:
+                got_ids = [m.id for m in messages]
+                LOGGER.info(f"[v20] got message ids: {got_ids}")
 
             total_msg_count = len(messages)
             LOGGER.info(f"[v20] got {total_msg_count} msgs")
