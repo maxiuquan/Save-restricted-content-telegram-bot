@@ -1057,6 +1057,30 @@ def setup_autolink_handler(app: Client):
             url_clean = url.split("?")[0]
             pvt_chat_id, msg_id = getChatMsgID(url_clean)
 
+            # 关键修复: 通过 raw API 解析私有频道 peer 并注入缓存
+            # 参考 pbatch.py 的实现。临时创建的 user_client 没有 peer 缓存，
+            # 直接 get_messages 会报 Peer id invalid。
+            try:
+                from pyrogram import raw as _raw_mod
+                _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
+                _r = await user_client.invoke(
+                    _raw_mod.functions.channels.GetChannels(
+                        id=[_raw_mod.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
+                    )
+                )
+                if _r.chats:
+                    _p = _r.chats[0]
+                    if hasattr(_p, 'access_hash') and _p.access_hash:
+                        _peer = _raw_mod.types.InputPeerChannel(
+                            channel_id=_raw_channel_id,
+                            access_hash=_p.access_hash
+                        )
+                        if hasattr(user_client, 'peers_by_id'):
+                            user_client.peers_by_id[pvt_chat_id] = _peer
+                        LOGGER.info(f"[Autolink] raw resolved peer for {pvt_chat_id}")
+            except Exception as _peer_err:
+                LOGGER.debug(f"[Autolink] raw peer resolve: {_peer_err}")
+
             try:
                 chat_message = await asyncio.wait_for(
                     user_client.get_messages(chat_id=pvt_chat_id, message_ids=msg_id),
