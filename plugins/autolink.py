@@ -1,8 +1,10 @@
-# ✅ 已修复：in_memory=True + no_updates=True → sqlite3 + OSError 修复
-# ✅ 已修复：AUTH_KEY_UNREGISTERED → 会话自动删除 + 用户通知
-# ✅ 已修复：safe_stop_client → 无 TCPTransport 错误
-# ✅ 已修复：错误后 edit_text → try-except 包裹
-# ✅ 已修复：视频宽高比（压扁）→ 保留 width/height/duration 元数据
+# Copyright @juktijol
+# Channel t.me/juktijol
+# ✅ FIXED: in_memory=True + no_updates=True → sqlite3 + OSError fix
+# ✅ FIXED: AUTH_KEY_UNREGISTERED → session auto-remove + user notify
+# ✅ FIXED: safe_stop_client → no TCPTransport error
+# ✅ FIXED: edit_text after error → try-except wrap
+# ✅ FIXED: Video aspect ratio (squished) → width/height/duration metadata preserved
 
 import os
 import re
@@ -35,13 +37,6 @@ from utils import (
     LOGGER,
 )
 from utils.helper import safe_stop_client
-from utils.tdl_helper import (
-    is_tdl_installed,
-    pyrogram_session_to_tdl,
-    get_tdl_session_path,
-    build_message_link,
-    download_with_tdl,
-)
 from core import (
     daily_limit,
     prem_plan1,
@@ -57,12 +52,12 @@ TELEGRAM_LINK_PATTERN = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/(?:c/)?([a-zA-Z0-9_]+|\d+)/(\d+)(?:/\d+)?"
 )
 
-COOLDOWN_SECONDS = 300  # 5 分钟
-DB_TIMEOUT = 5.0        # 数据库操作超时
+COOLDOWN_SECONDS = 300  # 5 minutes
+DB_TIMEOUT = 5.0        # Database operation timeout
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 辅助函数
+# HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def check_and_set_cooldown(user_id: int) -> int:
@@ -101,15 +96,15 @@ def is_private_link(url: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ✅ 新辅助函数：安全提取视频元数据的函数
-# 正确提取 width, height, duration
-# 压扁视频的核心解决方案在此
+# ✅ NEW HELPER: ভিডিও মেটাডেটা নিরাপদে extract করার ফাংশন
+# এটি width, height, duration সঠিকভাবে বের করে
+# squished ভিডিওর মূল সমাধান এখানে
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_video_metadata(chat_message) -> dict:
     """
     Source message থেকে video metadata extract করে।
-    width, height, duration না দিলে Telegram ভুল aspect ratio দেখায়।
+    width, height, duration না দিলে Telegram ভুল aspect ratio দেখায়。
     
     Returns:
         dict: width, height, duration কী সহ metadata dict
@@ -120,15 +115,15 @@ def extract_video_metadata(chat_message) -> dict:
         "duration": 0,
     }
 
-    video = chat_message.video or chat_message.animation or chat_message.video_note
+    video = chat_message.video
     if video:
-        # ✅ 直接从 video 对象获取
+        # ✅ সরাসরি video object থেকে নাও
         metadata["width"]    = getattr(video, "width",    0) or 0
         metadata["height"]   = getattr(video, "height",   0) or 0
         metadata["duration"] = getattr(video, "duration", 0) or 0
 
     elif chat_message.document:
-        # 以 document 形式出现的视频
+        # document হিসেবে আসা video-র জন্য
         doc = chat_message.document
         metadata["width"]    = getattr(doc, "width",    0) or 0
         metadata["height"]   = getattr(doc, "height",   0) or 0
@@ -150,68 +145,7 @@ def extract_video_metadata(chat_message) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# tdl 下载辅助函数：优先使用 tdl，失败则回退到 Pyrogram
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def _download_via_tdl(
-    chat_message,
-    user_client,
-    user_id: int,
-    session_id: str,
-    progress_message,
-    start_time: float,
-    download_dir: str = "downloads",
-):
-    """
-    使用 tdl 下载媒体文件。失败时回退到 Pyrogram。
-
-    返回:
-        (media_path, used_tdl) — 下载的文件路径和是否使用了 tdl
-    """
-    if not is_tdl_installed():
-        return None, False
-
-    tdl_session = get_tdl_session_path(user_id)
-    if not tdl_session:
-        try:
-            session_str = await user_client.export_session_string()
-            tdl_session = pyrogram_session_to_tdl(session_str, user_id)
-        except Exception as e:
-            LOGGER.warning(f"[tdl] 无法创建 tdl 会话: {e}")
-            return None, False
-
-    if not tdl_session:
-        return None, False
-
-    msg_id = chat_message.id
-    chat_id = chat_message.chat.id
-    is_private = str(chat_id).startswith("-100")
-    message_link = build_message_link(chat_id, msg_id, is_private)
-
-    os.makedirs(download_dir, exist_ok=True)
-
-    LOGGER.info(
-        f"[tdl] 尝试下载: link={message_link} "
-        f"session={tdl_session} dir={download_dir}"
-    )
-
-    media_path = await download_with_tdl(
-        message_link=message_link,
-        session_file=tdl_session,
-        download_dir=download_dir,
-        timeout=600,
-    )
-
-    if media_path and os.path.exists(media_path):
-        LOGGER.info(f"[tdl] 下载成功: {media_path}")
-        return media_path, True
-
-    LOGGER.warning("[tdl] 下载失败，回退到 Pyrogram")
-    return None, False
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ✅ 修复：遇到 AUTH_KEY_UNREGISTERED 时，从 MongoDB 删除过期会话
+# ✅ FIX: On AUTH_KEY_UNREGISTERED, remove expired session from MongoDB
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _handle_auth_key_unregistered(user_id: int, session_id: str, bot, message):
@@ -239,8 +173,8 @@ async def _handle_auth_key_unregistered(user_id: int, session_id: str, bot, mess
         await bot.send_message(
             chat_id=message.chat.id,
             text=(
-                "**❌ 你的登录会话已过期！**\n\n"
-                "Telegram 已移除了该会话。\n"
+                "**❌ Your login session has expired!**\n\n"
+                "Telegram removed this session.\n"
                 "(Maybe logout on another device or a security check.)\n\n"
                 "⚡ Please run **/login** again."
             ),
@@ -251,7 +185,7 @@ async def _handle_auth_key_unregistered(user_id: int, session_id: str, bot, mess
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 主设置
+# MAIN SETUP
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_autolink_handler(app: Client):
@@ -311,7 +245,7 @@ def setup_autolink_handler(app: Client):
             LOGGER.error(f"[UserClient] Error getting user client: {e}")
             return None
 
-    # ── 路径 2：公共受保护内容的用户会话回退 ────────────
+    # ── PATH 2: USER SESSION FALLBACK FOR PUBLIC PROTECTED CONTENT ────────────
 
     async def _public_fallback_via_user_session(
         bot: Client,
@@ -333,8 +267,8 @@ def setup_autolink_handler(app: Client):
         except asyncio.TimeoutError:
             try:
                 await ack_msg.edit_text(
-                        "**❌ 数据库超时！请重试。**",
-                        parse_mode=ParseMode.MARKDOWN
+                    "**❌ Database timeout! Please try again.**",
+                    parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
                 pass
@@ -342,8 +276,8 @@ def setup_autolink_handler(app: Client):
         except Exception as e:
             try:
                 await ack_msg.edit_text(
-                        f"**❌ 检查会话时出错：{str(e)[:80]}**",
-                        parse_mode=ParseMode.MARKDOWN
+                    f"**❌ Error checking session: {str(e)[:80]}**",
+                    parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
                 pass
@@ -352,10 +286,10 @@ def setup_autolink_handler(app: Client):
         if not user_session or not user_session.get("sessions"):
             try:
                 await ack_msg.edit_text(
-                    "**🔒 此频道已启用内容保护。**\n\n"
-                    "❌ 此文件无法通过机器人直接投递。\n\n"
-                    "✅ **快速解决：** 使用 /login 连接你的 Telegram 账户。\n"
-                    "然后重新发送此链接以保存到你的收藏夹。",
+                    "**🔒 Content protection is enabled in this channel.**\n\n"
+                    "❌ Direct bot delivery is not available for this file.\n\n"
+                    "✅ **Quick fix:** Use /login to connect your Telegram account.\n"
+                    "Then resend this link to save it to your Saved Messages.",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -377,9 +311,9 @@ def setup_autolink_handler(app: Client):
             buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="auto_pvt_cancel")])
             try:
                 await ack_msg.edit_text(
-                    "**🔒 检测到内容保护！**\n\n"
-                    "📤 选择用于此下载的账户。\n"
-                    "__(文件将保存到该账户的收藏夹。)__",
+                    "**🔒 Content protection detected!**\n\n"
+                    "📤 Choose the account for this download.\n"
+                    "__(The file will be saved to that account's Saved Messages.)__",
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=ParseMode.MARKDOWN
                 )
@@ -410,15 +344,15 @@ def setup_autolink_handler(app: Client):
         user_client = await get_user_client(user_id, session_id)
         if user_client is None:
             await message.reply_text(
-                "**❌ 无法初始化用户客户端！请重新 /login 尝试。**",
+                "**❌ Failed to initialize user client! Please try /login again.**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         processing_msg = await message.reply_text(
-            "**🔒 检测到受保护内容！\n"
-            "📥 正在通过你的账户下载...**\n"
-            "__(文件将发送到你的收藏夹)__",
+            "**🔒 Protected content detected!\n"
+            "📥 Downloading via your account...**\n"
+            "__(File will be sent to your Saved Messages)__",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -431,7 +365,7 @@ def setup_autolink_handler(app: Client):
             except asyncio.TimeoutError:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 获取消息超时。请重试。**",
+                        "**❌ Timeout fetching message. Please try again.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -441,20 +375,18 @@ def setup_autolink_handler(app: Client):
             if not chat_message:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 消息未找到！**\n"
-                        "请确保你登录的账户已加入此频道。",
+                        "**❌ Message not found!**\n"
+                        "Make sure your logged-in account is a member of this channel.",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
                     pass
                 return
 
-            if chat_message.document or chat_message.video or chat_message.animation or chat_message.video_note or chat_message.audio:
+            if chat_message.document or chat_message.video or chat_message.audio:
                 file_size = (
                     chat_message.document.file_size if chat_message.document else
-                    chat_message.video.file_size if chat_message.video else
-                    chat_message.animation.file_size if chat_message.animation else
-                    chat_message.video_note.file_size if chat_message.video_note else
+                    chat_message.video.file_size    if chat_message.video    else
                     chat_message.audio.file_size
                 )
                 is_premium = await is_premium_user(user_id)
@@ -485,7 +417,7 @@ def setup_autolink_handler(app: Client):
                     log_url=url
                 ):
                     await message.reply_text(
-                        "**❌ 无法提取内容。**",
+                        "**❌ Could not extract media from the media group.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 return
@@ -494,22 +426,16 @@ def setup_autolink_handler(app: Client):
                 start_time = time()
                 try:
                     await processing_msg.edit_text(
-                        "**📥 下载中...**",
+                        "**📥 Downloading...**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
                     pass
 
-                # ── 优先使用 tdl 下载，失败则回退到 Pyrogram ──────────
-                media_path, used_tdl = await _download_via_tdl(
-                    chat_message, user_client, user_id, session_id,
-                    processing_msg, start_time
+                media_path = await chat_message.download(
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progressArgs("📥 Downloading", processing_msg, start_time)
                 )
-                if not media_path:
-                    media_path = await chat_message.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", processing_msg, start_time)
-                    )
 
                 try:
                     user_data = await asyncio.wait_for(
@@ -522,12 +448,12 @@ def setup_autolink_handler(app: Client):
 
                 media_type = (
                     "photo"    if chat_message.photo    else
-                    "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
+                    "video"    if chat_message.video    else
                     "audio"    if chat_message.audio    else
                     "document"
                 )
 
-                # ✅ 修复：提取视频元数据 — 修复压扁问题的关键位置
+                # ✅ FIX: video metadata extract করো — squish ঠিক করার মূল জায়গা
                 video_metadata = {}
                 if media_type == "video":
                     video_metadata = extract_video_metadata(chat_message)
@@ -549,7 +475,7 @@ def setup_autolink_handler(app: Client):
                         progress_message=processing_msg,
                         start_time=start_time,
                         thumbnail_path=thumbnail_path,
-                        # ✅ 修复：传递元数据以保持宽高比正确
+                        # ✅ FIX: metadata পাস করো যাতে aspect ratio ঠিক থাকে
                         width=video_metadata.get("width", 0),
                         height=video_metadata.get("height", 0),
                         duration=video_metadata.get("duration", 0),
@@ -574,7 +500,7 @@ def setup_autolink_handler(app: Client):
                 except Exception as e:
                     try:
                         await processing_msg.edit_text(
-                            f"**❌ 上传错误：{str(e)[:80]}**",
+                            f"**❌ Upload error: {str(e)[:80]}**",
                             parse_mode=ParseMode.MARKDOWN
                         )
                     except Exception:
@@ -597,7 +523,7 @@ def setup_autolink_handler(app: Client):
             else:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 此内容中未找到媒体或文本。**",
+                        "**❌ No media or text found in this message.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -611,13 +537,14 @@ def setup_autolink_handler(app: Client):
         except (PeerIdInvalid, BadRequest):
             try:
                 await processing_msg.edit_text(
-                    "**❌ 下载失败！**\n\n"
+                    "**❌ Download Failed!**\n\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "你登录的账户**不是该频道的成员**。\n\n"
-                    "**解决方法：**\n"
-                    "1️⃣ 用你的 Telegram 账户加入该频道\n"
-                    "2️⃣ 然后重新粘贴链接\n\n"
-                    "__或使用 /logout → /login 切换正确账户。__",
+                    "The account you logged in with is **not a member**\n"
+                    "of this channel.\n\n"
+                    "**How to fix it:**\n"
+                    "1️⃣ Join the channel with your Telegram account\n"
+                    "2️⃣ Then paste the link again\n\n"
+                    "__Or use /logout → /login with the correct account.__",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -625,7 +552,7 @@ def setup_autolink_handler(app: Client):
         except Exception as e:
             try:
                 await processing_msg.edit_text(
-                    f"**❌ 错误：{str(e)[:100]}**",
+                    f"**❌ Error: {str(e)[:100]}**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -634,7 +561,7 @@ def setup_autolink_handler(app: Client):
         finally:
             await safe_stop_client(user_client)
 
-    # ── 路径 1 + 路径 2：公共链接处理器 ─────────────────────────────────
+    # ── PATH 1 + PATH 2: PUBLIC LINK HANDLER ─────────────────────────────────
 
     async def handle_public_link(client: Client, message: Message, url: str):
         user_id    = message.from_user.id
@@ -643,7 +570,7 @@ def setup_autolink_handler(app: Client):
         is_premium = await is_premium_user(user_id)
 
         ack_msg = await message.reply_text(
-            "**🔗 链接已收到！正在处理请求，请稍候...**",
+            "**🔗 Link received! Processing your request, please wait...**",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -663,8 +590,8 @@ def setup_autolink_handler(app: Client):
                 mins, secs = divmod(remaining, 60)
                 try:
                     await ack_msg.edit_text(
-                        f"**⏳ 请等待 {mins} 分 {secs} 秒后再下载。**\n"
-                        f"__升级高级会员即可无限即时下载：/plans__",
+                        f"**⏳ Please wait {mins}m {secs}s before your next download.**\n"
+                        f"__Upgrade to premium for instant unlimited downloads: /plans__",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -689,7 +616,7 @@ def setup_autolink_handler(app: Client):
         if not match:
             try:
                 await ack_msg.edit_text(
-                    "**❌ 无效的 Telegram 链接！**",
+                    "**❌ Invalid public Telegram link!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -701,7 +628,7 @@ def setup_autolink_handler(app: Client):
 
         try:
             await ack_msg.edit_text(
-                "**🔍 检测到链接！处理中... ⏳**",
+                "**🔍 Link detected! Processing... ⏳**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception:
@@ -713,7 +640,7 @@ def setup_autolink_handler(app: Client):
             if chat.type not in [ChatType.CHANNEL, ChatType.SUPERGROUP]:
                 try:
                     await ack_msg.edit_text(
-                        "**❌ 此命令仅支持频道或超级群组！**",
+                        "**❌ This command only supports channels or supergroups!**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -723,7 +650,7 @@ def setup_autolink_handler(app: Client):
         except (ChannelInvalid, PeerIdInvalid):
             try:
                 await ack_msg.edit_text(
-                    "**❌ 无效的频道或群组！**",
+                    "**❌ Invalid channel or group!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -732,7 +659,7 @@ def setup_autolink_handler(app: Client):
         except ChannelPrivate:
             try:
                 await ack_msg.edit_text(
-                    "**🔒 此频道为私有频道！请发送私有链接 (t.me/c/...) 代替。**",
+                    "**🔒 This channel is private! Send a private link (t.me/c/...) instead.**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -747,8 +674,8 @@ def setup_autolink_handler(app: Client):
             LOGGER.warning(f"[PublicLink] get_messages failed ({type(e).__name__}): {e}")
             try:
                 await ack_msg.edit_text(
-                    "**⚠️ 机器人无法获取此频道消息。**\n"
-                    "**🔄 正在尝试通过用户会话的替代方式...**",
+                    "**⚠️ The bot could not fetch this channel message.**\n"
+                    "**🔄 Trying alternate method via user session...**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -762,7 +689,7 @@ def setup_autolink_handler(app: Client):
         if not source_message:
             try:
                 await ack_msg.edit_text(
-                    "**❌ 消息未找到或已删除！**",
+                    "**❌ Message not found or deleted!**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -786,12 +713,12 @@ def setup_autolink_handler(app: Client):
                 if ok:
                     sent_successfully = True
                     if is_premium:
-                        reminder = "**✅ 内容已接收！高级会员无限下载！🚀**"
+                        reminder = "**✅ Content received! Unlimited downloads as premium user! 🚀**"
                     else:
                         reminder = (
-                            "**✅ 内容已接收！**\n\n"
-                            "__5 分钟后可再次免费下载。__\n"
-                            "💥 升级获取即时无限访问：/plans"
+                            "**✅ Content received!**\n\n"
+                            "__Next free download available in 5 minutes.__\n"
+                            "💥 Upgrade for instant unlimited access: /plans"
                         )
                     try:
                         await ack_msg.edit_text(reminder, parse_mode=ParseMode.MARKDOWN)
@@ -799,8 +726,8 @@ def setup_autolink_handler(app: Client):
                         pass
                     return
 
-            elif source_message.video or source_message.animation or source_message.video_note:
-                # ✅ 修复：从源视频获取正确的元数据
+            elif source_message.video:
+                # ✅ FIX: source video থেকে সঠিক metadata নাও
                 video_meta = extract_video_metadata(source_message)
 
                 try:
@@ -813,20 +740,20 @@ def setup_autolink_handler(app: Client):
                     thumbnail_file_id = None
 
                 try:
-                    # ✅ 修复：传递 width, height, duration
+                    # ✅ FIX: width, height, duration পাস করো
                     sent = await client.send_video(
                         chat_id=chat_id,
-                        video=(source_message.video or source_message.animation or source_message.video_note).file_id,
+                        video=source_message.video.file_id,
                         caption=source_message.caption or "",
                         thumb=thumbnail_file_id if thumbnail_file_id else None,
-                        # ✅ 这三个参数不传会导致视频被压扁
+                        # ✅ এই তিনটি parameter না দিলে ভিডিও squished হয়
                         width=video_meta["width"],
                         height=video_meta["height"],
                         duration=video_meta["duration"],
-                        supports_streaming=True,  # ✅ 保持流式支持
+                        supports_streaming=True,  # ✅ streaming support চালু রাখো
                     )
                     if sent is not None:
-                        sent_file_id      = (source_message.video or source_message.animation or source_message.video_note).file_id
+                        sent_file_id      = source_message.video.file_id
                         sent_media_type   = "video"
                         sent_successfully = True
                     else:
@@ -834,10 +761,10 @@ def setup_autolink_handler(app: Client):
 
                 except FileReferenceExpired:
                     try:
-                        # ✅ 修复：重试时也传递元数据
+                        # ✅ FIX: retry তেও metadata পাস করো
                         sent = await client.send_video(
                             chat_id=chat_id,
-                            video=(source_message.video or source_message.animation or source_message.video_note).file_id,
+                            video=source_message.video.file_id,
                             caption=source_message.caption or "",
                             width=video_meta["width"],
                             height=video_meta["height"],
@@ -845,7 +772,7 @@ def setup_autolink_handler(app: Client):
                             supports_streaming=True,
                         )
                         if sent is not None:
-                            sent_file_id      = (source_message.video or source_message.animation or source_message.video_note).file_id
+                            sent_file_id      = source_message.video.file_id
                             sent_media_type   = "video"
                             sent_successfully = True
                         else:
@@ -956,12 +883,12 @@ def setup_autolink_handler(app: Client):
                     LOGGER.warning(f"[Tracker] Log group error: {e}")
 
             if is_premium:
-                reminder = "**✅ 内容已接收！高级会员无限下载！🚀**"
+                reminder = "**✅ Content received! Unlimited downloads as premium user! 🚀**"
             else:
                 reminder = (
-                    "**✅ 内容已接收！**\n\n"
-                    "__5 分钟后可再次免费下载。__\n"
-                    "💥 升级获取即时无限访问：/plans"
+                    "**✅ Content received!**\n\n"
+                    "__Next free download available in 5 minutes.__\n"
+                    "💥 Upgrade for instant unlimited access: /plans"
                 )
             try:
                 await ack_msg.edit_text(reminder, parse_mode=ParseMode.MARKDOWN)
@@ -975,8 +902,8 @@ def setup_autolink_handler(app: Client):
         )
         try:
             await ack_msg.edit_text(
-                "**⚠️ 直接机器人投递对此内容不可用。**\n"
-                "**🔄 正在尝试替代方式...**",
+                "**⚠️ Direct bot delivery is unavailable for this content.**\n"
+                "**🔄 Trying alternate method...**",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception:
@@ -986,7 +913,7 @@ def setup_autolink_handler(app: Client):
             ack_msg, user, is_premium
         )
 
-    # ── 私有链接处理器 ──────────────────────────────────────────────────
+    # ── PRIVATE LINK HANDLER ──────────────────────────────────────────────────
 
     async def handle_private_link(client: Client, message: Message, url: str):
         user_id    = message.from_user.id
@@ -994,7 +921,7 @@ def setup_autolink_handler(app: Client):
         is_premium = await is_premium_user(user_id)
 
         ack_msg = await message.reply_text(
-            "**🔒 私有链接已收到！正在处理请求，请稍候...**",
+            "**🔒 Private link received! Processing your request, please wait...**",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -1017,7 +944,7 @@ def setup_autolink_handler(app: Client):
             LOGGER.error(f"[Autolink] Database timeout fetching sessions for user {user_id}")
             try:
                 await ack_msg.edit_text(
-                    "**❌ 数据库连接超时！**\n\n请稍后再试。",
+                    "**❌ Database connection timeout!**\n\nPlease try again in a moment.",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1027,7 +954,7 @@ def setup_autolink_handler(app: Client):
             LOGGER.error(f"[Autolink] Database error fetching sessions: {e}")
             try:
                 await ack_msg.edit_text(
-                    f"**❌ 检查会话时出错：{str(e)[:80]}**",
+                    f"**❌ Error checking sessions: {str(e)[:80]}**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1037,13 +964,13 @@ def setup_autolink_handler(app: Client):
         if not user_session or not user_session.get("sessions"):
             try:
                 await ack_msg.edit_text(
-                    "**🔒 检测到私有链接！**\n\n"
+                    "**🔒 Private Link Detected!**\n\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "❌ 你**尚未登录**。\n\n"
-                    "**⚠️ 登录前请注意：**\n"
-                    "请确保你使用**已加入**该频道/群组的\n"
-                    "Telegram 账户进行登录。\n\n"
-                    "👉 使用 /login 连接你的账户。",
+                    "❌ You are **not logged in** yet.\n\n"
+                    "**⚠️ Before logging in:**\n"
+                    "Make sure you log in with the Telegram account\n"
+                    "that is **already a member** of that channel/group.\n\n"
+                    "👉 Use /login to connect your account.",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1056,8 +983,8 @@ def setup_autolink_handler(app: Client):
                 mins, secs = divmod(remaining, 60)
                 try:
                     await ack_msg.edit_text(
-                        f"**⏳ 请等待 {mins} 分 {secs} 秒后再下载。**\n"
-                        f"__升级高级会员即可无限即时下载：/plans__",
+                        f"**⏳ Please wait {mins}m {secs}s before your next download.**\n"
+                        f"__Upgrade to premium for instant unlimited downloads: /plans__",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -1091,9 +1018,9 @@ def setup_autolink_handler(app: Client):
             buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="auto_pvt_cancel")])
             try:
                 await ack_msg.edit_text(
-                    "**🔒 检测到私有链接！\n\n"
-                    "📤 你想用哪个账户下载？\n"
-                    "__(文件将发送到该账户的收藏夹)__**",
+                    "**🔒 Private link detected!\n\n"
+                    "📤 Which account do you want to download with?\n"
+                    "__(The file will be sent to that account's Saved Messages)__**",
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode=ParseMode.MARKDOWN
                 )
@@ -1116,44 +1043,20 @@ def setup_autolink_handler(app: Client):
         user_client = await get_user_client(user_id, session_id)
         if user_client is None:
             await message.reply_text(
-                "**❌ 无法初始化用户客户端！请重新 /login 尝试。**",
+                "**❌ Failed to initialize user client! Please try /login again.**",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
 
         processing_msg = await message.reply_text(
-            "**🔒 检测到私有链接！下载中... ⏳**\n"
-            "__(文件将发送到你的收藏夹)__",
+            "**🔒 Private link detected! Downloading... ⏳**\n"
+            "__(File will be sent to your Saved Messages)__",
             parse_mode=ParseMode.MARKDOWN
         )
 
         try:
             url_clean = url.split("?")[0]
             pvt_chat_id, msg_id = getChatMsgID(url_clean)
-
-            # 关键修复: 通过 raw API 解析私有频道 peer 并注入缓存
-            # 参考 pbatch.py 的实现。临时创建的 user_client 没有 peer 缓存，
-            # 直接 get_messages 会报 Peer id invalid。
-            try:
-                from pyrogram import raw as _raw_mod
-                _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
-                _r = await user_client.invoke(
-                    _raw_mod.functions.channels.GetChannels(
-                        id=[_raw_mod.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
-                    )
-                )
-                if _r.chats:
-                    _p = _r.chats[0]
-                    if hasattr(_p, 'access_hash') and _p.access_hash:
-                        _peer = _raw_mod.types.InputPeerChannel(
-                            channel_id=_raw_channel_id,
-                            access_hash=_p.access_hash
-                        )
-                        if hasattr(user_client, 'peers_by_id'):
-                            user_client.peers_by_id[pvt_chat_id] = _peer
-                        LOGGER.info(f"[Autolink] raw resolved peer for {pvt_chat_id}")
-            except Exception as _peer_err:
-                LOGGER.debug(f"[Autolink] raw peer resolve: {_peer_err}")
 
             try:
                 chat_message = await asyncio.wait_for(
@@ -1163,7 +1066,7 @@ def setup_autolink_handler(app: Client):
             except asyncio.TimeoutError:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 从 Telegram 获取消息超时！**\n\n请重试。",
+                        "**❌ Timeout fetching message from Telegram!**\n\nPlease try again.",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -1173,19 +1076,17 @@ def setup_autolink_handler(app: Client):
             if not chat_message:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 消息未找到！**",
+                        "**❌ Message not found!**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
                     pass
                 return
 
-            if chat_message.document or chat_message.video or chat_message.animation or chat_message.video_note or chat_message.audio:
+            if chat_message.document or chat_message.video or chat_message.audio:
                 file_size = (
                     chat_message.document.file_size if chat_message.document else
-                    chat_message.video.file_size if chat_message.video else
-                    chat_message.animation.file_size if chat_message.animation else
-                    chat_message.video_note.file_size if chat_message.video_note else
+                    chat_message.video.file_size    if chat_message.video    else
                     chat_message.audio.file_size
                 )
                 is_premium = await is_premium_user(user_id)
@@ -1213,7 +1114,7 @@ def setup_autolink_handler(app: Client):
                     log_group_id=LOG_GROUP_ID, log_user=user, log_url=url
                 ):
                     await message.reply_text(
-                        "**❌ 无法提取内容。**",
+                        "**❌ Could not extract media from the media group.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 return
@@ -1222,22 +1123,16 @@ def setup_autolink_handler(app: Client):
                 start_time = time()
                 try:
                     await processing_msg.edit_text(
-                        "**📥 下载中...**",
+                        "**📥 Downloading...**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
                     pass
 
-                # ── 优先使用 tdl 下载，失败则回退到 Pyrogram ──────────
-                media_path, used_tdl = await _download_via_tdl(
-                    chat_message, user_client, user_id, session_id,
-                    processing_msg, start_time
+                media_path = await chat_message.download(
+                    progress=Leaves.progress_for_pyrogram,
+                    progress_args=progressArgs("📥 Downloading", processing_msg, start_time)
                 )
-                if not media_path:
-                    media_path = await chat_message.download(
-                        progress=Leaves.progress_for_pyrogram,
-                        progress_args=progressArgs("📥 下载中", processing_msg, start_time)
-                    )
 
                 try:
                     user_data = await asyncio.wait_for(
@@ -1250,12 +1145,12 @@ def setup_autolink_handler(app: Client):
 
                 media_type = (
                     "photo"    if chat_message.photo    else
-                    "video"    if chat_message.video or chat_message.animation or chat_message.video_note else
+                    "video"    if chat_message.video    else
                     "audio"    if chat_message.audio    else
                     "document"
                 )
 
-                # ✅ 修复：私有链接视频也需要提取元数据
+                # ✅ FIX: private link ভিডিওর জন্যও metadata extract করো
                 video_metadata = {}
                 if media_type == "video":
                     video_metadata = extract_video_metadata(chat_message)
@@ -1277,7 +1172,7 @@ def setup_autolink_handler(app: Client):
                         progress_message=processing_msg,
                         start_time=start_time,
                         thumbnail_path=thumbnail_path,
-                        # ✅ 修复：传递元数据以保持宽高比正确
+                        # ✅ FIX: metadata পাস করো যাতে aspect ratio ঠিক থাকে
                         width=video_metadata.get("width", 0),
                         height=video_metadata.get("height", 0),
                         duration=video_metadata.get("duration", 0),
@@ -1302,7 +1197,7 @@ def setup_autolink_handler(app: Client):
                 except Exception as e:
                     try:
                         await processing_msg.edit_text(
-                            f"**❌ 上传错误：{str(e)[:80]}**",
+                            f"**❌ Upload error: {str(e)[:80]}**",
                             parse_mode=ParseMode.MARKDOWN
                         )
                     except Exception:
@@ -1340,7 +1235,7 @@ def setup_autolink_handler(app: Client):
             else:
                 try:
                     await processing_msg.edit_text(
-                        "**❌ 此链接中未找到媒体或文本。**",
+                        "**❌ No media or text found in this link.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -1353,13 +1248,14 @@ def setup_autolink_handler(app: Client):
         except (PeerIdInvalid, BadRequest):
             try:
                 await processing_msg.edit_text(
-                    "**❌ 下载失败！**\n\n"
+                    "**❌ Download Failed!**\n\n"
                     "━━━━━━━━━━━━━━━━━━\n"
-                    "你登录的账户**不是该频道的成员**。\n\n"
-                    "**解决方法：**\n"
-                    "1️⃣ 用你的 Telegram 账户加入该频道\n"
-                    "2️⃣ 然后重新粘贴链接\n\n"
-                    "__或使用 /logout → /login 切换正确账户。__",
+                    "The account you logged in with is **not a member**\n"
+                    "of that channel or group.\n\n"
+                    "**How to fix it:**\n"
+                    "1️⃣ Join that channel/group with your Telegram account\n"
+                    "2️⃣ Then paste the link again\n\n"
+                    "__Or use /logout → /login with the correct account.__",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1367,7 +1263,7 @@ def setup_autolink_handler(app: Client):
         except Exception as e:
             try:
                 await processing_msg.edit_text(
-                    f"**❌ 错误：{str(e)[:100]}**",
+                    f"**❌ Error: {str(e)[:100]}**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1376,7 +1272,7 @@ def setup_autolink_handler(app: Client):
         finally:
             await safe_stop_client(user_client)
 
-    # ── 回调 ─────────────────────────────────────────────────────────────
+    # ── CALLBACKS ─────────────────────────────────────────────────────────────
 
     @app.on_callback_query(filters.regex(r"^auto_pvt_(select_|cancel)"))
     async def auto_pvt_callback(client, callback_query):
@@ -1386,7 +1282,7 @@ def setup_autolink_handler(app: Client):
         if data == "auto_pvt_cancel":
             try:
                 await callback_query.message.edit_text(
-                    "**❌ 下载已取消。**",
+                    "**❌ Download cancelled.**",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception:
@@ -1399,7 +1295,7 @@ def setup_autolink_handler(app: Client):
             if len(parts) != 2:
                 try:
                     await callback_query.message.edit_text(
-                        "**❌ 会话数据无效。请重试。**",
+                        "**❌ Invalid session data. Please try again.**",
                         parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception:
@@ -1430,7 +1326,7 @@ def setup_autolink_handler(app: Client):
                 pass
             await process_private_download(client, callback_query.message, session_id, url)
 
-    # ── 链接检测器 ─────────────────────────────────────────────────────────
+    # ── LINK DETECTOR ─────────────────────────────────────────────────────────
 
     @app.on_message(
         filters.text &
