@@ -997,14 +997,49 @@ async def processMediaGroup(
                         text="**✅ 媒体组已成功发送到你的收藏夹！**",
                     )
                 return True
-            # 如果是 forwards_restricted 或其他错误,尝试逐条发送
+            # 如果是 forwards_restricted 或其他错误，改用单独发送（非 media_group）
             LOGGER.warning(f"[MediaGroup] send_media_group failed: {e}, 改为单条发送")
             success_count = 0
             for i, m_item in enumerate(valid_media):
                 try:
-                    await upload_client.send_media_group(
-                        chat_id=upload_target, media=[m_item]
-                    )
+                    caption = getattr(m_item, 'caption', '') or ''
+                    if isinstance(m_item, InputMediaPhoto):
+                        await upload_client.send_photo(
+                            chat_id=upload_target,
+                            photo=m_item.media,
+                            caption=caption,
+                        )
+                    elif isinstance(m_item, InputMediaVideo):
+                        await upload_client.send_video(
+                            chat_id=upload_target,
+                            video=m_item.media,
+                            caption=caption,
+                            duration=getattr(m_item, 'duration', 0) or 0,
+                            width=getattr(m_item, 'width', 0) or 0,
+                            height=getattr(m_item, 'height', 0) or 0,
+                            thumb=getattr(m_item, 'thumb', None),
+                            supports_streaming=True,
+                        )
+                    elif isinstance(m_item, InputMediaDocument):
+                        await upload_client.send_document(
+                            chat_id=upload_target,
+                            document=m_item.media,
+                            caption=caption,
+                        )
+                    elif isinstance(m_item, InputMediaAudio):
+                        await upload_client.send_audio(
+                            chat_id=upload_target,
+                            audio=m_item.media,
+                            caption=caption,
+                            duration=getattr(m_item, 'duration', 0) or 0,
+                            performer=getattr(m_item, 'performer', '') or '',
+                            title=getattr(m_item, 'title', '') or '',
+                        )
+                    else:
+                        # 未知类型，尝试 send_media_group 单条
+                        await upload_client.send_media_group(
+                            chat_id=upload_target, media=[m_item]
+                        )
                     success_count += 1
                 except Exception as e2:
                     LOGGER.warning(f"[MediaGroup] single send failed: {e2}")
