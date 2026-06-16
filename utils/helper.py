@@ -878,6 +878,14 @@ async def processMediaGroup(
     # tawhid120 原版: if msg.photo or msg.video or msg.document or msg.audio
     # 这样 get_media_group() 返回的对象就有完整 media 属性 — 视频能被正确识别
     for msg in media_group_messages:
+        # 详细日志: 记录每条消息的 media 属性
+        _has_p = bool(msg.photo) if hasattr(msg, 'photo') else False
+        _has_v = bool(msg.video) if hasattr(msg, 'video') else False
+        _has_d = bool(msg.document) if hasattr(msg, 'document') else False
+        _has_a = bool(msg.audio) if hasattr(msg, 'audio') else False
+        LOGGER.info(
+            f"[MediaGroup]  id={msg.id} p={_has_p} v={_has_v} d={_has_d} a={_has_a}"
+        )
         if msg.photo or msg.video or msg.document or msg.audio:
             media_path = None
             try:
