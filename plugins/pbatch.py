@@ -1095,18 +1095,37 @@ def setup_pbatch_handler(app: Client):
             media_type = MessageMediaType.DOCUMENT
 
         if media_type == MessageMediaType.VIDEO:
+            # 关键修复: 缩略图生成可能失败（ffmpeg 不可用、视频损坏等），但不应阻止视频上传
             duration, _, _ = await get_media_info(file_path)
             width, height = await get_video_resolution(file_path)
-            thumb = await get_video_thumbnail(file_path, duration)
+
+            # 尝试生成缩略图，失败时使用空缩略图
+            thumb = None
+            try:
+                thumb = await get_video_thumbnail(file_path, duration)
+            except Exception as thumb_err:
+                LOGGER.warning(f"[PrivateBatch] thumbnail gen failed for {msg_id}: {thumb_err}, using no thumb")
+                thumb = None
+
+            # 第一次尝试：send_video with thumb
             try:
                 await user_client.send_video("me", file_path, caption=caption,
                     duration=duration or 0, width=width, height=height,
                     thumb=thumb, supports_streaming=True)
                 LOGGER.info(f"[PrivateBatch] ok video msg {msg_id}")
             except Exception as video_err:
-                LOGGER.warning(f"[PrivateBatch] send_video failed for {msg_id}: {video_err}, fallback to document")
-                await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
-                LOGGER.info(f"[PrivateBatch] ok document (fallback from video) msg {msg_id}")
+                LOGGER.warning(f"[PrivateBatch] send_video failed (with thumb) for {msg_id}: {video_err}")
+                # 第二次尝试：不带缩略图
+                try:
+                    await user_client.send_video("me", file_path, caption=caption,
+                        duration=duration or 0, width=width, height=height,
+                        supports_streaming=True)
+                    LOGGER.info(f"[PrivateBatch] ok video (no thumb) msg {msg_id}")
+                except Exception as video_err2:
+                    LOGGER.warning(f"[PrivateBatch] send_video failed (no thumb) for {msg_id}: {video_err2}, fallback to document")
+                    # 最终兜底：作为文档发送
+                    await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
+                    LOGGER.info(f"[PrivateBatch] ok document (fallback from video) msg {msg_id}")
         elif media_type == MessageMediaType.PHOTO:
             try:
                 await user_client.send_photo("me", file_path, caption=caption)
@@ -1483,38 +1502,45 @@ def setup_pbatch_handler(app: Client):
                     if not _has_media and not msg.text and _media_group_id:
                         LOGGER.info(f"[v20] media group shell msg {mid}, searching for grouped media...")
                         _found_group = False
-                        async for _gm in user_client.get_chat_history(chat_id=pvt_chat_id, limit=50):
+                        # 关键修复: 收集媒体组内所有有 media 的消息（不只取第一个）
+                        _grouped_media_msgs = []
+                        async for _gm in user_client.get_chat_history(chat_id=pvt_chat_id, limit=200):
                             if getattr(_gm, 'media_group_id', None) == _media_group_id and _gm.media:
-                                LOGGER.info(f"[v20] found grouped media msg id={_gm.id} media={_gm.media}")
-                                _cap = _gm.caption.markdown if _gm.caption else ""
-                                _current_status = f"download {idx}/{total_msg_count}"
-                                _update_progress()
-                                try:
-                                    # 关键修复: 使用正确的 file_name（参考 devgaganin）
-                                    _gp_name = _build_dl_filename(_gm, _gm.id, _gm.media)
-                                    _gp = await user_client.download_media(
-                                        _gm,
-                                        file_name=_gp_name,
-                                        progress=Leaves.progress_for_pyrogram,
-                                        progress_args=progressArgs("downloading", status_message, start_ts),
+                                _grouped_media_msgs.append(_gm)
+
+                        LOGGER.info(f"[v20] grouped media count for mgid={_media_group_id}: {len(_grouped_media_msgs)}")
+
+                        # 处理媒体组内所有消息（修复：原来只处理第一个）
+                        for _gm in _grouped_media_msgs:
+                            LOGGER.info(f"[v20] processing grouped media msg id={_gm.id} media={_gm.media}")
+                            _cap = _gm.caption.markdown if _gm.caption else ""
+                            _current_status = f"download {idx}/{total_msg_count}"
+                            _update_progress()
+                            try:
+                                # 关键修复: 使用正确的 file_name（参考 devgaganin）
+                                _gp_name = _build_dl_filename(_gm, _gm.id, _gm.media)
+                                _gp = await user_client.download_media(
+                                    _gm,
+                                    file_name=_gp_name,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                )
+                                if _gp and os.path.exists(_gp):
+                                    await _upload_to_saved(
+                                        user_client, _gm.media, _gp, _cap,
+                                        thumbnail_path, _gm.id
                                     )
-                                    if _gp and os.path.exists(_gp):
-                                        await _upload_to_saved(
-                                            user_client, _gm.media, _gp, _cap,
-                                            thumbnail_path, _gm.id
-                                        )
-                                        success_count += 1
-                                        _handled_by_grouped_fallback.add(_gm.id)
-                                        # 关键修复: 也标记壳消息本身，避免外层循环重新处理
-                                        _handled_by_grouped_fallback.add(mid)
-                                        try:
-                                            os.remove(_gp)
-                                        except Exception:
-                                            pass
-                                        _found_group = True
-                                except Exception as e:
-                                    LOGGER.warning(f"[v20] grouped media dl failed: {e}")
-                                break
+                                    success_count += 1
+                                    _handled_by_grouped_fallback.add(_gm.id)
+                                    # 关键修复: 也标记壳消息本身，避免外层循环重新处理
+                                    _handled_by_grouped_fallback.add(mid)
+                                    try:
+                                        os.remove(_gp)
+                                    except Exception:
+                                        pass
+                                    _found_group = True
+                            except Exception as e:
+                                LOGGER.warning(f"[v20] grouped media dl failed: {e}")
                         if _found_group:
                             continue
 
