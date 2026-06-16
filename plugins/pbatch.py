@@ -897,17 +897,18 @@ def setup_pbatch_handler(app: Client):
     # 私密批量下载
     # ────────────────────────────────────────────────────────────────────
 
-    # 关键修复: 从消息中获取正确的文件扩展名（避免 PHOTO_EXT_INVALID 错误）
+    # 关键修复: 从消息中获取正确的文件扩展名（避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 错误）
     def _get_file_ext(msg, media_type):
         """从消息对象中提取正确的文件扩展名"""
         try:
-            # 优先从 document.file_name 获取
+            # 1) 优先从 document.file_name 获取（适用于 document 类型的附件）
             if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'file_name', None):
                 fname = msg.document.file_name
                 ext = os.path.splitext(fname)[1].lower()
                 if ext:
                     return ext
-            # 从 mime_type 推断
+
+            # 2) 从 document.mime_type 推断
             if hasattr(msg, 'document') and msg.document and getattr(msg.document, 'mime_type', None):
                 mime = msg.document.mime_type.lower()
                 mime_map = {
@@ -919,7 +920,44 @@ def setup_pbatch_handler(app: Client):
                 }
                 if mime in mime_map:
                     return mime_map[mime]
-            # 根据 media_type 推断默认扩展名
+
+            # 3) 关键修复: 检查 video / photo / audio / voice / video_note 对象的 mime_type
+            # 视频：msg.video.mime_type
+            if hasattr(msg, 'video') and msg.video and getattr(msg.video, 'mime_type', None):
+                mime = msg.video.mime_type.lower()
+                video_map = {'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov'}
+                if mime in video_map:
+                    return video_map[mime]
+                return '.mp4'  # 视频默认 mp4
+
+            # 音频：msg.audio.mime_type
+            if hasattr(msg, 'audio') and msg.audio and getattr(msg.audio, 'mime_type', None):
+                mime = msg.audio.mime_type.lower()
+                audio_map = {'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/x-wav': '.wav', 'audio/flac': '.flac'}
+                if mime in audio_map:
+                    return audio_map[mime]
+                return '.mp3'
+
+            # 语音：msg.voice.mime_type
+            if hasattr(msg, 'voice') and msg.voice and getattr(msg.voice, 'mime_type', None):
+                return '.ogg'
+
+            # 视频便签：msg.video_note
+            if hasattr(msg, 'video_note') and msg.video_note:
+                return '.mp4'
+
+            # 动图：msg.animation.mime_type
+            if hasattr(msg, 'animation') and msg.animation and getattr(msg.animation, 'mime_type', None):
+                mime = msg.animation.mime_type.lower()
+                if 'mp4' in mime:
+                    return '.mp4'
+                return '.mp4'
+
+            # 贴纸：msg.sticker（WEBP 格式）
+            if hasattr(msg, 'sticker') and msg.sticker:
+                return '.webp'
+
+            # 4) 根据 media_type 推断默认扩展名
             if media_type == MessageMediaType.PHOTO:
                 return '.jpg'
             elif media_type == MessageMediaType.VIDEO:
@@ -930,6 +968,10 @@ def setup_pbatch_handler(app: Client):
                 return '.ogg'
             elif media_type == MessageMediaType.VIDEO_NOTE:
                 return '.mp4'
+            elif media_type == MessageMediaType.ANIMATION:
+                return '.mp4'
+            elif media_type == MessageMediaType.STICKER:
+                return '.webp'
         except Exception:
             pass
         return ''
