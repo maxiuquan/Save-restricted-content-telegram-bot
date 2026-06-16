@@ -6,28 +6,12 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# 加载 .env 文件（使用绝对路径，确保无论从哪个目录启动都能找到）
-# override=True 强制覆盖已存在的环境变量，防止系统环境变量干扰
+# 加载 .env 文件（override=True 强制覆盖系统环境变量）
 _env_path = Path(__file__).parent / ".env"
-if _env_path.exists():
-    load_dotenv(_env_path, override=True)
-else:
-    # 回退：从当前工作目录及父目录搜索 .env
-    load_dotenv(override=True)
-
-# 调试：打印加载来源和关键值
-import logging
-_log = logging.getLogger("config")
-_log.info(
-    "env_path=%s exists=%s API_ID=%s BOT_TOKEN=%s",
-    _env_path, _env_path.exists(),
-    os.environ.get("API_ID", "NOT_SET"),
-    "SET" if os.environ.get("BOT_TOKEN") else "NOT_SET",
-)
+load_dotenv(_env_path, override=True) if _env_path.exists() else load_dotenv(override=True)
 
 
 def get_int(name: str, default: int = 0) -> int:
-    """安全地获取整型配置值"""
     val = os.environ.get(name)
     if val is None:
         return default
@@ -38,7 +22,6 @@ def get_int(name: str, default: int = 0) -> int:
 
 
 def get_str(name: str, default: str = "") -> str:
-    """安全地获取字符串配置值"""
     return os.environ.get(name, default)
 
 

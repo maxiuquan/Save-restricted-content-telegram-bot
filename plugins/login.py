@@ -335,22 +335,6 @@ def setup_login_handler(app: Client):
         session_id = str(uuid.uuid4())
         session_name = f"temp_session_{user_id}_{session_id}"
 
-        # ── 前置校验：确保 API 凭证已正确配置 ──────────────────────
-        if not API_ID or not API_HASH:
-            LOGGER.error(
-                f"[login] API 凭证缺失: API_ID={API_ID}, API_HASH={'***' if API_HASH else 'EMPTY'}"
-            )
-            await _safe_edit(
-                status_msg,
-                "**❌ 服务器 API 配置错误。**\n\n"
-                "`API_ID` 或 `API_HASH` 未正确配置。\n\n"
-                "请检查 `.env` 文件中是否填写了正确的值：\n"
-                "```\nAPI_ID=你的API_ID\nAPI_HASH=你的API_HASH\n```\n\n"
-                "__修改后需重启机器人。__",
-            )
-            _clear_state(chat_id)
-            return
-
         user_client = Client(
             session_name,
             api_id=API_ID,
@@ -399,27 +383,6 @@ def setup_login_handler(app: Client):
 
         except ApiIdInvalid:
             await _safe_edit(status_msg, "**❌ API 配置错误。请联系支持。**")
-            _clear_state(chat_id)
-            try:
-                await user_client.disconnect()
-            except Exception:
-                pass
-
-        except ValueError as e:
-            err_msg = str(e)
-            if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower():
-                LOGGER.error(f"[login] API 凭证无效: {err_msg}")
-                await _safe_edit(
-                    status_msg,
-                    "**❌ API 凭证无效。**\n\n"
-                    "请检查 `.env` 文件中的 `API_ID` 和 `API_HASH` 是否正确。\n"
-                    "__修改后需重启机器人。__",
-                )
-            else:
-                await _safe_edit(
-                    status_msg,
-                    f"**❌ 发送验证码失败。**\n\n错误：`{err_msg[:100]}`",
-                )
             _clear_state(chat_id)
             try:
                 await user_client.disconnect()
