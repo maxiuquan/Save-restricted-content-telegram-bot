@@ -476,8 +476,32 @@ async def processMediaGroup(
     ✅ SHELL MESSAGE FIX: Restricted channels return shell messages with
     msg.photo=msg.video=msg.document=msg.audio=None, but msg.media (MessageMediaVideo)
     has the actual data. We download via msg.media.
+    
+    RESTRICTED CHANNEL FIX: If user_client is provided, use it to get the media group
+    instead of the bot client. User accounts have higher API privileges and can access
+    media from restricted channels that bot accounts cannot.
     """
-    media_group_messages = await chat_message.get_media_group()
+    # ✅ If user_client is available, refetch the message via user_client first
+    # This gives us full media attributes for restricted channels
+    _user_msg = chat_message
+    if user_client:
+        try:
+            _chat_id = chat_message.chat.id if chat_message.chat else None
+            _msg_id = chat_message.id
+            if _chat_id and _msg_id:
+                _user_msg = await user_client.get_messages(
+                    chat_id=_chat_id, message_ids=_msg_id
+                )
+                LOGGER.info(
+                    f"[MediaGroup] Refetched via user_client: "
+                    f"p={bool(_user_msg.photo)} v={bool(_user_msg.video)} "
+                    f"d={bool(_user_msg.document)} a={bool(_user_msg.audio)} "
+                    f"media={type(_user_msg.media).__name__ if _user_msg.media else None}"
+                )
+        except Exception as _e:
+            LOGGER.warning(f"[MediaGroup] user_client refetch failed: {_e}")
+
+    media_group_messages = await _user_msg.get_media_group()
     valid_media  = []
     temp_paths   = []
     auto_thumbs  = []
