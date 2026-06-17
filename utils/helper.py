@@ -285,7 +285,6 @@ async def safe_stop_client(user_client):
 def create_optimized_user_client(session_name: str, session_string: str):
     """
     Creates a temporary user client for download/upload.
-    Simulates a real mobile device to bypass shell message restrictions.
     """
     from pyrogram import Client as PyroClient
     return PyroClient(
@@ -295,12 +294,6 @@ def create_optimized_user_client(session_name: str, session_string: str):
         no_updates=True,
         workers=4,
         max_concurrent_transmissions=2,
-        # 模拟真实安卓手机 — Telegram 服务器可能据此返回完整媒体数据
-        device_model="Samsung Galaxy S24",
-        system_version="Android 14",
-        app_version="10.5.2",
-        lang_code="en",
-        system_lang_code="en",
     )
 
 
