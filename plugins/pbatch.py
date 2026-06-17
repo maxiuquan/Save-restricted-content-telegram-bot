@@ -1469,56 +1469,43 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 策略: 获取相邻 ID 的消息，看看能否拿到完整媒体
-                    # 受限频道中 get_messages(ids=[2271]) 返回 shell，
-                    # 但 get_messages(ids=[2270, 2271, 2272, 2273]) 可能不同
+                    # ✅ 新策略: 直接尝试下载 shell 消息本身
+                    # 即使 Pyrogram 解析后 msg.media=None，底层原始消息可能仍有文件引用
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] shell msg {mid}, trying wider range get_messages...")
-                        _current_status = f"group {idx}/{total_msg_count}"
+                        LOGGER.info(f"[v20] shell msg {mid}, trying direct download (raw media may exist)...")
+                        # 详细诊断: 打印 msg 的原始属性
+                        _raw_media = getattr(msg, 'media', 'ATTR_MISSING')
+                        _raw_media_type = type(_raw_media).__name__ if _raw_media and _raw_media != 'ATTR_MISSING' else str(_raw_media)
+                        LOGGER.info(f"[v20] shell {mid} raw media type={_raw_media_type}")
+                        _current_status = f"shell {idx}/{total_msg_count}"
                         _update_progress()
                         try:
-                            _mgid = _media_group_id
-                            # 扩大范围获取相邻消息
-                            _range_ids = list(range(mid - 3, mid + 4))
-                            _wide_msgs = await user_client.get_messages(
-                                chat_id=pvt_chat_id, message_ids=_range_ids
+                            # 直接尝试下载 shell 消息 — 即使 msg.media=None，底层可能仍有文件数据
+                            _shell_path = await msg.download(
+                                file_name=f"shell_{mid}_",
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("downloading", status_message, start_ts),
                             )
-                            if _wide_msgs:
-                                if not isinstance(_wide_msgs, list):
-                                    _wide_msgs = [_wide_msgs]
-                                LOGGER.info(f"[v20] wide range got {len(_wide_msgs)} msgs: {[m.id for m in _wide_msgs]}")
-                                for wm in _wide_msgs:
-                                    if getattr(wm, 'media_group_id', None) == _mgid:
-                                        _wm_media = bool(wm.media) or bool(wm.video) or bool(wm.photo) or bool(wm.document) or bool(wm.audio)
-                                        LOGGER.info(f"[v20]   wide msg {wm.id}: media={_wm_media} v={bool(wm.video)} p={bool(wm.photo)} d={bool(wm.document)}")
-                                        if _wm_media and wm.id not in _handled_by_grouped_fallback:
-                                            _handled_by_grouped_fallback.add(wm.id)
-                                            _current_status = f"download wide msg {wm.id}"
-                                            _update_progress()
-                                            _wm_type = None
-                                            if wm.photo: _wm_type = MessageMediaType.PHOTO
-                                            elif wm.video: _wm_type = MessageMediaType.VIDEO
-                                            elif wm.document: _wm_type = MessageMediaType.DOCUMENT
-                                            elif wm.audio: _wm_type = MessageMediaType.AUDIO
-                                            _wm_name = _build_dl_filename(wm, wm.id, _wm_type)
-                                            _wm_path = await user_client.download_media(
-                                                wm, file_name=_wm_name,
-                                                progress=Leaves.progress_for_pyrogram,
-                                                progress_args=progressArgs("downloading", status_message, start_ts),
-                                            )
-                                            if _wm_path and os.path.exists(_wm_path):
-                                                _wm_cap = await get_parsed_msg(wm.caption or "", wm.caption_entities or [])
-                                                await _upload_to_saved(user_client, _wm_type, _wm_path, _wm_cap, thumbnail_path, wm.id)
-                                                success_count += 1
-                                                try: os.remove(_wm_path)
-                                                except: pass
-                                            else:
-                                                LOGGER.warning(f"[v20] wide msg {wm.id} download failed")
-                                                fail_count += 1
+                            if _shell_path and os.path.exists(_shell_path):
+                                LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
+                                _ext = os.path.splitext(_shell_path)[1].lower()
+                                if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                                    _shell_type = MessageMediaType.VIDEO
+                                elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                                    _shell_type = MessageMediaType.PHOTO
+                                else:
+                                    _shell_type = MessageMediaType.DOCUMENT
+                                _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
+                                success_count += 1
+                                try: os.remove(_shell_path)
+                                except: pass
                             else:
-                                LOGGER.info(f"[v20] wide range returned empty")
-                        except Exception as e:
-                            LOGGER.warning(f"[v20] shell {mid} wide range failed: {e}")
+                                LOGGER.warning(f"[v20] shell {mid} direct download returned None")
+                                fail_count += 1
+                        except Exception as de:
+                            LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
+                            fail_count += 1
                         _handled_by_grouped_fallback.add(mid)
                         continue
 
