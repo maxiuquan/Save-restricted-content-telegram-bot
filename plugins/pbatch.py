@@ -1439,25 +1439,85 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ tawhid120 模式: 直接调用 processMediaGroup — 它内部用 chat_message.get_media_group()
-                    #    来正确加载组内所有消息的 media 属性（包括 video）
+                    # ✅ 改为逐个单独下载：用 get_chat_history 找同组媒体，逐个 download + upload
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] media group shell msg {mid}, calling processMediaGroup...")
+                        LOGGER.info(f"[v20] media group shell msg {mid}, finding siblings individually...")
                         _current_status = f"group {idx}/{total_msg_count}"
                         _update_progress()
                         try:
-                            result = await processMediaGroup(
-                                msg, bot, status_message,
-                                user_client=user_client,
-                            )
-                            if result:
-                                success_count += 1
-                                # 标记壳消息为已处理
-                                _handled_by_grouped_fallback.add(mid)
-                            else:
-                                fail_count += 1
+                            _mgid = _media_group_id
+                            _found = []
+                            async for sib in user_client.get_chat_history(
+                                chat_id=pvt_chat_id,
+                                offset=mid - 5,
+                                limit=50,
+                            ):
+                                if (sib and getattr(sib, 'media_group_id', None) == _mgid
+                                        and sib.id != mid
+                                        and sib.id not in _handled_by_grouped_fallback):
+                                    if sib.photo or sib.video or sib.document or sib.audio or (hasattr(sib, 'media') and sib.media):
+                                        _found.append(sib)
+                            LOGGER.info(f"[v20] shell {mid}: found {len(_found)} siblings with mgid={_mgid}")
+                            
+                            for sib in _found:
+                                if cancel_flags.get(chat_id):
+                                    break
+                                sib_mid = sib.id
+                                if sib_mid in _handled_by_grouped_fallback:
+                                    continue
+                                try:
+                                    _current_status = f"download sibling {sib_mid}"
+                                    _update_progress()
+                                    
+                                    # 确定媒体类型
+                                    _sib_media_type = None
+                                    if sib.photo:
+                                        _sib_media_type = MessageMediaType.PHOTO
+                                    elif sib.video:
+                                        _sib_media_type = MessageMediaType.VIDEO
+                                    elif sib.document:
+                                        _sib_media_type = MessageMediaType.DOCUMENT
+                                    elif sib.audio:
+                                        _sib_media_type = MessageMediaType.AUDIO
+                                    elif hasattr(sib, 'media') and sib.media:
+                                        _sib_media_type = type(sib.media).__name__
+                                    
+                                    _sib_dl_name = _build_dl_filename(sib, sib_mid, _sib_media_type)
+                                    _sib_file_path = await user_client.download_media(
+                                        sib,
+                                        file_name=_sib_dl_name,
+                                        progress=Leaves.progress_for_pyrogram,
+                                        progress_args=progressArgs("downloading", status_message, start_ts),
+                                    )
+                                    
+                                    if not _sib_file_path or not os.path.exists(_sib_file_path):
+                                        LOGGER.warning(f"[v20] sibling dl failed: {sib_mid}")
+                                        fail_count += 1
+                                        continue
+                                    
+                                    _current_status = f"upload sibling {sib_mid}"
+                                    _update_progress()
+                                    
+                                    _sib_caption = await get_parsed_msg(sib.caption or "", sib.caption_entities or [])
+                                    await _upload_to_saved(user_client, _sib_media_type, _sib_file_path, _sib_caption, thumbnail_path, sib_mid)
+                                    success_count += 1
+                                    _handled_by_grouped_fallback.add(sib_mid)
+                                    
+                                    try:
+                                        if os.path.exists(_sib_file_path):
+                                            os.remove(_sib_file_path)
+                                    except Exception:
+                                        pass
+                                    
+                                    await _apply_delay(0)
+                                except Exception as se:
+                                    LOGGER.error(f"[v20] sibling {sib_mid} err: {se}")
+                                    fail_count += 1
+                            
+                            # 标记 shell 本身为已处理（跳过它）
+                            _handled_by_grouped_fallback.add(mid)
                         except Exception as e:
-                            LOGGER.warning(f"[v20] processMediaGroup failed: {e}")
+                            LOGGER.warning(f"[v20] shell {mid} sibling search failed: {e}")
                             fail_count += 1
                         continue
 

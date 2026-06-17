@@ -581,9 +581,10 @@ async def processMediaGroup(
                     try:
                         existing_ids = {m.id for m in media_group_messages}
                         new_count = 0
+                        # Use offset=message_ids to search around this specific message
                         async for sibling in user_client.get_chat_history(
                             chat_id=_chat_id,
-                            message_ids=msg.id,
+                            offset=msg.id - 5,
                             limit=50,
                         ):
                             if (sibling and getattr(sibling, 'media_group_id', None) == _mgid
