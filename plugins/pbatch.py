@@ -1307,35 +1307,37 @@ def setup_pbatch_handler(app: Client):
             target_message_ids = list(range(start_message_id, start_message_id + count))
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
-            # ✅ 改用 get_chat_history 枚举消息 — 在受限频道中它可能返回完整媒体
-            # get_messages() 在受限频道中返回 shell 消息（media=None）
-            # get_chat_history 使用不同的 API 路径（messages.GetHistory），可能绕过此限制
+            # ✅ 改用 get_messages 获取更大范围 — 受限频道中 get_chat_history 可能返回空
             all_messages = []
             try:
-                # 从 start_message_id 开始枚举，覆盖 [start, start+count) 范围
-                # offset=start_message_id 表示从该 ID 之后的消息开始
-                # 所以我们用 offset=start_message_id-1 来包含它
-                _end_id = start_message_id + count - 1
-                _collected = []
-                _count = 0
-                async for m in user_client.get_chat_history(
-                    chat_id=pvt_chat_id,
-                    offset=start_message_id - 1,
-                    limit=100,
-                ):
-                    if m.empty or not m.id:
-                        continue
-                    if m.id > _end_id:
-                        continue
-                    if m.id >= start_message_id:
-                        _collected.append(m)
-                        _count += 1
-                        if m.id == _end_id:
-                            break
-                all_messages = _collected
-                LOGGER.info(f"[v20] get_chat_history collected {_count} msgs in [{start_message_id}, {_end_id}]")
+                # 获取比请求范围更大的消息范围，确保覆盖所有需要的消息
+                _expand_start = max(start_message_id - 5, 1)
+                _expand_end = start_message_id + count + 5
+                _expand_ids = list(range(_expand_start, _expand_end))
+                LOGGER.info(f"[v20] fetching expanded range [{_expand_start}, {_expand_end}) = {len(_expand_ids)} messages")
+
+                CHUNK = 100
+                for i in range(0, len(_expand_ids), CHUNK):
+                    chunk_ids = _expand_ids[i:i + CHUNK]
+                    try:
+                        chunk_msgs = await user_client.get_messages(
+                            chat_id=pvt_chat_id, message_ids=chunk_ids
+                        )
+                        if chunk_msgs:
+                            if not isinstance(chunk_msgs, list):
+                                chunk_msgs = [chunk_msgs]
+                            for m in chunk_msgs:
+                                if m and not getattr(m, 'empty', False) and m.id:
+                                    all_messages.append(m)
+                    except Exception as e:
+                        LOGGER.warning(f"[v20] expanded chunk fetch failed: {e}")
+
+                # 过滤出我们需要的范围
+                all_messages = [m for m in all_messages if start_message_id <= m.id < start_message_id + count]
+                all_messages.sort(key=lambda m: m.id)
+                LOGGER.info(f"[v20] filtered to {len(all_messages)} msgs in target range [{start_message_id}, {start_message_id + count})")
             except Exception as e:
-                LOGGER.warning(f"[v20] get_chat_history fetch failed: {e}, falling back to get_messages")
+                LOGGER.warning(f"[v20] expanded fetch failed: {e}, using original get_messages")
                 # 降级回 get_messages
                 all_messages = []
                 CHUNK = 200
