@@ -9,9 +9,7 @@ from .helper import (
     send_media_to_saved,
     get_readable_file_size,
     get_readable_time,
-    safe_edit_progress,
-    GLOBAL_DOWNLOAD_SEMAPHORE,
-    GLOBAL_UPLOAD_SEMAPHORE,
-    GLOBAL_MEDIA_SEMAPHORE,
+    safe_stop_client,
+    create_optimized_user_client,
 )
 from .tracker import notify_admin_link, log_file_to_group
