@@ -495,6 +495,11 @@ async def processMediaGroup(
         # but msg.media (MessageMediaVideo etc.) has the actual media data.
         # Pyrogram's download() can download from msg.media directly.
         if not (msg.photo or msg.video or msg.document or msg.audio):
+            LOGGER.info(
+                f"[MediaGroup] Shell msg id={msg.id}: "
+                f"media={type(msg.media).__name__ if msg.media else None} "
+                f"chat={msg.chat.id if msg.chat else None}"
+            )
             # Try to refetch via user_client for full media attributes
             _chat_id = None
             if hasattr(msg, 'chat') and msg.chat:
@@ -518,6 +523,11 @@ async def processMediaGroup(
                             f"[MediaGroup] Shell msg id={msg.id} refetch has media={type(refetched.media).__name__}"
                         )
                         msg = refetched
+                    elif refetched:
+                        LOGGER.info(
+                            f"[MediaGroup] Shell msg id={msg.id} refetched but still no media: "
+                            f"media={type(refetched.media).__name__ if refetched.media else None}"
+                        )
                 except Exception as refetch_e:
                     LOGGER.warning(f"[MediaGroup] Shell msg id={msg.id} refetch failed: {refetch_e}")
             else:
@@ -527,6 +537,18 @@ async def processMediaGroup(
                 )
 
         # ✅ Process messages with media (including shell messages via msg.media)
+        has_media_attr = msg.photo or msg.video or msg.document or msg.audio
+        has_media_obj = hasattr(msg, 'media') and msg.media
+        if not has_media_attr and not has_media_obj:
+            LOGGER.info(
+                f"[MediaGroup] Skipping id={msg.id}: no photo/video/doc/audio, no msg.media"
+            )
+            continue
+        if has_media_obj:
+            LOGGER.info(
+                f"[MediaGroup] Processing id={msg.id}: has_media={has_media_obj}, "
+                f"media_type={type(msg.media).__name__}"
+            )
         if msg.photo or msg.video or msg.document or msg.audio or (hasattr(msg, 'media') and msg.media):
             media_path = None
             try:
