@@ -1469,42 +1469,97 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 新策略: 直接尝试下载 shell 消息本身
-                    # 即使 Pyrogram 解析后 msg.media=None，底层原始消息可能仍有文件引用
+                    # ✅ 新策略: 用原始 MTProto API 获取消息，绕过 Pyrogram 解析层
+                    # Pyrogram 可能把 raw 消息中的媒体数据解析丢了，但底层数据是完整的
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] shell msg {mid}, trying direct download (raw media may exist)...")
-                        # 详细诊断: 打印 msg 的原始属性
-                        _raw_media = getattr(msg, 'media', 'ATTR_MISSING')
-                        _raw_media_type = type(_raw_media).__name__ if _raw_media and _raw_media != 'ATTR_MISSING' else str(_raw_media)
-                        LOGGER.info(f"[v20] shell {mid} raw media type={_raw_media_type}")
+                        LOGGER.info(f"[v20] shell msg {mid}, trying raw MTProto API...")
                         _current_status = f"shell {idx}/{total_msg_count}"
                         _update_progress()
                         try:
-                            # 直接尝试下载 shell 消息 — 即使 msg.media=None，底层可能仍有文件数据
-                            _shell_path = await msg.download(
-                                file_name=f"shell_{mid}_",
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=progressArgs("downloading", status_message, start_ts),
+                            # 方法1: 用 raw API 直接获取消息
+                            from pyrogram import raw as raw_types
+                            _raw_result = await user_client.invoke(
+                                raw_types.functions.messages.GetMessages(
+                                    id=[raw_types.types.InputMessageID(id=mid)]
+                                )
                             )
-                            if _shell_path and os.path.exists(_shell_path):
-                                LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
-                                _ext = os.path.splitext(_shell_path)[1].lower()
-                                if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
-                                    _shell_type = MessageMediaType.VIDEO
-                                elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
-                                    _shell_type = MessageMediaType.PHOTO
-                                else:
-                                    _shell_type = MessageMediaType.DOCUMENT
-                                _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
-                                success_count += 1
-                                try: os.remove(_shell_path)
-                                except: pass
-                            else:
-                                LOGGER.warning(f"[v20] shell {mid} direct download returned None")
-                                fail_count += 1
-                        except Exception as de:
-                            LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
+                            _raw_msgs = getattr(_raw_result, 'messages', [])
+                            LOGGER.info(f"[v20] raw API returned {len(_raw_msgs)} messages for {mid}")
+                            _raw_has_media = False
+                            for _rm in _raw_msgs:
+                                _rm_id = getattr(_rm, 'id', None)
+                                _rm_media = getattr(_rm, 'media', None)
+                                _rm_media_type = type(_rm_media).__name__ if _rm_media else 'None'
+                                LOGGER.info(f"[v20]   raw msg id={_rm_id} media_type={_rm_media_type}")
+                                if _rm_media and _rm_id == mid:
+                                    _raw_has_media = True
+                                    # 从 raw media 中提取文件信息
+                                    if hasattr(_rm_media, 'video') and _rm_media.video:
+                                        LOGGER.info(f"[v20] raw has video: size={getattr(_rm_media.video, 'size', '?')} mime={getattr(_rm_media.video, 'mime_type', '?')}")
+                                    elif hasattr(_rm_media, 'document') and _rm_media.document:
+                                        LOGGER.info(f"[v20] raw has document: size={getattr(_rm_media.document, 'size', '?')} mime={getattr(_rm_media.document, 'mime_type', '?')}")
+                                    elif hasattr(_rm_media, 'photo') and _rm_media.photo:
+                                        LOGGER.info(f"[v20] raw has photo")
+                                    # 尝试通过 raw media 构造下载
+                                    try:
+                                        # 用 pyrogram 的 download_media 传 raw media 对象
+                                        _raw_dl_path = await user_client.download_media(
+                                            _rm_media,
+                                            file_name=f"raw_{mid}_",
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progressArgs("downloading", status_message, start_ts),
+                                        )
+                                        if _raw_dl_path and os.path.exists(_raw_dl_path):
+                                            LOGGER.info(f"[v20] raw download OK: {_raw_dl_path}")
+                                            _ext = os.path.splitext(_raw_dl_path)[1].lower()
+                                            if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                                                _raw_type = MessageMediaType.VIDEO
+                                            elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                                                _raw_type = MessageMediaType.PHOTO
+                                            else:
+                                                _raw_type = MessageMediaType.DOCUMENT
+                                            _raw_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _raw_type, _raw_dl_path, _raw_cap, thumbnail_path, mid)
+                                            success_count += 1
+                                            try: os.remove(_raw_dl_path)
+                                            except: pass
+                                        else:
+                                            LOGGER.warning(f"[v20] raw download returned None")
+                                            fail_count += 1
+                                    except Exception as rde:
+                                        LOGGER.warning(f"[v20] raw download err: {type(rde).__name__}: {rde}")
+                                        fail_count += 1
+                                    break
+                            if not _raw_has_media:
+                                LOGGER.info(f"[v20] raw API also has no media for {mid}, trying msg.download...")
+                                try:
+                                    _shell_path = await msg.download(
+                                        file_name=f"shell_{mid}_",
+                                        progress=Leaves.progress_for_pyrogram,
+                                        progress_args=progressArgs("downloading", status_message, start_ts),
+                                    )
+                                    if _shell_path and os.path.exists(_shell_path):
+                                        LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
+                                        _ext = os.path.splitext(_shell_path)[1].lower()
+                                        if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                                            _shell_type = MessageMediaType.VIDEO
+                                        elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                                            _shell_type = MessageMediaType.PHOTO
+                                        else:
+                                            _shell_type = MessageMediaType.DOCUMENT
+                                        _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                        await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
+                                        success_count += 1
+                                        try: os.remove(_shell_path)
+                                        except: pass
+                                    else:
+                                        LOGGER.warning(f"[v20] shell {mid} direct download returned None")
+                                        fail_count += 1
+                                except Exception as de:
+                                    LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
+                                    fail_count += 1
+                        except Exception as re:
+                            LOGGER.warning(f"[v20] raw API failed for {mid}: {type(re).__name__}: {re}")
                             fail_count += 1
                         _handled_by_grouped_fallback.add(mid)
                         continue
