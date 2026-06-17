@@ -24,7 +24,6 @@ from pyrogram.types import (
     InputMediaAudio,
     Voice,
 )
-from pyrogram.types.messages.message import Media
 
 from .logging_setup import LOGGER
 
