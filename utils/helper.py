@@ -24,7 +24,7 @@ from pyrogram.types import (
     InputMediaAudio,
     Voice,
 )
-from pyrogram.types import MessageMediaVideo, MessageMediaPhoto, MessageMediaDocument, MessageMediaAudio
+from pyrogram.types.messages.message import Media
 
 from .logging_setup import LOGGER
 
@@ -571,13 +571,14 @@ async def processMediaGroup(
                 elif msg.audio:
                     media_type = "audio"
                 elif hasattr(msg, 'media') and msg.media:
-                    if isinstance(msg.media, MessageMediaPhoto):
+                    media_class = type(msg.media).__name__
+                    if media_class == 'MessageMediaPhoto':
                         media_type = "photo"
-                    elif isinstance(msg.media, MessageMediaVideo):
+                    elif media_class == 'MessageMediaVideo':
                         media_type = "video"
-                    elif isinstance(msg.media, MessageMediaDocument):
+                    elif media_class == 'MessageMediaDocument':
                         media_type = "document"
-                    elif isinstance(msg.media, MessageMediaAudio):
+                    elif media_class == 'MessageMediaAudio':
                         media_type = "audio"
 
                 if media_type == "photo":
