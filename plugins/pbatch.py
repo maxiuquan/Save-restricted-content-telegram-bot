@@ -1307,27 +1307,55 @@ def setup_pbatch_handler(app: Client):
             target_message_ids = list(range(start_message_id, start_message_id + count))
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
-            # ✅ tawhid120 原版: 批量获取（每批 200）— get_messages(chat_id, message_ids=chunk_ids)
-            # 不要改成单条获取 — 批量获取 + 后续用 chat_message.get_media_group() 处理媒体组是正确的
+            # ✅ 改用 get_chat_history 枚举消息 — 在受限频道中它可能返回完整媒体
+            # get_messages() 在受限频道中返回 shell 消息（media=None）
+            # get_chat_history 使用不同的 API 路径（messages.GetHistory），可能绕过此限制
             all_messages = []
-            CHUNK = 200
             try:
-                for i in range(0, len(target_message_ids), CHUNK):
-                    chunk_ids = target_message_ids[i:i + CHUNK]
-                    try:
-                        chunk_msgs = await user_client.get_messages(
-                            chat_id=pvt_chat_id, message_ids=chunk_ids
-                        )
-                        if chunk_msgs:
-                            if not isinstance(chunk_msgs, list):
-                                chunk_msgs = [chunk_msgs]
-                            for m in chunk_msgs:
-                                if m and not getattr(m, 'empty', False) and m.id:
-                                    all_messages.append(m)
-                    except Exception as e:
-                        LOGGER.warning(f"[v20] chunk fetch failed: {e}")
+                # 从 start_message_id 开始枚举，覆盖 [start, start+count) 范围
+                # offset=start_message_id 表示从该 ID 之后的消息开始
+                # 所以我们用 offset=start_message_id-1 来包含它
+                _end_id = start_message_id + count - 1
+                _collected = []
+                _count = 0
+                async for m in user_client.get_chat_history(
+                    chat_id=pvt_chat_id,
+                    offset=start_message_id - 1,
+                    limit=100,
+                ):
+                    if m.empty or not m.id:
+                        continue
+                    if m.id > _end_id:
+                        continue
+                    if m.id >= start_message_id:
+                        _collected.append(m)
+                        _count += 1
+                        if m.id == _end_id:
+                            break
+                all_messages = _collected
+                LOGGER.info(f"[v20] get_chat_history collected {_count} msgs in [{start_message_id}, {_end_id}]")
             except Exception as e:
-                LOGGER.warning(f"[v20] get_messages failed: {e}")
+                LOGGER.warning(f"[v20] get_chat_history fetch failed: {e}, falling back to get_messages")
+                # 降级回 get_messages
+                all_messages = []
+                CHUNK = 200
+                try:
+                    for i in range(0, len(target_message_ids), CHUNK):
+                        chunk_ids = target_message_ids[i:i + CHUNK]
+                        try:
+                            chunk_msgs = await user_client.get_messages(
+                                chat_id=pvt_chat_id, message_ids=chunk_ids
+                            )
+                            if chunk_msgs:
+                                if not isinstance(chunk_msgs, list):
+                                    chunk_msgs = [chunk_msgs]
+                                for m in chunk_msgs:
+                                    if m and not getattr(m, 'empty', False) and m.id:
+                                        all_messages.append(m)
+                        except Exception as e2:
+                            LOGGER.warning(f"[v20] chunk fetch failed: {e2}")
+                except Exception as e2:
+                    LOGGER.warning(f"[v20] get_messages failed: {e2}")
 
             # 按 ID 升序排序
             all_messages.sort(key=lambda m: m.id)
@@ -1335,23 +1363,6 @@ def setup_pbatch_handler(app: Client):
             if all_messages:
                 got_ids = [m.id for m in all_messages]
                 LOGGER.info(f"[v20] got message ids: {got_ids}")
-
-            # ✅ 关键: 对受限频道 shell 消息，用 get_messages 逐条重新获取
-            # 有时批量 get_messages 返回 shell，但单条获取能拿到完整媒体
-            for i, msg in enumerate(all_messages):
-                if not bool(msg.media) and not (getattr(msg, 'video', None) or getattr(msg, 'photo', None) or getattr(msg, 'document', None) or getattr(msg, 'audio', None)):
-                    try:
-                        single = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=msg.id)
-                        if single and (bool(single.media) or getattr(single, 'video', None) or getattr(single, 'photo', None) or getattr(single, 'document', None) or getattr(single, 'audio', None)):
-                            LOGGER.info(
-                                f"[v20] single refetch id={msg.id}: "
-                                f"media={bool(single.media)} v={bool(single.video)} p={bool(single.photo)} d={bool(single.document)}"
-                            )
-                            all_messages[i] = single
-                        elif single:
-                            LOGGER.info(f"[v20] single refetch id={msg.id}: still no media")
-                    except Exception as e:
-                        LOGGER.warning(f"[v20] single refetch failed for {msg.id}: {e}")
 
             messages = all_messages
 
