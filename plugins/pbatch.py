@@ -35,12 +35,9 @@ from utils import (
 from utils.helper import (
     create_optimized_user_client,
     safe_stop_client,
-    safe_edit_progress,
     get_media_info,
     get_video_resolution,
     get_video_thumbnail,
-    GLOBAL_DOWNLOAD_SEMAPHORE,
-    GLOBAL_UPLOAD_SEMAPHORE,
 )
 from core import (
     daily_limit,
@@ -687,8 +684,7 @@ def setup_pbatch_handler(app: Client):
                 if not _progress_running:
                     break
                 try:
-                    await safe_edit_progress(
-                        status_message,
+                    await status_message.edit_text(
                         _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
                     )
                 except Exception:
@@ -754,8 +750,7 @@ def setup_pbatch_handler(app: Client):
                         now = time.time()
                         if idx % 2 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                             try:
-                                await safe_edit_progress(
-                                    status_message,
+                                await status_message.edit_text(
                                     _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
                                 )
                                 last_edit = now
@@ -847,8 +842,7 @@ def setup_pbatch_handler(app: Client):
                 now = time.time()
                 if idx % 3 == 0 or idx == 1 or idx == effective_total or (now - last_edit) >= 3:
                     try:
-                        await safe_edit_progress(
-                            status_message,
+                        await status_message.edit_text(
                             _progress_text(idx, effective_total, success_count, fail_count, start_ts, False),
                         )
                         last_edit = now
@@ -1236,8 +1230,7 @@ def setup_pbatch_handler(app: Client):
             if idx % 2 == 0 or idx == 1 or idx == total_msg_count or (now - last_edit) >= 3:
                 try:
                     asyncio.ensure_future(
-                        safe_edit_progress(
-                            status_message,
+                        status_message.edit_text(
                             _progress_text(idx, total_msg_count, success_count, fail_count, start_ts, True, status_line=_current_status),
                         )
                     )
@@ -1262,8 +1255,7 @@ def setup_pbatch_handler(app: Client):
                         _human_cur = _cur / 1048576
                         _human_tot = _tot / 1048576
                         _sl += f"\n`[{_bar}]` {_pct:.0f}%  `{_human_cur:.1f}MB/{_human_tot:.1f}MB`"
-                    await safe_edit_progress(
-                        status_message,
+                    await status_message.edit_text(
                         _progress_text(idx, total_msg_count, success_count, fail_count, start_ts, True, status_line=_sl),
                     )
                 except Exception:

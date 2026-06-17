@@ -31,9 +31,6 @@ from utils.helper import (
     get_readable_file_size,
     get_readable_time,
     get_video_thumbnail,
-    safe_edit_progress,
-    GLOBAL_DOWNLOAD_SEMAPHORE,
-    GLOBAL_UPLOAD_SEMAPHORE,
 )
 from core import prem_plan1, prem_plan2, prem_plan3, user_activity_collection
 
@@ -117,8 +114,7 @@ async def _upload_file(
         pct     = (current / total * 100) if total > 0 else 0
         bar     = _progress_bar(pct)
         try:
-            await safe_edit_progress(
-                status_msg,
+            await status_msg.edit_text(
                 f"📤 **Upload হচ্ছে...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📦 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
@@ -151,8 +147,7 @@ async def _upload_file(
                             f"(retry {retry_count}/{max_retries})"
                         )
                         try:
-                            await safe_edit_progress(
-                                status_msg,
+                            await status_msg.edit_text(
                                 f"**⏳ Telegram 需要等待 {wait_time} 秒...**\n"
                                 f"__(重试 {retry_count}/{max_retries})__",
                             )
@@ -219,8 +214,7 @@ async def _upload_file(
                 await send_with_retry(send_document)
 
             elapsed = get_readable_time(int(time() - start_ts))
-            await safe_edit_progress(
-                status_msg,
+            await status_msg.edit_text(
                 f"✅ **সফলভাবে পাঠানো হয়েছে!**\n\n"
                 f"📦 `{get_readable_file_size(file_size)}`\n"
                 f"⏱ সময়: `{elapsed}`",
@@ -229,8 +223,7 @@ async def _upload_file(
         except Exception as e:
             LOGGER.error(f"[TgDL] Upload failed: {e}")
             try:
-                await safe_edit_progress(
-                    status_msg,
+                await status_msg.edit_text(
                     f"❌ **Upload ব্যর্থ:**\n`{str(e)[:200]}`",
                 )
             except Exception:
@@ -255,8 +248,7 @@ async def _process_tg_download(
 
     media_obj, media_type = _get_media_obj(source_msg)
     if media_obj is None:
-        await safe_edit_progress(
-            status_msg,
+        await status_msg.edit_text(
             "❌ এই message-এ কোনো downloadable ফাইল নেই।",
         )
         return
@@ -266,8 +258,7 @@ async def _process_tg_download(
     max_allowed = MAX_FILE_SIZE if is_premium else FREE_FILE_LIMIT
 
     if file_size > max_allowed:
-        await safe_edit_progress(
-            status_msg,
+        await status_msg.edit_text(
             f"❌ **ফাইল অনেক বড়!**\n\n"
             f"📦 ফাইল: `{get_readable_file_size(file_size)}`\n"
             f"🚫 সীমা: `{get_readable_file_size(max_allowed)}`\n\n"
@@ -292,8 +283,7 @@ async def _process_tg_download(
         pct     = (current / total * 100) if total > 0 else 0
         bar     = "▓" * int(20 * pct / 100) + "░" * (20 - int(20 * pct / 100))
         try:
-            await safe_edit_progress(
-                status_msg,
+            await status_msg.edit_text(
                 f"⬇️ **Download হচ্ছে...**\n\n"
                 f"`[{bar}]` {pct:.1f}%\n\n"
                 f"📥 `{get_readable_file_size(current)}` / `{get_readable_file_size(total)}`\n"
@@ -313,24 +303,30 @@ async def _process_tg_download(
             )
     except Exception as e:
         LOGGER.error(f"[TgDL] Download failed for user {user_id}: {e}")
-        await safe_edit_progress(
-            status_msg,
-            f"❌ **Download ব্যর্থ:**\n`{str(e)[:200]}`",
-        )
+        try:
+            await status_msg.edit_text(
+                f"❌ **Download ব্যর্থ:**\n`{str(e)[:200]}`",
+            )
+        except Exception:
+            pass
         return
 
     if not file_path or not os.path.exists(file_path):
-        await safe_edit_progress(
-            status_msg,
-            "❌ ফাইল download সম্পন্ন হয়নি।",
-        )
+        try:
+            await status_msg.edit_text(
+                "❌ ফাইল download সম্পন্ন হয়নি।",
+            )
+        except Exception:
+            pass
         return
 
     # ── 上传 ────────────────────────────────────────────────────────────────
-    await safe_edit_progress(
-        status_msg,
-        "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
-    )
+    try:
+        await status_msg.edit_text(
+            "✅ **Download সম্পন্ন!**\n\n📤 Upload করা হচ্ছে...",
+        )
+    except Exception:
+        pass
 
     # 获取用户的自定义缩略图
     thumbnail_path = None
