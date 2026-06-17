@@ -1336,6 +1336,23 @@ def setup_pbatch_handler(app: Client):
                 got_ids = [m.id for m in all_messages]
                 LOGGER.info(f"[v20] got message ids: {got_ids}")
 
+            # ✅ 关键: 对受限频道 shell 消息，用 get_messages 逐条重新获取
+            # 有时批量 get_messages 返回 shell，但单条获取能拿到完整媒体
+            for i, msg in enumerate(all_messages):
+                if not bool(msg.media) and not (getattr(msg, 'video', None) or getattr(msg, 'photo', None) or getattr(msg, 'document', None) or getattr(msg, 'audio', None)):
+                    try:
+                        single = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=msg.id)
+                        if single and (bool(single.media) or getattr(single, 'video', None) or getattr(single, 'photo', None) or getattr(single, 'document', None) or getattr(single, 'audio', None)):
+                            LOGGER.info(
+                                f"[v20] single refetch id={msg.id}: "
+                                f"media={bool(single.media)} v={bool(single.video)} p={bool(single.photo)} d={bool(single.document)}"
+                            )
+                            all_messages[i] = single
+                        elif single:
+                            LOGGER.info(f"[v20] single refetch id={msg.id}: still no media")
+                    except Exception as e:
+                        LOGGER.warning(f"[v20] single refetch failed for {msg.id}: {e}")
+
             messages = all_messages
 
             if not messages:
@@ -1366,35 +1383,6 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 try:
-                    # ✅ 关键修复: 对受限频道 shell 消息，用 get_chat_history 重新获取
-                    # get_messages() 返回的 shell 消息 media=None，但 get_chat_history 可能返回完整媒体
-                    if not bool(msg.media) and not (getattr(msg, 'video', None) or getattr(msg, 'photo', None) or getattr(msg, 'document', None) or getattr(msg, 'audio', None)):
-                        try:
-                            refetched_via_ch = None
-                            async for m in user_client.get_chat_history(
-                                chat_id=pvt_chat_id,
-                                offset=mid,
-                                limit=1,
-                            ):
-                                if m and m.id == mid:
-                                    refetched_via_ch = m
-                                    break
-                            if refetched_via_ch and (bool(refetched_via_ch.media) or getattr(refetched_via_ch, 'video', None) or getattr(refetched_via_ch, 'photo', None) or getattr(refetched_via_ch, 'document', None) or getattr(refetched_via_ch, 'audio', None)):
-                                LOGGER.info(
-                                    f"[v20] refetched id={mid} via get_chat_history: "
-                                    f"media={bool(refetched_via_ch.media)} "
-                                    f"v={bool(refetched_via_ch.video)} "
-                                    f"p={bool(refetched_via_ch.photo)} "
-                                    f"d={bool(refetched_via_ch.document)}"
-                                )
-                                msg = refetched_via_ch
-                            elif refetched_via_ch:
-                                LOGGER.info(
-                                    f"[v20] refetched id={mid} via get_chat_history but still no media"
-                                )
-                        except Exception as ch_e:
-                            LOGGER.warning(f"[v20] get_chat_history refetch failed for {mid}: {ch_e}")
-
                     # 详细诊断
                     _has_media = bool(msg.media)
                     _has_video = bool(getattr(msg, 'video', None))
@@ -1470,87 +1458,12 @@ def setup_pbatch_handler(app: Client):
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
                     # ✅ 策略: 用 get_chat_history + 更宽的范围找同组媒体消息
                     #    不用 processMediaGroup — 它内部也用 get_media_group()，在受限频道同样拿不到媒体
+                    #    而且 get_chat_history 在受限频道中也返回 empty/no-media
+                    # 简单策略: 跳过 shell 消息，等后续主循环处理同组其他消息
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] media group shell msg {mid}, finding siblings...")
-                        _current_status = f"group {idx}/{total_msg_count}"
-                        _update_progress()
-                        try:
-                            _mgid = _media_group_id
-                            _found = []
-                            # 用更大的范围扫描：从 mid-20 到 mid+30，确保覆盖整个媒体组
-                            # offset=mid+30 表示从 mid+30 之前的消息开始往前取
-                            async for sib in user_client.get_chat_history(
-                                chat_id=pvt_chat_id,
-                                offset=mid + 30,
-                                limit=60,
-                            ):
-                                if (sib and getattr(sib, 'media_group_id', None) == _mgid
-                                        and sib.id != mid):
-                                    # 检查是否有实际媒体
-                                    if (sib.photo or sib.video or sib.document or sib.audio
-                                            or (hasattr(sib, 'media') and sib.media)):
-                                        if sib.id not in _handled_by_grouped_fallback:
-                                            _found.append(sib)
-                                            _handled_by_grouped_fallback.add(sib.id)
-                            LOGGER.info(f"[v20] shell {mid}: found {len(_found)} media siblings with mgid={_mgid}")
-                            
-                            for sib in _found:
-                                if cancel_flags.get(chat_id):
-                                    break
-                                sib_mid = sib.id
-                                try:
-                                    _current_status = f"download sibling {sib_mid}"
-                                    _update_progress()
-                                    
-                                    # 确定媒体类型
-                                    _sib_media_type = None
-                                    if sib.photo:
-                                        _sib_media_type = MessageMediaType.PHOTO
-                                    elif sib.video:
-                                        _sib_media_type = MessageMediaType.VIDEO
-                                    elif sib.document:
-                                        _sib_media_type = MessageMediaType.DOCUMENT
-                                    elif sib.audio:
-                                        _sib_media_type = MessageMediaType.AUDIO
-                                    elif hasattr(sib, 'media') and sib.media:
-                                        _sib_media_type = type(sib.media).__name__
-                                    
-                                    _sib_dl_name = _build_dl_filename(sib, sib_mid, _sib_media_type)
-                                    _sib_file_path = await user_client.download_media(
-                                        sib,
-                                        file_name=_sib_dl_name,
-                                        progress=Leaves.progress_for_pyrogram,
-                                        progress_args=progressArgs("downloading", status_message, start_ts),
-                                    )
-                                    
-                                    if not _sib_file_path or not os.path.exists(_sib_file_path):
-                                        LOGGER.warning(f"[v20] sibling dl failed: {sib_mid}")
-                                        fail_count += 1
-                                        continue
-                                    
-                                    _current_status = f"upload sibling {sib_mid}"
-                                    _update_progress()
-                                    
-                                    _sib_caption = await get_parsed_msg(sib.caption or "", sib.caption_entities or [])
-                                    await _upload_to_saved(user_client, _sib_media_type, _sib_file_path, _sib_caption, thumbnail_path, sib_mid)
-                                    success_count += 1
-                                    
-                                    try:
-                                        if os.path.exists(_sib_file_path):
-                                            os.remove(_sib_file_path)
-                                    except Exception:
-                                        pass
-                                    
-                                    await _apply_delay(0)
-                                except Exception as se:
-                                    LOGGER.error(f"[v20] sibling {sib_mid} err: {se}")
-                                    fail_count += 1
-                            
-                            # 标记 shell 本身为已处理（跳过它）
-                            _handled_by_grouped_fallback.add(mid)
-                        except Exception as e:
-                            LOGGER.warning(f"[v20] shell {mid} sibling search failed: {e}")
-                            fail_count += 1
+                        LOGGER.info(f"[v20] skipping media group shell msg {mid} (no media in restricted channel)")
+                        _handled_by_grouped_fallback.add(mid)
+                        fail_count += 1
                         continue
 
                     # 无媒体无文字且不在媒体组中 → 跳过
