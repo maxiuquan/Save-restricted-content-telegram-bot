@@ -1449,7 +1449,6 @@ def setup_pbatch_handler(app: Client):
                             result = await processMediaGroup(
                                 msg, bot, status_message,
                                 user_client=user_client,
-                                thumbnail_path=thumbnail_path,
                             )
                             if result:
                                 success_count += 1
