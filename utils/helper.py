@@ -476,32 +476,8 @@ async def processMediaGroup(
     ✅ SHELL MESSAGE FIX: Restricted channels return shell messages with
     msg.photo=msg.video=msg.document=msg.audio=None, but msg.media (MessageMediaVideo)
     has the actual data. We download via msg.media.
-    
-    RESTRICTED CHANNEL FIX: If user_client is provided, use it to get the media group
-    instead of the bot client. User accounts have higher API privileges and can access
-    media from restricted channels that bot accounts cannot.
     """
-    # ✅ If user_client is available, refetch the message via user_client first
-    # This gives us full media attributes for restricted channels
-    _user_msg = chat_message
-    if user_client:
-        try:
-            _chat_id = chat_message.chat.id if chat_message.chat else None
-            _msg_id = chat_message.id
-            if _chat_id and _msg_id:
-                _user_msg = await user_client.get_messages(
-                    chat_id=_chat_id, message_ids=_msg_id
-                )
-                LOGGER.info(
-                    f"[MediaGroup] Refetched via user_client: "
-                    f"p={bool(_user_msg.photo)} v={bool(_user_msg.video)} "
-                    f"d={bool(_user_msg.document)} a={bool(_user_msg.audio)} "
-                    f"media={type(_user_msg.media).__name__ if _user_msg.media else None}"
-                )
-        except Exception as _e:
-            LOGGER.warning(f"[MediaGroup] user_client refetch failed: {_e}")
-
-    media_group_messages = await _user_msg.get_media_group()
+    media_group_messages = await chat_message.get_media_group()
     valid_media  = []
     temp_paths   = []
     auto_thumbs  = []
@@ -564,10 +540,40 @@ async def processMediaGroup(
         has_media_attr = msg.photo or msg.video or msg.document or msg.audio
         has_media_obj = hasattr(msg, 'media') and msg.media
         if not has_media_attr and not has_media_obj:
+            # ✅ Shell message: try copy to Saved Messages via user_client
             LOGGER.info(
-                f"[MediaGroup] Skipping id={msg.id}: no photo/video/doc/audio, no msg.media"
+                f"[MediaGroup] Shell msg id={msg.id}: no media attr/obj, try copy_to_saved..."
             )
-            continue
+            if _chat_id and user_client:
+                try:
+                    copied = await user_client.copy_message(
+                        chat_id="me",  # Saved Messages
+                        from_chat_id=_chat_id,
+                        message_id=msg.id,
+                    )
+                    if copied:
+                        LOGGER.info(
+                            f"[MediaGroup] Shell msg id={msg.id} copy_to_saved: "
+                            f"p={bool(copied.photo)} v={bool(copied.video)} "
+                            f"d={bool(copied.document)} a={bool(copied.audio)} "
+                            f"media={type(copied.media).__name__ if copied.media else None}"
+                        )
+                        if copied.photo or copied.video or copied.document or copied.audio or copied.media:
+                            msg = copied
+                            has_media_attr = bool(msg.photo or msg.video or msg.document or msg.audio)
+                            has_media_obj = bool(hasattr(msg, 'media') and msg.media)
+                            # Mark for cleanup
+                            if not hasattr(msg, '_saved_copy_id'):
+                                msg._saved_copy_id = copied.id
+                except Exception as copy_e:
+                    LOGGER.warning(
+                        f"[MediaGroup] Shell msg id={msg.id} copy_to_saved failed: {copy_e}"
+                    )
+            if not has_media_attr and not has_media_obj:
+                LOGGER.info(
+                    f"[MediaGroup] Skipping id={msg.id}: no photo/video/doc/audio, no msg.media"
+                )
+                continue
         if has_media_obj:
             LOGGER.info(
                 f"[MediaGroup] Processing id={msg.id}: has_media={has_media_obj}, "
@@ -805,6 +811,21 @@ async def processMediaGroup(
         for path in temp_paths + invalid_paths + auto_thumbs:
             if os.path.exists(path):
                 os.remove(path)
+
+        # ✅ Cleanup: delete copied messages from Saved Messages
+        if user_client:
+            for _idx, _msg in enumerate(valid_media):
+                _orig = media_group_messages[_idx] if _idx < len(media_group_messages) else None
+                _saved_id = getattr(_orig, '_saved_copy_id', None) if _orig else None
+                if _saved_id:
+                    try:
+                        await user_client.delete_messages(
+                            chat_id="me",
+                            message_ids=_saved_id,
+                        )
+                        LOGGER.info(f"[MediaGroup] Cleaned up saved copy id={_saved_id}")
+                    except Exception as _ce:
+                        LOGGER.warning(f"[MediaGroup] Cleanup saved copy failed: {_ce}")
 
         return True
 
