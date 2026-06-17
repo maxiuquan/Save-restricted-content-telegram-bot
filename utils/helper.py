@@ -569,6 +569,45 @@ async def processMediaGroup(
                     LOGGER.warning(
                         f"[MediaGroup] Shell msg id={msg.id} copy_to_saved failed: {copy_e}"
                     )
+            # ✅ NEW: If copy also fails, try get_chat_history to find sibling media
+            # in the same media group (restricted channels may strip media from shell)
+            if not has_media_attr and not has_media_obj and user_client and _chat_id:
+                _mgid = getattr(msg, 'media_group_id', None)
+                if _mgid:
+                    LOGGER.info(
+                        f"[MediaGroup] Shell msg id={msg.id} still no media, "
+                        f"trying get_chat_history to find siblings (mgid={_mgid})..."
+                    )
+                    try:
+                        existing_ids = {m.id for m in media_group_messages}
+                        new_count = 0
+                        async for sibling in user_client.get_chat_history(
+                            chat_id=_chat_id,
+                            message_ids=msg.id,
+                            limit=50,
+                        ):
+                            if (sibling and getattr(sibling, 'media_group_id', None) == _mgid
+                                    and sibling.id not in existing_ids):
+                                if (sib_photo := getattr(sibling, 'photo', None)
+                                        or getattr(sibling, 'video', None)
+                                        or getattr(sibling, 'document', None)
+                                        or getattr(sibling, 'audio', None)
+                                        or (hasattr(sibling, 'media') and sibling.media)):
+                                    media_group_messages.append(sibling)
+                                    existing_ids.add(sibling.id)
+                                    new_count += 1
+                                    LOGGER.info(
+                                        f"[MediaGroup] Added sibling id={sibling.id}: "
+                                        f"p={bool(getattr(sibling, 'photo'))} "
+                                        f"v={bool(getattr(sibling, 'video'))} "
+                                        f"d={bool(getattr(sibling, 'document'))} "
+                                        f"a={bool(getattr(sibling, 'audio'))}"
+                                    )
+                        LOGGER.info(
+                            f"[MediaGroup] Found {new_count} new siblings with mgid={_mgid}"
+                        )
+                    except Exception as ch_e:
+                        LOGGER.warning(f"[MediaGroup] get_chat_history sibling search failed: {ch_e}")
             if not has_media_attr and not has_media_obj:
                 LOGGER.info(
                     f"[MediaGroup] Skipping id={msg.id}: no photo/video/doc/audio, no msg.media"
@@ -589,7 +628,7 @@ async def processMediaGroup(
                     progress_msg = await message.reply(
                         f"**📥 Downloading shell msg id={msg.id}...**"
                     )
-                    media_path = await chat_message.download(
+                    media_path = await msg.download(
                         progress=Leaves.progress_for_pyrogram,
                         progress_args=progressArgs(
                             "📥 Downloading", progress_msg, start_ts
