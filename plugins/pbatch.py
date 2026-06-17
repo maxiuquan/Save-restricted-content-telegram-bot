@@ -1352,7 +1352,7 @@ def setup_pbatch_handler(app: Client):
             total_msg_count = len(messages)
             LOGGER.info(f"[v20] got {total_msg_count} msgs")
 
-            # ── 遍历处理每一条消息（tawhid120 模式 + get_media_group 处理媒体组）──
+            # ── 遍历处理每一条消息 ──
             for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
                     break
@@ -1366,6 +1366,35 @@ def setup_pbatch_handler(app: Client):
                     continue
 
                 try:
+                    # ✅ 关键修复: 对受限频道 shell 消息，用 get_chat_history 重新获取
+                    # get_messages() 返回的 shell 消息 media=None，但 get_chat_history 可能返回完整媒体
+                    if not bool(msg.media) and not (getattr(msg, 'video', None) or getattr(msg, 'photo', None) or getattr(msg, 'document', None) or getattr(msg, 'audio', None)):
+                        try:
+                            refetched_via_ch = None
+                            async for m in user_client.get_chat_history(
+                                chat_id=pvt_chat_id,
+                                offset=mid,
+                                limit=1,
+                            ):
+                                if m and m.id == mid:
+                                    refetched_via_ch = m
+                                    break
+                            if refetched_via_ch and (bool(refetched_via_ch.media) or getattr(refetched_via_ch, 'video', None) or getattr(refetched_via_ch, 'photo', None) or getattr(refetched_via_ch, 'document', None) or getattr(refetched_via_ch, 'audio', None)):
+                                LOGGER.info(
+                                    f"[v20] refetched id={mid} via get_chat_history: "
+                                    f"media={bool(refetched_via_ch.media)} "
+                                    f"v={bool(refetched_via_ch.video)} "
+                                    f"p={bool(refetched_via_ch.photo)} "
+                                    f"d={bool(refetched_via_ch.document)}"
+                                )
+                                msg = refetched_via_ch
+                            elif refetched_via_ch:
+                                LOGGER.info(
+                                    f"[v20] refetched id={mid} via get_chat_history but still no media"
+                                )
+                        except Exception as ch_e:
+                            LOGGER.warning(f"[v20] get_chat_history refetch failed for {mid}: {ch_e}")
+
                     # 详细诊断
                     _has_media = bool(msg.media)
                     _has_video = bool(getattr(msg, 'video', None))
@@ -1439,32 +1468,36 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 改为逐个单独下载：用 get_chat_history 找同组媒体，逐个 download + upload
+                    # ✅ 策略: 用 get_chat_history + 更宽的范围找同组媒体消息
+                    #    不用 processMediaGroup — 它内部也用 get_media_group()，在受限频道同样拿不到媒体
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] media group shell msg {mid}, finding siblings individually...")
+                        LOGGER.info(f"[v20] media group shell msg {mid}, finding siblings...")
                         _current_status = f"group {idx}/{total_msg_count}"
                         _update_progress()
                         try:
                             _mgid = _media_group_id
                             _found = []
+                            # 用更大的范围扫描：从 mid-20 到 mid+30，确保覆盖整个媒体组
+                            # offset=mid+30 表示从 mid+30 之前的消息开始往前取
                             async for sib in user_client.get_chat_history(
                                 chat_id=pvt_chat_id,
-                                offset=mid - 5,
-                                limit=50,
+                                offset=mid + 30,
+                                limit=60,
                             ):
                                 if (sib and getattr(sib, 'media_group_id', None) == _mgid
-                                        and sib.id != mid
-                                        and sib.id not in _handled_by_grouped_fallback):
-                                    if sib.photo or sib.video or sib.document or sib.audio or (hasattr(sib, 'media') and sib.media):
-                                        _found.append(sib)
-                            LOGGER.info(f"[v20] shell {mid}: found {len(_found)} siblings with mgid={_mgid}")
+                                        and sib.id != mid):
+                                    # 检查是否有实际媒体
+                                    if (sib.photo or sib.video or sib.document or sib.audio
+                                            or (hasattr(sib, 'media') and sib.media)):
+                                        if sib.id not in _handled_by_grouped_fallback:
+                                            _found.append(sib)
+                                            _handled_by_grouped_fallback.add(sib.id)
+                            LOGGER.info(f"[v20] shell {mid}: found {len(_found)} media siblings with mgid={_mgid}")
                             
                             for sib in _found:
                                 if cancel_flags.get(chat_id):
                                     break
                                 sib_mid = sib.id
-                                if sib_mid in _handled_by_grouped_fallback:
-                                    continue
                                 try:
                                     _current_status = f"download sibling {sib_mid}"
                                     _update_progress()
@@ -1501,7 +1534,6 @@ def setup_pbatch_handler(app: Client):
                                     _sib_caption = await get_parsed_msg(sib.caption or "", sib.caption_entities or [])
                                     await _upload_to_saved(user_client, _sib_media_type, _sib_file_path, _sib_caption, thumbnail_path, sib_mid)
                                     success_count += 1
-                                    _handled_by_grouped_fallback.add(sib_mid)
                                     
                                     try:
                                         if os.path.exists(_sib_file_path):
