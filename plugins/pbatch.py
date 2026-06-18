@@ -39,6 +39,7 @@ from utils.helper import (
     get_video_resolution,
     get_video_thumbnail,
 )
+from utils import tdl_helper
 from core import (
     daily_limit,
     prem_plan1,
@@ -221,6 +222,20 @@ def setup_pbatch_handler(app: Client):
             return None
         except Exception as e:
             LOGGER.error(f"Failed to init user client for {user_id}: {e}")
+            return None
+
+    async def _get_session_string(user_id: int, session_id: str) -> str | None:
+        """获取用户会话字符串，用于 tdl 转换。"""
+        try:
+            user_session = await user_sessions.find_one({"user_id": user_id})
+            if not user_session or not user_session.get("sessions"):
+                return None
+            session = next(
+                (s for s in user_session["sessions"] if s["session_id"] == session_id), None
+            )
+            return session["session_string"] if session else None
+        except Exception as e:
+            LOGGER.error(f"Failed to get session string for {user_id}: {e}")
             return None
 
     # ────────────────────────────────────────────────────────────────────
@@ -1308,44 +1323,40 @@ def setup_pbatch_handler(app: Client):
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
             # ✅ 模拟手机客户端: 用 get_chat_history(offset_id=) 获取消息
-            # 不限制 ID 范围 — 收集大范围消息，后续按 media_group_id 找兄弟
+            # 手机客户端使用 messages.getHistory API，返回完整媒体数据
+            # 之前用 offset 参数是错的 — offset 是序列偏移，offset_id 才是消息 ID
             all_messages = []
             try:
+                _end_id = start_message_id + count - 1
                 _collected = []
-                _raw_msg_ids = set(m for m in target_message_ids)
-                LOGGER.info(f"[v20] get_chat_history with offset_id={start_message_id + count + 20}, limit=200")
+                LOGGER.info(f"[v20] get_chat_history with offset_id={start_message_id + count}, limit=100")
                 async for m in user_client.get_chat_history(
                     chat_id=pvt_chat_id,
-                    offset_id=start_message_id + count + 20,
-                    limit=200,
+                    offset_id=start_message_id + count,  # 从结束位置之后开始，获取更早的消息
+                    limit=100,
                 ):
                     if m.empty or not m.id:
                         continue
+                    if m.id < start_message_id:
+                        continue
+                    if m.id > _end_id:
+                        continue
                     _collected.append(m)
-                # 收集够目标消息后就不再需要更旧的了
-                _found_all_target = all(any(_m.id == t for _m in _collected) for t in target_message_ids)
-                if _found_all_target:
-                    LOGGER.info(f"[v20] get_chat_history collected {len(_collected)} msgs total, found all target ids")
-                else:
-                    LOGGER.info(f"[v20] get_chat_history collected {len(_collected)} msgs total, NOT all target ids found")
-                # 不过滤 ID，保留所有消息以便后续找 media_group 兄弟
-                # 但只保留到比最早目标消息更早一些的消息
-                _min_allowed = max(start_message_id - 20, 1)
-                all_messages = [m for m in _collected if m.id >= _min_allowed]
-                all_messages.sort(key=lambda m: m.id)
+                    LOGGER.info(f"[v20]   got msg id={m.id} media={bool(m.media)} v={bool(getattr(m,'video',None))} p={bool(getattr(m,'photo',None))} d={bool(getattr(m,'document',None))}")
+                    if m.id == start_message_id:
+                        break
+                all_messages = list(reversed(_collected))  # get_chat_history 返回降序，反转
+                LOGGER.info(f"[v20] get_chat_history collected {len(all_messages)} msgs in [{start_message_id}, {_end_id}]")
             except Exception as e:
                 LOGGER.warning(f"[v20] get_chat_history failed: {type(e).__name__}: {e}")
             if not all_messages:
                 LOGGER.info("[v20] get_chat_history empty, falling back to expanded get_messages")
-                # 降级回 get_messages，也扩大范围
+                # 降级回 get_messages
                 all_messages = []
-                _expand_start = max(start_message_id - 10, 1)
-                _expand_end = start_message_id + count + 10
-                _expand_ids = list(range(_expand_start, _expand_end))
-                CHUNK = 100
+                CHUNK = 200
                 try:
-                    for i in range(0, len(_expand_ids), CHUNK):
-                        chunk_ids = _expand_ids[i:i + CHUNK]
+                    for i in range(0, len(target_message_ids), CHUNK):
+                        chunk_ids = target_message_ids[i:i + CHUNK]
                         try:
                             chunk_msgs = await user_client.get_messages(
                                 chat_id=pvt_chat_id, message_ids=chunk_ids
@@ -1388,12 +1399,6 @@ def setup_pbatch_handler(app: Client):
             for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
                     break
-
-                # 仅处理目标范围 [start, start+count) 内的消息为主消息
-                # 范围外的消息保留在 all_messages 中用于 shell 消息的兄弟搜索
-                if not (start_message_id <= msg.id < start_message_id + count):
-                    LOGGER.info(f"[v20] skip msg {msg.id} — outside target range [{start_message_id}, {start_message_id + count})")
-                    continue
 
                 idx = j
                 mid = msg.id
@@ -1477,59 +1482,87 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 从已收集的 all_messages 中搜索同 media_group_id 的兄弟消息
-                    # 手机客户端能看到视频但 API 返回 shell — 说明视频消息 ID 可能不在目标范围内
+                    # ✅ 方案 B: 使用 tdl (Telegram Download Library) 外部二进制下载
+                    # tdl 是独立实现的 Go MTProto 客户端，不同于 Pyrogram，可能绕过 shell 限制
                     if not _has_media and not msg.text and _media_group_id:
-                        _mgid = _media_group_id
-                        LOGGER.info(f"[v20] shell msg {mid} mgid={_mgid}, searching all_messages for siblings...")
-                        _siblings_found = 0
-                        for _sm in all_messages:
-                            if _sm.id == mid:
-                                continue
-                            if _sm.id in _handled_by_grouped_fallback:
-                                continue
-                            _sm_mgid = getattr(_sm, 'media_group_id', None)
-                            if not _sm_mgid or _sm_mgid != _mgid:
-                                continue
-                            _sm_has_media = bool(_sm.media) or bool(_sm.video) or bool(_sm.photo) or bool(_sm.document) or bool(_sm.audio)
-                            LOGGER.info(f"[v20]   sibling msg {_sm.id}: has_media={_sm_has_media} v={bool(_sm.video)} p={bool(_sm.photo)} d={bool(_sm.document)}")
-                            if not _sm_has_media:
-                                continue
-                            _siblings_found += 1
-                            _handled_by_grouped_fallback.add(_sm.id)
-                            # 获取这个兄弟消息的媒体类型
-                            _sm_type = None
-                            if _sm.photo: _sm_type = MessageMediaType.PHOTO
-                            elif _sm.video: _sm_type = MessageMediaType.VIDEO
-                            elif _sm.document: _sm_type = MessageMediaType.DOCUMENT
-                            elif _sm.audio: _sm_type = MessageMediaType.AUDIO
-                            elif _sm.media:
-                                # 从 msg.media 对象推断类型
-                                _media_cls = type(_sm.media).__name__
-                                if _media_cls == 'MessageMediaPhoto': _sm_type = MessageMediaType.PHOTO
-                                elif _media_cls == 'MessageMediaVideo': _sm_type = MessageMediaType.VIDEO
-                                elif _media_cls == 'MessageMediaDocument': _sm_type = MessageMediaType.DOCUMENT
-                                elif _media_cls == 'MessageMediaAudio': _sm_type = MessageMediaType.AUDIO
-                            if not _sm_type:
-                                LOGGER.info(f"[v20]   sibling {_sm.id}: cannot determine type, fallback to document")
-                                _sm_type = MessageMediaType.DOCUMENT
-                            # 下载并上传
-                            _sm_name = _build_dl_filename(_sm, _sm.id, _sm_type)
-                            _sm_path = await user_client.download_media(
-                                _sm, file_name=_sm_name,
-                                progress=Leaves.progress_for_pyrogram,
-                                progress_args=progressArgs("download", status_message, start_ts),
-                            )
-                            if _sm_path and os.path.exists(_sm_path):
-                                _sm_cap = await get_parsed_msg(_sm.caption or "", _sm.caption_entities or [])
-                                await _upload_to_saved(user_client, _sm_type, _sm_path, _sm_cap, thumbnail_path, _sm.id)
-                                success_count += 1
-                                try: os.remove(_sm_path)
-                                except: pass
+                        LOGGER.info(f"[v20] shell msg {mid}, trying tdl download...")
+                        _current_status = f"tdl {idx}/{total_msg_count}"
+                        _update_progress()
+
+                        _tdl_dl_path = None
+                        _tdl_success = False
+                        try:
+                            # 检查 tdl 是否安装
+                            if tdl_helper.is_tdl_installed():
+                                # 获取 session_string 并转换为 tdl 格式
+                                _session_str = await _get_session_string(user_id, session_id)
+                                if _session_str:
+                                    _tdl_sess = tdl_helper.pyrogram_session_to_tdl(_session_str, user_id)
+                                    if _tdl_sess:
+                                        # 构建消息链接
+                                        _tdl_link = tdl_helper.build_message_link(pvt_chat_id, mid)
+                                        # 下载目录
+                                        _tdl_out = os.path.join("downloads", f"tdl_{user_id}")
+                                        os.makedirs(_tdl_out, exist_ok=True)
+                                        LOGGER.info(f"[v20] tdl link={_tdl_link} sess={_tdl_sess} out={_tdl_out}")
+                                        # 执行下载
+                                        _tdl_dl_path = await tdl_helper.download_with_tdl(
+                                            message_link=_tdl_link,
+                                            session_file=_tdl_sess,
+                                            download_dir=_tdl_out,
+                                            timeout=600,
+                                        )
+                                        if _tdl_dl_path and os.path.exists(_tdl_dl_path):
+                                            _tdl_success = True
+                                            LOGGER.info(f"[v20] tdl downloaded: {_tdl_dl_path}")
                             else:
-                                LOGGER.warning(f"[v20]   sibling {_sm.id} download failed")
+                                LOGGER.info("[v20] tdl not installed, skipping")
+                        except Exception as tdl_e:
+                            LOGGER.warning(f"[v20] tdl error: {type(tdl_e).__name__}: {tdl_e}")
+
+                        if _tdl_success and _tdl_dl_path:
+                            # tdl 下载成功，上传到 Saved Messages
+                            _ext = os.path.splitext(_tdl_dl_path)[1].lower()
+                            if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                                _tdl_type = MessageMediaType.VIDEO
+                            elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                                _tdl_type = MessageMediaType.PHOTO
+                            else:
+                                _tdl_type = MessageMediaType.DOCUMENT
+                            _tdl_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                            await _upload_to_saved(user_client, _tdl_type, _tdl_dl_path, _tdl_cap, thumbnail_path, mid)
+                            success_count += 1
+                            try: os.remove(_tdl_dl_path)
+                            except: pass
+                        else:
+                            # tdl 失败，回退到 Pyrogram 直接下载
+                            LOGGER.info(f"[v20] tdl failed for {mid}, fallback to Pyrogram download...")
+                            try:
+                                _shell_path = await msg.download(
+                                    file_name=f"shell_{mid}_",
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                )
+                                if _shell_path and os.path.exists(_shell_path):
+                                    LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
+                                    _ext = os.path.splitext(_shell_path)[1].lower()
+                                    if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                                        _shell_type = MessageMediaType.VIDEO
+                                    elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                                        _shell_type = MessageMediaType.PHOTO
+                                    else:
+                                        _shell_type = MessageMediaType.DOCUMENT
+                                    _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                    await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
+                                    success_count += 1
+                                    try: os.remove(_shell_path)
+                                    except: pass
+                                else:
+                                    LOGGER.warning(f"[v20] shell {mid} direct download returned None")
+                                    fail_count += 1
+                            except Exception as de:
+                                LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
                                 fail_count += 1
-                        LOGGER.info(f"[v20] shell {mid}: found {_siblings_found} media siblings with mgid={_mgid}")
                         _handled_by_grouped_fallback.add(mid)
                         continue
 
