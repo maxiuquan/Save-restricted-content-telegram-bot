@@ -11,6 +11,7 @@ import json
 import base64
 import struct
 import hashlib
+import re
 import asyncio
 import shutil
 from pathlib import Path
@@ -20,6 +21,9 @@ from utils.logging_setup import LOGGER
 
 # ── tdl 会话目录 ─────────────────────────────────────────────────
 TDL_SESSION_DIR = Path(__file__).parent.parent / "sessions" / "tdl"
+
+# 旧版 tdl (< 0.17.x) 会话目录 ~/.tdl/ 下的 ns_<name>/
+TDL_OLD_NS_DIR = Path.home() / ".tdl"
 
 # ── DC 服务器地址映射 ────────────────────────────────────────────
 DC_ADDR_MAP = {
@@ -34,6 +38,30 @@ DC_ADDR_MAP = {
 def is_tdl_installed() -> bool:
     """检查 tdl 是否已安装。"""
     return shutil.which("tdl") is not None
+
+
+def _get_tdl_version() -> tuple[int, int, int]:
+    """获取 tdl 版本号 (major, minor, patch)。"""
+    try:
+        import subprocess
+        result = subprocess.run(["tdl", "version"], capture_output=True, text=True, timeout=10)
+        output = result.stdout or result.stderr
+        # 匹配版本号: "Version: 0.17.3" 或 "tdl version 0.16.0"
+        m = re.search(r'(\d+)\.(\d+)\.(\d+)', output)
+        if m:
+            ver = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            LOGGER.info(f"[tdl] detected version: {ver[0]}.{ver[1]}.{ver[2]}")
+            return ver
+    except Exception as e:
+        LOGGER.warning(f"[tdl] failed to detect version: {e}")
+    return (0, 0, 0)
+
+
+def _tdl_supports_session() -> bool:
+    """新版 tdl (>= 0.17.0) 支持 --session 参数。"""
+    ver = _get_tdl_version()
+    # --session 在 v0.17.0 引入
+    return ver >= (0, 17, 0)
 
 
 def pyrogram_session_to_tdl(session_string: str, user_id: int) -> Optional[str]:
@@ -76,16 +104,22 @@ def pyrogram_session_to_tdl(session_string: str, user_id: int) -> Optional[str]:
             "auth_key_id": base64.b64encode(auth_key_id).decode(),
         }
 
-        # ── 写入文件 ──────────────────────────────────────────────
-        TDL_SESSION_DIR.mkdir(parents=True, exist_ok=True)
-        session_file = TDL_SESSION_DIR / f"{user_id}.json"
-        session_file.write_text(json.dumps(tdl_session, indent=2))
-
-        LOGGER.info(
-            f"[tdl] 会话已创建: {session_file} "
-            f"(dc={dc_id}, addr={addr})"
-        )
-        return str(session_file)
+        if _tdl_supports_session():
+            # 新版 (>= 0.17.0): 写到 sessions/tdl/<user_id>.json
+            TDL_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+            session_file = TDL_SESSION_DIR / f"{user_id}.json"
+            session_file.write_text(json.dumps(tdl_session, indent=2))
+            LOGGER.info(f"[tdl] 新版会话已创建: {session_file} (dc={dc_id})")
+            return str(session_file)
+        else:
+            # 旧版 (< 0.17.0): 写到 ~/.tdl/ns_<user_id>/session.json
+            ns_name = f"tdl_{user_id}"
+            ns_dir = TDL_OLD_NS_DIR / f"ns_{ns_name}"
+            ns_dir.mkdir(parents=True, exist_ok=True)
+            ns_file = ns_dir / "session.json"
+            ns_file.write_text(json.dumps(tdl_session, indent=2))
+            LOGGER.info(f"[tdl] 旧版会话已创建: {ns_file} (dc={dc_id})")
+            return ns_name  # 返回命名空间名，供 --ns 使用
 
     except Exception as e:
         LOGGER.error(f"[tdl] 会话转换失败: {e}")
@@ -93,10 +127,15 @@ def pyrogram_session_to_tdl(session_string: str, user_id: int) -> Optional[str]:
 
 
 def get_tdl_session_path(user_id: int) -> Optional[str]:
-    """获取已存在的 tdl 会话文件路径。"""
+    """获取已存在的 tdl 会话标识符（新版文件路径或旧版命名空间）。"""
+    # 新版: sessions/tdl/<user_id>.json
     session_file = TDL_SESSION_DIR / f"{user_id}.json"
     if session_file.exists():
         return str(session_file)
+    # 旧版: ~/.tdl/ns_tdl_<user_id>/session.json
+    ns_dir = TDL_OLD_NS_DIR / f"ns_tdl_{user_id}"
+    if ns_dir.exists():
+        return f"tdl_{user_id}"
     return None
 
 
@@ -127,16 +166,17 @@ def build_message_link(chat_id: int, message_id: int, is_private: bool = False) 
 
 async def download_with_tdl(
     message_link: str,
-    session_file: str,
+    session_ident: str,
     download_dir: str,
     timeout: int = 600,
 ) -> Optional[str]:
     """
     使用 tdl 下载文件。
+    自动适配新/旧版 tdl（新版用 --session，旧版用 --ns）。
 
     参数:
         message_link: Telegram 消息链接
-        session_file: tdl 会话文件路径
+        session_ident: 新版为会话文件路径，旧版为命名空间名
         download_dir: 下载目录
         timeout: 超时时间（秒）
 
@@ -147,14 +187,26 @@ async def download_with_tdl(
         LOGGER.warning("[tdl] tdl 未安装，跳过")
         return None
 
-    cmd = [
-        "tdl", "dl",
-        "-u", message_link,
-        "-d", download_dir,
-        "--session", session_file,
-        "--reconnect-timeout", "30",
-        "--template", "{{ .DialogID }}_{{ .MessageID }}_{{ .FileName }}",
-    ]
+    if _tdl_supports_session():
+        # 新版 tdl (>= 0.17.0): 使用 --session
+        cmd = [
+            "tdl", "dl",
+            "-u", message_link,
+            "-d", download_dir,
+            "--session", session_ident,
+            "--reconnect-timeout", "30",
+            "--template", "{{ .DialogID }}_{{ .MessageID }}_{{ .FileName }}",
+        ]
+    else:
+        # 旧版 tdl (< 0.17.0): 使用 --ns（会话已由 pyrogram_session_to_tdl 写入 ~/.tdl/ns_<name>/）
+        cmd = [
+            "tdl", "dl",
+            "-u", message_link,
+            "-d", download_dir,
+            "--ns", session_ident,
+            "--reconnect-timeout", "30",
+            "--template", "{{ .DialogID }}_{{ .MessageID }}_{{ .FileName }}",
+        ]
 
     LOGGER.info(f"[tdl] 开始下载: {' '.join(cmd)}")
 
@@ -224,7 +276,7 @@ async def download_with_tdl(
 
 async def download_media_group_with_tdl(
     message_links: list[str],
-    session_file: str,
+    session_ident: str,
     download_dir: str,
     timeout: int = 900,
 ) -> list[str]:
@@ -233,7 +285,7 @@ async def download_media_group_with_tdl(
 
     参数:
         message_links: 消息链接列表
-        session_file: tdl 会话文件路径
+        session_ident: 新版为会话文件路径，旧版为命名空间名
         download_dir: 下载目录
         timeout: 超时时间（秒）
 
@@ -246,7 +298,7 @@ async def download_media_group_with_tdl(
     downloaded = []
     for link in message_links:
         path = await download_with_tdl(
-            link, session_file, download_dir, timeout
+            link, session_ident, download_dir, timeout
         )
         if path:
             downloaded.append(path)
