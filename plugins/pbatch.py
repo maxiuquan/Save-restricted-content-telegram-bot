@@ -1481,62 +1481,90 @@ def setup_pbatch_handler(app: Client):
                         await _apply_delay(idx)
                         continue
 
-                    # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 方案 B: 使用 tdl (Telegram Download Library) 外部二进制下载
-                    # tdl 是独立实现的 Go MTProto 客户端，不同于 Pyrogram，可能绕过 shell 限制
+                    # 无媒体无文字 → 壳消息（受限频道返回 media=None）
+                    # ✅ 方案: 模拟手机客户端 — 用 channels.getMessages 代替 messages.getMessages
+                    # 手机客户端查看频道消息使用 channels.getMessages，这是不同的 MTProto API
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] shell msg {mid}, trying tdl download...")
-                        _current_status = f"tdl {idx}/{total_msg_count}"
+                        LOGGER.info(f"[v20] shell msg {mid}, trying channels.getMessages (phone client API)...")
+                        _current_status = f"shell {idx}/{total_msg_count}"
                         _update_progress()
 
-                        _tdl_dl_path = None
-                        _tdl_success = False
+                        _downloaded = False
                         try:
-                            # 检查 tdl 是否安装
-                            if tdl_helper.is_tdl_installed():
-                                # 获取 session_string 并转换为 tdl 格式
-                                _session_str = await _get_session_string(user_id, session_id)
-                                if _session_str:
-                                    _tdl_sess = tdl_helper.pyrogram_session_to_tdl(_session_str, user_id)
-                                    if _tdl_sess:
-                                        # 构建消息链接
-                                        _tdl_link = tdl_helper.build_message_link(pvt_chat_id, mid)
-                                        # 下载目录
-                                        _tdl_out = os.path.join("downloads", f"tdl_{user_id}")
-                                        os.makedirs(_tdl_out, exist_ok=True)
-                                        LOGGER.info(f"[v20] tdl link={_tdl_link} sess={_tdl_sess} out={_tdl_out}")
-                                        # 执行下载
-                                        _tdl_dl_path = await tdl_helper.download_with_tdl(
-                                            message_link=_tdl_link,
-                                            session_file=_tdl_sess,
-                                            download_dir=_tdl_out,
-                                            timeout=600,
+                            # 手机客户端专用: channels.getMessages
+                            _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100X → X
+                            _peer = await user_client.resolve_peer(pvt_chat_id)
+                            _r = await user_client.invoke(
+                                raw.functions.channels.GetMessages(
+                                    channel=raw.types.InputChannel(
+                                        channel_id=_raw_channel_id,
+                                        access_hash=getattr(_peer, 'access_hash', 0),
+                                    ),
+                                    id=[raw.types.InputMessageID(id=mid)],
+                                )
+                            )
+                            _raw_msgs = getattr(_r, 'messages', [])
+                            LOGGER.info(f"[v20] channels.getMessages: {len(_raw_msgs)} msgs")
+                            for _rm in _raw_msgs:
+                                _rm_id = getattr(_rm, 'id', None)
+                                _rm_media = getattr(_rm, 'media', None)
+                                _rm_media_type = type(_rm_media).__name__ if _rm_media else 'None'
+                                LOGGER.info(f"[v20]   raw id={_rm_id} media_type={_rm_media_type}")
+                                if _rm_media and _rm_id == mid:
+                                    # 手机客户端 API 返回了完整媒体！尝试下载
+                                    try:
+                                        _rm_path = await user_client.download_media(
+                                            _rm_media,
+                                            file_name=f"ch_{mid}_",
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progressArgs("downloading", status_message, start_ts),
                                         )
-                                        if _tdl_dl_path and os.path.exists(_tdl_dl_path):
-                                            _tdl_success = True
-                                            LOGGER.info(f"[v20] tdl downloaded: {_tdl_dl_path}")
-                            else:
-                                LOGGER.info("[v20] tdl not installed, skipping")
-                        except Exception as tdl_e:
-                            LOGGER.warning(f"[v20] tdl error: {type(tdl_e).__name__}: {tdl_e}")
+                                        if _rm_path and os.path.exists(_rm_path):
+                                            _downloaded = True
+                                            LOGGER.info(f"[v20] channels.getMessages download OK: {_rm_path}")
+                                            _ext = os.path.splitext(_rm_path)[1].lower()
+                                            _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                            _rm_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _rm_type, _rm_path, _rm_cap, thumbnail_path, mid)
+                                            success_count += 1
+                                            try: os.remove(_rm_path)
+                                            except: pass
+                                    except Exception as rde:
+                                        LOGGER.warning(f"[v20] channels.getMessages download err: {type(rde).__name__}: {rde}")
+                                    break
+                        except Exception as ce:
+                            LOGGER.warning(f"[v20] channels.getMessages failed: {type(ce).__name__}: {ce}")
 
-                        if _tdl_success and _tdl_dl_path:
-                            # tdl 下载成功，上传到 Saved Messages
-                            _ext = os.path.splitext(_tdl_dl_path)[1].lower()
-                            if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
-                                _tdl_type = MessageMediaType.VIDEO
-                            elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
-                                _tdl_type = MessageMediaType.PHOTO
-                            else:
-                                _tdl_type = MessageMediaType.DOCUMENT
-                            _tdl_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                            await _upload_to_saved(user_client, _tdl_type, _tdl_dl_path, _tdl_cap, thumbnail_path, mid)
-                            success_count += 1
-                            try: os.remove(_tdl_dl_path)
-                            except: pass
-                        else:
-                            # tdl 失败，回退到 Pyrogram 直接下载
-                            LOGGER.info(f"[v20] tdl failed for {mid}, fallback to Pyrogram download...")
+                        if not _downloaded:
+                            # tdl 回退
+                            LOGGER.info(f"[v20] channels.getMessages no media for {mid}, trying tdl...")
+                            try:
+                                if tdl_helper.is_tdl_installed():
+                                    _sess_str = await _get_session_string(user_id, session_id)
+                                    if _sess_str:
+                                        _tdl_sess = tdl_helper.pyrogram_session_to_tdl(_sess_str, user_id)
+                                        if _tdl_sess:
+                                            _tdl_link = tdl_helper.build_message_link(pvt_chat_id, mid)
+                                            _tdl_out = os.path.join("downloads", f"tdl_{user_id}")
+                                            os.makedirs(_tdl_out, exist_ok=True)
+                                            _tdl_path = await tdl_helper.download_with_tdl(
+                                                message_link=_tdl_link, session_ident=_tdl_sess,
+                                                download_dir=_tdl_out, timeout=600,
+                                            )
+                                            if _tdl_path and os.path.exists(_tdl_path):
+                                                _downloaded = True
+                                                _ext = os.path.splitext(_tdl_path)[1].lower()
+                                                _tdl_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                                _tdl_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                                await _upload_to_saved(user_client, _tdl_type, _tdl_path, _tdl_cap, thumbnail_path, mid)
+                                                success_count += 1
+                                                try: os.remove(_tdl_path)
+                                                except: pass
+                            except Exception as tde:
+                                LOGGER.warning(f"[v20] tdl err: {type(tde).__name__}: {tde}")
+
+                        if not _downloaded:
+                            LOGGER.info(f"[v20] all methods failed for shell {mid}, trying Pyrogram direct...")
                             try:
                                 _shell_path = await msg.download(
                                     file_name=f"shell_{mid}_",
@@ -1544,25 +1572,19 @@ def setup_pbatch_handler(app: Client):
                                     progress_args=progressArgs("downloading", status_message, start_ts),
                                 )
                                 if _shell_path and os.path.exists(_shell_path):
-                                    LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
+                                    _downloaded = True
                                     _ext = os.path.splitext(_shell_path)[1].lower()
-                                    if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
-                                        _shell_type = MessageMediaType.VIDEO
-                                    elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
-                                        _shell_type = MessageMediaType.PHOTO
-                                    else:
-                                        _shell_type = MessageMediaType.DOCUMENT
-                                    _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                    await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
+                                    _s_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                    _s_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                    await _upload_to_saved(user_client, _s_type, _shell_path, _s_cap, thumbnail_path, mid)
                                     success_count += 1
                                     try: os.remove(_shell_path)
                                     except: pass
-                                else:
-                                    LOGGER.warning(f"[v20] shell {mid} direct download returned None")
-                                    fail_count += 1
                             except Exception as de:
-                                LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
-                                fail_count += 1
+                                LOGGER.warning(f"[v20] shell direct err: {type(de).__name__}: {de}")
+
+                        if not _downloaded:
+                            fail_count += 1
                         _handled_by_grouped_fallback.add(mid)
                         continue
 
