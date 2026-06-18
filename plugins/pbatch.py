@@ -1308,40 +1308,44 @@ def setup_pbatch_handler(app: Client):
             LOGGER.info(f"[v20] target message ids: {target_message_ids}")
 
             # ✅ 模拟手机客户端: 用 get_chat_history(offset_id=) 获取消息
-            # 手机客户端使用 messages.getHistory API，返回完整媒体数据
-            # 之前用 offset 参数是错的 — offset 是序列偏移，offset_id 才是消息 ID
+            # 不限制 ID 范围 — 收集大范围消息，后续按 media_group_id 找兄弟
             all_messages = []
             try:
-                _end_id = start_message_id + count - 1
                 _collected = []
-                LOGGER.info(f"[v20] get_chat_history with offset_id={start_message_id + count}, limit=100")
+                _raw_msg_ids = set(m for m in target_message_ids)
+                LOGGER.info(f"[v20] get_chat_history with offset_id={start_message_id + count + 20}, limit=200")
                 async for m in user_client.get_chat_history(
                     chat_id=pvt_chat_id,
-                    offset_id=start_message_id + count,  # 从结束位置之后开始，获取更早的消息
-                    limit=100,
+                    offset_id=start_message_id + count + 20,
+                    limit=200,
                 ):
                     if m.empty or not m.id:
                         continue
-                    if m.id < start_message_id:
-                        continue
-                    if m.id > _end_id:
-                        continue
                     _collected.append(m)
-                    LOGGER.info(f"[v20]   got msg id={m.id} media={bool(m.media)} v={bool(getattr(m,'video',None))} p={bool(getattr(m,'photo',None))} d={bool(getattr(m,'document',None))}")
-                    if m.id == start_message_id:
-                        break
-                all_messages = list(reversed(_collected))  # get_chat_history 返回降序，反转
-                LOGGER.info(f"[v20] get_chat_history collected {len(all_messages)} msgs in [{start_message_id}, {_end_id}]")
+                # 收集够目标消息后就不再需要更旧的了
+                _found_all_target = all(any(_m.id == t for _m in _collected) for t in target_message_ids)
+                if _found_all_target:
+                    LOGGER.info(f"[v20] get_chat_history collected {len(_collected)} msgs total, found all target ids")
+                else:
+                    LOGGER.info(f"[v20] get_chat_history collected {len(_collected)} msgs total, NOT all target ids found")
+                # 不过滤 ID，保留所有消息以便后续找 media_group 兄弟
+                # 但只保留到比最早目标消息更早一些的消息
+                _min_allowed = max(start_message_id - 20, 1)
+                all_messages = [m for m in _collected if m.id >= _min_allowed]
+                all_messages.sort(key=lambda m: m.id)
             except Exception as e:
                 LOGGER.warning(f"[v20] get_chat_history failed: {type(e).__name__}: {e}")
             if not all_messages:
                 LOGGER.info("[v20] get_chat_history empty, falling back to expanded get_messages")
-                # 降级回 get_messages
+                # 降级回 get_messages，也扩大范围
                 all_messages = []
-                CHUNK = 200
+                _expand_start = max(start_message_id - 10, 1)
+                _expand_end = start_message_id + count + 10
+                _expand_ids = list(range(_expand_start, _expand_end))
+                CHUNK = 100
                 try:
-                    for i in range(0, len(target_message_ids), CHUNK):
-                        chunk_ids = target_message_ids[i:i + CHUNK]
+                    for i in range(0, len(_expand_ids), CHUNK):
+                        chunk_ids = _expand_ids[i:i + CHUNK]
                         try:
                             chunk_msgs = await user_client.get_messages(
                                 chat_id=pvt_chat_id, message_ids=chunk_ids
@@ -1467,98 +1471,59 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 检查是否是媒体组壳消息（mgid 有值但 media=False）
-                    # ✅ 新策略: 用原始 MTProto API 获取消息，绕过 Pyrogram 解析层
-                    # Pyrogram 可能把 raw 消息中的媒体数据解析丢了，但底层数据是完整的
+                    # ✅ 从已收集的 all_messages 中搜索同 media_group_id 的兄弟消息
+                    # 手机客户端能看到视频但 API 返回 shell — 说明视频消息 ID 可能不在目标范围内
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] shell msg {mid}, trying raw MTProto API...")
-                        _current_status = f"shell {idx}/{total_msg_count}"
-                        _update_progress()
-                        try:
-                            # 方法1: 用 raw API 直接获取消息
-                            from pyrogram import raw as raw_types
-                            _raw_result = await user_client.invoke(
-                                raw_types.functions.messages.GetMessages(
-                                    id=[raw_types.types.InputMessageID(id=mid)]
-                                )
+                        _mgid = _media_group_id
+                        LOGGER.info(f"[v20] shell msg {mid} mgid={_mgid}, searching all_messages for siblings...")
+                        _siblings_found = 0
+                        for _sm in all_messages:
+                            if _sm.id == mid:
+                                continue
+                            if _sm.id in _handled_by_grouped_fallback:
+                                continue
+                            _sm_mgid = getattr(_sm, 'media_group_id', None)
+                            if not _sm_mgid or _sm_mgid != _mgid:
+                                continue
+                            _sm_has_media = bool(_sm.media) or bool(_sm.video) or bool(_sm.photo) or bool(_sm.document) or bool(_sm.audio)
+                            LOGGER.info(f"[v20]   sibling msg {_sm.id}: has_media={_sm_has_media} v={bool(_sm.video)} p={bool(_sm.photo)} d={bool(_sm.document)}")
+                            if not _sm_has_media:
+                                continue
+                            _siblings_found += 1
+                            _handled_by_grouped_fallback.add(_sm.id)
+                            # 获取这个兄弟消息的媒体类型
+                            _sm_type = None
+                            if _sm.photo: _sm_type = MessageMediaType.PHOTO
+                            elif _sm.video: _sm_type = MessageMediaType.VIDEO
+                            elif _sm.document: _sm_type = MessageMediaType.DOCUMENT
+                            elif _sm.audio: _sm_type = MessageMediaType.AUDIO
+                            elif _sm.media:
+                                # 从 msg.media 对象推断类型
+                                _media_cls = type(_sm.media).__name__
+                                if _media_cls == 'MessageMediaPhoto': _sm_type = MessageMediaType.PHOTO
+                                elif _media_cls == 'MessageMediaVideo': _sm_type = MessageMediaType.VIDEO
+                                elif _media_cls == 'MessageMediaDocument': _sm_type = MessageMediaType.DOCUMENT
+                                elif _media_cls == 'MessageMediaAudio': _sm_type = MessageMediaType.AUDIO
+                            if not _sm_type:
+                                LOGGER.info(f"[v20]   sibling {_sm.id}: cannot determine type, fallback to document")
+                                _sm_type = MessageMediaType.DOCUMENT
+                            # 下载并上传
+                            _sm_name = _build_dl_filename(_sm, _sm.id, _sm_type)
+                            _sm_path = await user_client.download_media(
+                                _sm, file_name=_sm_name,
+                                progress=Leaves.progress_for_pyrogram,
+                                progress_args=progressArgs("download", status_message, start_ts),
                             )
-                            _raw_msgs = getattr(_raw_result, 'messages', [])
-                            LOGGER.info(f"[v20] raw API returned {len(_raw_msgs)} messages for {mid}")
-                            _raw_has_media = False
-                            for _rm in _raw_msgs:
-                                _rm_id = getattr(_rm, 'id', None)
-                                _rm_media = getattr(_rm, 'media', None)
-                                _rm_media_type = type(_rm_media).__name__ if _rm_media else 'None'
-                                LOGGER.info(f"[v20]   raw msg id={_rm_id} media_type={_rm_media_type}")
-                                if _rm_media and _rm_id == mid:
-                                    _raw_has_media = True
-                                    # 从 raw media 中提取文件信息
-                                    if hasattr(_rm_media, 'video') and _rm_media.video:
-                                        LOGGER.info(f"[v20] raw has video: size={getattr(_rm_media.video, 'size', '?')} mime={getattr(_rm_media.video, 'mime_type', '?')}")
-                                    elif hasattr(_rm_media, 'document') and _rm_media.document:
-                                        LOGGER.info(f"[v20] raw has document: size={getattr(_rm_media.document, 'size', '?')} mime={getattr(_rm_media.document, 'mime_type', '?')}")
-                                    elif hasattr(_rm_media, 'photo') and _rm_media.photo:
-                                        LOGGER.info(f"[v20] raw has photo")
-                                    # 尝试通过 raw media 构造下载
-                                    try:
-                                        # 用 pyrogram 的 download_media 传 raw media 对象
-                                        _raw_dl_path = await user_client.download_media(
-                                            _rm_media,
-                                            file_name=f"raw_{mid}_",
-                                            progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("downloading", status_message, start_ts),
-                                        )
-                                        if _raw_dl_path and os.path.exists(_raw_dl_path):
-                                            LOGGER.info(f"[v20] raw download OK: {_raw_dl_path}")
-                                            _ext = os.path.splitext(_raw_dl_path)[1].lower()
-                                            if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
-                                                _raw_type = MessageMediaType.VIDEO
-                                            elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
-                                                _raw_type = MessageMediaType.PHOTO
-                                            else:
-                                                _raw_type = MessageMediaType.DOCUMENT
-                                            _raw_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                            await _upload_to_saved(user_client, _raw_type, _raw_dl_path, _raw_cap, thumbnail_path, mid)
-                                            success_count += 1
-                                            try: os.remove(_raw_dl_path)
-                                            except: pass
-                                        else:
-                                            LOGGER.warning(f"[v20] raw download returned None")
-                                            fail_count += 1
-                                    except Exception as rde:
-                                        LOGGER.warning(f"[v20] raw download err: {type(rde).__name__}: {rde}")
-                                        fail_count += 1
-                                    break
-                            if not _raw_has_media:
-                                LOGGER.info(f"[v20] raw API also has no media for {mid}, trying msg.download...")
-                                try:
-                                    _shell_path = await msg.download(
-                                        file_name=f"shell_{mid}_",
-                                        progress=Leaves.progress_for_pyrogram,
-                                        progress_args=progressArgs("downloading", status_message, start_ts),
-                                    )
-                                    if _shell_path and os.path.exists(_shell_path):
-                                        LOGGER.info(f"[v20] shell {mid} downloaded! path={_shell_path}")
-                                        _ext = os.path.splitext(_shell_path)[1].lower()
-                                        if _ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
-                                            _shell_type = MessageMediaType.VIDEO
-                                        elif _ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
-                                            _shell_type = MessageMediaType.PHOTO
-                                        else:
-                                            _shell_type = MessageMediaType.DOCUMENT
-                                        _shell_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                        await _upload_to_saved(user_client, _shell_type, _shell_path, _shell_cap, thumbnail_path, mid)
-                                        success_count += 1
-                                        try: os.remove(_shell_path)
-                                        except: pass
-                                    else:
-                                        LOGGER.warning(f"[v20] shell {mid} direct download returned None")
-                                        fail_count += 1
-                                except Exception as de:
-                                    LOGGER.warning(f"[v20] shell {mid} direct download err: {type(de).__name__}: {de}")
-                                    fail_count += 1
-                        except Exception as re:
-                            LOGGER.warning(f"[v20] raw API failed for {mid}: {type(re).__name__}: {re}")
-                            fail_count += 1
+                            if _sm_path and os.path.exists(_sm_path):
+                                _sm_cap = await get_parsed_msg(_sm.caption or "", _sm.caption_entities or [])
+                                await _upload_to_saved(user_client, _sm_type, _sm_path, _sm_cap, thumbnail_path, _sm.id)
+                                success_count += 1
+                                try: os.remove(_sm_path)
+                                except: pass
+                            else:
+                                LOGGER.warning(f"[v20]   sibling {_sm.id} download failed")
+                                fail_count += 1
+                        LOGGER.info(f"[v20] shell {mid}: found {_siblings_found} media siblings with mgid={_mgid}")
                         _handled_by_grouped_fallback.add(mid)
                         continue
 
