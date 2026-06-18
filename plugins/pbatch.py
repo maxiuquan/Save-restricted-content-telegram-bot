@@ -40,6 +40,7 @@ from utils.helper import (
     get_video_thumbnail,
 )
 from utils import tdl_helper
+from utils import tdlclient
 from core import (
     daily_limit,
     prem_plan1,
@@ -1534,6 +1535,31 @@ def setup_pbatch_handler(app: Client):
                                     break
                         except Exception as ce:
                             LOGGER.warning(f"[v20] channels.getMessages failed: {type(ce).__name__}: {ce}")
+
+                        if not _downloaded:
+                            # ✅ TDLib 回退 — 模拟真实 Telegram 客户端（Telegram Desktop 同款底层库）
+                            LOGGER.info(f"[v20] channels.getMessages no media for {mid}, trying TDLib (real client)...")
+                            try:
+                                if tdlclient.is_tdlib_available() and tdlclient.has_tdlib_session(user_id):
+                                    _tdlib_chat_id = int(str(pvt_chat_id)[4:]) if str(pvt_chat_id).startswith("-100") else pvt_chat_id
+                                    _tdlib_path = await asyncio.to_thread(
+                                        tdlclient.download_via_tdlib,
+                                        user_id, _tdlib_chat_id, mid,
+                                    )
+                                    if _tdlib_path and os.path.exists(_tdlib_path):
+                                        _downloaded = True
+                                        LOGGER.info(f"[v20] TDLib downloaded: {_tdlib_path}")
+                                        _ext = os.path.splitext(_tdlib_path)[1].lower()
+                                        _tdlib_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                        _tdlib_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                        await _upload_to_saved(user_client, _tdlib_type, _tdlib_path, _tdlib_cap, thumbnail_path, mid)
+                                        success_count += 1
+                                        try: os.remove(_tdlib_path)
+                                        except: pass
+                                else:
+                                    LOGGER.info(f"[v20] TDLib not available for user {user_id}")
+                            except Exception as tde:
+                                LOGGER.warning(f"[v20] TDLib err: {type(tde).__name__}: {tde}")
 
                         if not _downloaded:
                             # tdl 回退
