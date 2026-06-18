@@ -1389,6 +1389,12 @@ def setup_pbatch_handler(app: Client):
                 if cancel_flags.get(chat_id):
                     break
 
+                # 仅处理目标范围 [start, start+count) 内的消息为主消息
+                # 范围外的消息保留在 all_messages 中用于 shell 消息的兄弟搜索
+                if not (start_message_id <= msg.id < start_message_id + count):
+                    LOGGER.info(f"[v20] skip msg {msg.id} — outside target range [{start_message_id}, {start_message_id + count})")
+                    continue
+
                 idx = j
                 mid = msg.id
 
