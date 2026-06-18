@@ -20,3 +20,7 @@ google-auth-oauthlib
 google-auth-httplib2
 aiohttp
 prompt_toolkit
+# tdl (Telegram Download Library) - Go 二进制，单独安装:
+#   Windows: iwr -useb https://docs.iyear.me/tdl/install.ps1 | iex
+#   Linux:   curl -sSL https://docs.iyear.me/tdl/install.sh | sudo bash
+#   或:      go install github.com/iyear/tdl@latest
