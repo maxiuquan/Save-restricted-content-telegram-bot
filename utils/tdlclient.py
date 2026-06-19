@@ -21,12 +21,67 @@ _tdlib_clients: dict[int, "TDLibClient"] = {}
 
 
 def is_tdlib_available() -> bool:
-    """检查 python-telegram 是否可用。"""
+    """检查 python-telegram 是否可导入。"""
     try:
         import telegram.client  # noqa
         return True
     except ImportError:
         return False
+
+
+def check_tdlib_system_deps() -> Optional[str]:
+    """
+    检查 TDLib 系统依赖是否完整（如 libssl.so.1.1）。
+    返回 None 表示正常，返回 str 为错误描述。
+    """
+    try:
+        # 尝试查找并加载 libtdjson.so，验证系统依赖
+        import ctypes
+        import glob as _glob
+        import sysconfig
+
+        # 查找 python-telegram 安装路径
+        try:
+            import telegram.client as _tc
+            pkg_dir = os.path.dirname(_tc.__file__)
+        except ImportError:
+            return None  # 未安装，跳过检查
+
+        # 寻找 libtdjson.so
+        lib_paths = _glob.glob(os.path.join(pkg_dir, 'lib', '**', 'libtdjson*'), recursive=True)
+        if not lib_paths:
+            # 也可能在 sysconfig 路径下
+            platlib = sysconfig.get_path('platlib')
+            lib_paths = _glob.glob(os.path.join(platlib, 'telegram', 'lib', '**', 'libtdjson*'), recursive=True)
+
+        if not lib_paths:
+            return None  # 找不到库文件，无法测试
+
+        # 尝试加载，捕获缺少 libssl.so.1.1 的错误
+        try:
+            ctypes.CDLL(lib_paths[0])
+        except OSError as e:
+            err_str = str(e)
+            if 'libssl.so.1.1' in err_str or 'libcrypto.so.1.1' in err_str:
+                return (
+                    "缺少 OpenSSL 1.1 系统库。\n"
+                    "请在 VPS 上执行：\n"
+                    "  sudo apt update\n"
+                    "  sudo apt install libssl1.1 -y\n\n"
+                    "如果系统是 Ubuntu 22.04+，可能需要从旧源安装：\n"
+                    '  wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/'
+                    'libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb\n'
+                    "  sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb"
+                )
+            else:
+                return f"系统库加载失败: {err_str}"
+        except Exception:
+            pass
+
+        return None
+
+    except Exception:
+        return None
 
 
 def has_tdlib_session(user_id: int) -> bool:
@@ -65,16 +120,33 @@ class TDLibClient:
         """确保 TDLib 客户端已创建。"""
         if self._tg is not None:
             return
-        from telegram.client import Telegram
-        self._tg = Telegram(
-            api_id=self._api_id,
-            api_hash=self._api_hash,
-            phone=self._phone,
-            database_encryption_key=f"tdlib_enc_{self._user_id}",
-            files_directory=str(self._session_dir / "files"),
-            library_path=None,
-        )
-        LOGGER.info(f"[TDLib] 客户端已创建 for user {self._user_id}")
+        try:
+            from telegram.client import Telegram
+            self._tg = Telegram(
+                api_id=self._api_id,
+                api_hash=self._api_hash,
+                phone=self._phone,
+                database_encryption_key=f"tdlib_enc_{self._user_id}",
+                files_directory=str(self._session_dir / "files"),
+                library_path=None,
+            )
+            LOGGER.info(f"[TDLib] 客户端已创建 for user {self._user_id}")
+        except OSError as e:
+            err_str = str(e)
+            if 'libssl.so.1.1' in err_str or 'libcrypto.so.1.1' in err_str:
+                self._error = (
+                    "TDLib 需要 OpenSSL 1.1 系统库但未安装。\n"
+                    "运行以下命令修复：\n"
+                    "  wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/"
+                    "libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb\n"
+                    "  sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb\n"
+                    "或：sudo apt install libssl1.1"
+                )
+                LOGGER.error(f"[TDLib] 系统依赖缺失: {self._error}")
+            else:
+                self._error = f"TDLib 客户端初始化失败: {err_str}"
+                LOGGER.error(f"[TDLib] {self._error}")
+            raise
 
     # ── 登录 ───────────────────────────────────────────────────────
 
@@ -82,7 +154,7 @@ class TDLibClient:
         """发送验证码（设置手机号，TDLib 自动发送验证码）。"""
         self._ensure_client()
         # 使用 TDLib 低级 API 设置手机号
-        self._tg._tdlib.send({
+        self._tg.send({
             '@type': 'setAuthenticationPhoneNumber',
             'phone_number': self._phone,
             'settings': {'@type': 'phoneNumberAuthenticationSettings'},

@@ -731,9 +731,20 @@ def setup_tdlib_login(app: Client):
         """TDLib 登录命令 — 模拟真实客户端。"""
         if not tdlclient.is_tdlib_available():
             await message.reply_text(
-                "**TDLib 未安装。**\n"
+                "**❌ TDLib 未安装。**\n"
                 "在服务器上运行: `pip install python-telegram`\n"
                 "然后安装 TDLib: [tdlib.github.io](https://tdlib.github.io/td/build.html)",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        # 检查系统级依赖（如 libssl.so.1.1）
+        dep_err = tdlclient.check_tdlib_system_deps()
+        if dep_err:
+            await message.reply_text(
+                f"**⚠️ TDLib 系统依赖缺失**\n\n"
+                f"```\n{dep_err}\n```\n\n"
+                "安装完成后请重启 Bot。",
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
@@ -804,8 +815,18 @@ def setup_tdlib_login(app: Client):
 
             except Exception as e:
                 LOGGER.error(f"[TDLib] send_code 失败: {e}")
+                # 优先显示客户端自身记录的错误信息（更详细）
+                _co = locals().get('client_obj')
+                err_msg = _co.get_error() if _co else None
+                if not err_msg:
+                    err_msg = str(e)
                 await message.reply_text(
-                    f"**发送验证码失败:** {e}",
+                    f"**❌ TDLib 初始化失败**\n\n"
+                    f"```\n{err_msg}\n```\n\n"
+                    "常见原因：\n"
+                    "1. 系统缺少 libssl.so.1.1 — 运行 `/tdlogin` 有详细指引\n"
+                    "2. 服务器内存不足 — `free -h` 检查内存\n"
+                    "3. TDLib 版本不兼容 — `pip install --upgrade python-telegram`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
                 tdlib_session_data.pop(chat_id, None)
