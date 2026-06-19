@@ -1644,6 +1644,78 @@ def setup_pbatch_handler(app: Client):
                             except Exception as copy_err:
                                 LOGGER.warning(f"[v21] copy_message failed for {mid}: {copy_err}")
 
+                        # 方法4: get_messages 重新获取，Pyrogram 可能填充正确的 media
+                        if not _downloaded:
+                            LOGGER.info(f"[v21] trying get_messages retry for shell {mid}")
+                            try:
+                                _refreshed = await user_client.get_messages(
+                                    chat_id=pvt_chat_id, message_ids=[mid]
+                                )
+                                if _refreshed and not getattr(_refreshed, 'empty', True):
+                                    _ref_media = getattr(_refreshed, 'media', None)
+                                    if _ref_media:
+                                        _ref_path = await _refreshed.download(
+                                            file_name=f"shell_{mid}_",
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progress_args("downloading", status_message, start_ts),
+                                        )
+                                        if _ref_path and os.path.exists(_ref_path):
+                                            _downloaded = True
+                                            LOGGER.info(f"[v21] get_messages download OK: {_ref_path}")
+                                            _ext = os.path.splitext(_ref_path)[1].lower()
+                                            _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                            _rm_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _rm_type, _ref_path, _rm_cap, thumbnail_path, mid)
+                                            success_count += 1
+                                            try: os.remove(_ref_path)
+                                            except: pass
+                            except Exception as gm_err:
+                                LOGGER.warning(f"[v21] get_messages failed for {mid}: {gm_err}")
+
+                        # 方法5: 获取整个 media_group，下载组内尚未处理的消息
+                        if not _downloaded and _media_group_id:
+                            LOGGER.info(f"[v21] trying media_group scan for shell {mid} (mgid={_media_group_id})")
+                            try:
+                                _scan_count = 0
+                                async for _gm_msg in user_client.get_chat_history(
+                                    chat_id=pvt_chat_id,
+                                    min_id=mid - 200,
+                                    max_id=mid + 50,
+                                ):
+                                    if getattr(_gm_msg, 'media_group_id', None) != _media_group_id:
+                                        continue
+                                    if _gm_msg.id == mid:
+                                        continue
+                                    if _gm_msg.id in _handled_by_grouped_fallback:
+                                        continue
+                                    _scan_count += 1
+                                    if _scan_count > 10:
+                                        break
+                                    _gm_media = getattr(_gm_msg, 'media', None)
+                                    if not _gm_media:
+                                        continue
+                                    try:
+                                        _gm_path = await _gm_msg.download(
+                                            file_name=f"group_{_gm_msg.id}_",
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progress_args=progress_args("downloading", status_message, start_ts),
+                                        )
+                                        if _gm_path and os.path.exists(_gm_path):
+                                            _downloaded = True
+                                            LOGGER.info(f"[v21] group download OK: {_gm_path} (msg {_gm_msg.id})")
+                                            _ext = os.path.splitext(_gm_path)[1].lower()
+                                            _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                            _gm_cap = await get_parsed_msg(_gm_msg.caption or "", _gm_msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _rm_type, _gm_path, _gm_cap, thumbnail_path, _gm_msg.id)
+                                            success_count += 1
+                                            try: os.remove(_gm_path)
+                                            except: pass
+                                            _handled_by_grouped_fallback.add(_gm_msg.id)
+                                    except Exception as gme:
+                                        LOGGER.warning(f"[v21] group msg {_gm_msg.id} download err: {gme}")
+                            except Exception as mg_err:
+                                LOGGER.warning(f"[v21] media_group scan failed for {mid}: {mg_err}")
+
                         if not _downloaded:
                             LOGGER.info(f"[v21] all methods failed for shell {mid}")
                             fail_count += 1
