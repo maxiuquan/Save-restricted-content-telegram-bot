@@ -152,7 +152,7 @@ class TDLibClient:
 
     # ── 等待就绪 ───────────────────────────────────────────────────
 
-    def _wait_until_ready(self, timeout: int = 15):
+    def _wait_until_ready(self, timeout: int = 30):
         """等待 TDLib 客户端初始化完成并进入可认证状态。"""
         if self._tg is None:
             return
@@ -160,9 +160,10 @@ class TDLibClient:
         LOGGER.info("[TDLib] 等待客户端初始化...")
         while time.time() - start_time < timeout:
             try:
-                # 尝试获取授权状态
-                state = self._tg.call_method('getAuthorizationState', {})
-                state_type = state.get('@type', '')
+                # 调用 call_method 并等待结果
+                future = self._tg.call_method('getAuthorizationState', {})
+                state = future.get(timeout=2)
+                state_type = state.get('@type', '') if isinstance(state, dict) else ''
                 LOGGER.info(f"[TDLib] 授权状态: {state_type}")
                 
                 # 如果状态是 waitPhoneNumber 或 waitCode，说明可以认证了
@@ -188,48 +189,18 @@ class TDLibClient:
     def send_code(self):
         """发送验证码（设置手机号，TDLib 自动发送验证码）。"""
         self._ensure_client()
-        # 尝试多种方法发送手机号
-        methods_called = []
-        
-        # 方法1: 使用库提供的专用方法
-        if hasattr(self._tg, 'set_authentication_phone_number'):
-            try:
-                self._tg.set_authentication_phone_number(self._phone)
-                methods_called.append('set_authentication_phone_number')
-            except Exception as e:
-                LOGGER.warning(f"[TDLib] set_authentication_phone_number 失败: {e}")
-        
-        # 方法2: 使用 call_method
-        if not methods_called:
-            try:
-                result = self._tg.call_method('setAuthenticationPhoneNumber', {
-                    'phone_number': self._phone,
-                    'settings': {'@type': 'phoneNumberAuthenticationSettings'},
-                })
-                LOGGER.info(f"[TDLib] call_method 返回: {result}")
-                methods_called.append('call_method')
-            except Exception as e:
-                LOGGER.warning(f"[TDLib] call_method 失败: {e}")
-        
-        # 方法3: 使用 send
-        if not methods_called:
-            try:
-                self._tg.send({
-                    '@type': 'setAuthenticationPhoneNumber',
-                    'phone_number': self._phone,
-                    'settings': {'@type': 'phoneNumberAuthenticationSettings'},
-                })
-                methods_called.append('send')
-            except AttributeError:
-                LOGGER.warning("[TDLib] 所有方法都不可用")
-        
-        if methods_called:
-            LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone} (使用: {', '.join(methods_called)})")
-        else:
-            LOGGER.error("[TDLib] 无法发送验证码，Telegram 对象不支持任何认证方法")
-        
-        # 等待验证码发送
-        time.sleep(3)
+        # 使用 call_method 发送手机号并等待结果
+        try:
+            future = self._tg.call_method('setAuthenticationPhoneNumber', {
+                'phone_number': self._phone,
+                'settings': {'@type': 'phoneNumberAuthenticationSettings'},
+            })
+            result = future.get(timeout=5)
+            LOGGER.info(f"[TDLib] setAuthenticationPhoneNumber 返回: {result}")
+            LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone}")
+        except Exception as e:
+            LOGGER.error(f"[TDLib] 发送验证码失败: {e}")
+            raise
 
     def login(self, code: str, password: str = None):
         """
