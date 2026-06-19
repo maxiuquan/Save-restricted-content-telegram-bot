@@ -130,7 +130,9 @@ class TDLibClient:
                 files_directory=str(self._session_dir / "files"),
                 library_path=None,
             )
-            LOGGER.info(f"[TDLib] 客户端已创建 for user {self._user_id}")
+            # 启动客户端（建立 TDLib 连接）
+            self._tg.start()
+            LOGGER.info(f"[TDLib] 客户端已创建并启动 for user {self._user_id}")
         except OSError as e:
             err_str = str(e)
             if 'libssl.so.1.1' in err_str or 'libcrypto.so.1.1' in err_str:
