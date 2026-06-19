@@ -162,7 +162,21 @@ class TDLibClient:
             try:
                 # 调用 call_method 并等待结果
                 future = self._tg.call_method('getAuthorizationState', {})
-                state = future.get(timeout=2)
+                # 尝试多种取值方式
+                if hasattr(future, 'get'):
+                    state = future.get(timeout=2)
+                elif hasattr(future, 'result'):
+                    state = future.result(timeout=2)
+                elif hasattr(future, 'value'):
+                    # 对于非阻塞属性，轮询直到有值
+                    for _ in range(10):
+                        if future.value is not None:
+                            state = future.value
+                            break
+                        time.sleep(0.5)
+                else:
+                    # 最终回退：直接当作 dict 处理（某些版本可能直接返回）
+                    state = future
                 state_type = state.get('@type', '') if isinstance(state, dict) else ''
                 LOGGER.info(f"[TDLib] 授权状态: {state_type}")
                 
@@ -195,7 +209,21 @@ class TDLibClient:
                 'phone_number': self._phone,
                 'settings': {'@type': 'phoneNumberAuthenticationSettings'},
             })
-            result = future.get(timeout=5)
+            # 尝试多种取值方式
+            if hasattr(future, 'get'):
+                result = future.get(timeout=5)
+            elif hasattr(future, 'result'):
+                result = future.result(timeout=5)
+            elif hasattr(future, 'value'):
+                for _ in range(10):
+                    if future.value is not None:
+                        result = future.value
+                        break
+                    time.sleep(0.5)
+                else:
+                    result = None
+            else:
+                result = future
             LOGGER.info(f"[TDLib] setAuthenticationPhoneNumber 返回: {result}")
             LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone}")
         except Exception as e:
