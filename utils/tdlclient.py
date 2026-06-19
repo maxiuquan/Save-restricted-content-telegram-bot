@@ -202,10 +202,11 @@ class TDLibClient:
         # 方法2: 使用 call_method
         if not methods_called:
             try:
-                self._tg.call_method('setAuthenticationPhoneNumber', {
+                result = self._tg.call_method('setAuthenticationPhoneNumber', {
                     'phone_number': self._phone,
                     'settings': {'@type': 'phoneNumberAuthenticationSettings'},
                 })
+                LOGGER.info(f"[TDLib] call_method 返回: {result}")
                 methods_called.append('call_method')
             except Exception as e:
                 LOGGER.warning(f"[TDLib] call_method 失败: {e}")
