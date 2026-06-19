@@ -7,6 +7,7 @@ import re
 import json
 import asyncio
 import time
+import random
 from datetime import datetime
 from pyrogram import Client, filters, raw
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -1555,59 +1556,81 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 壳消息（受限频道返回 media=None）
-                    # ✅ 方案: 尝试 channels.getMessages → copy_message → 最终回退
+                    # ✅ 修复 v21.2: 优先用 forward_messages 直接转发到 Saved Messages
+                    # 对于 MessageMediaUnsupported，forward 是最可靠的方式
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v21] shell msg {mid}, trying channels.getMessages...")
+                        LOGGER.info(f"[v21] shell msg {mid}, trying forward_messages...")
                         _current_status = f"shell {idx}/{total_msg_count}"
                         _update_progress()
 
                         _downloaded = False
+
+                        # 方法1: 直接用 raw API forward_messages 转发到 Saved Messages
                         try:
-                            # 方法1: channels.getMessages (客户端API)
-                            _raw_channel_id = int(str(pvt_chat_id)[4:])
                             _peer = await user_client.resolve_peer(pvt_chat_id)
-                            _r = await user_client.invoke(
-                                raw.functions.channels.GetMessages(
-                                    channel=raw.types.InputChannel(
-                                        channel_id=_raw_channel_id,
-                                        access_hash=getattr(_peer, 'access_hash', 0),
-                                    ),
-                                    id=[raw.types.InputMessageID(id=mid)],
+                            _random_id = random.randint(1, 2**63 - 1)
+                            _fwd = await user_client.invoke(
+                                raw.functions.messages.ForwardMessages(
+                                    from_peer=_peer,
+                                    id=[mid],
+                                    to_peer=raw.types.InputPeerSelf(),
+                                    random_id=[_random_id],
                                 )
                             )
-                            _raw_msgs = getattr(_r, 'messages', [])
-                            LOGGER.info(f"[v21] channels.getMessages: {len(_raw_msgs)} msgs")
-                            for _rm in _raw_msgs:
-                                _rm_id = getattr(_rm, 'id', None)
-                                _rm_media = getattr(_rm, 'media', None)
-                                LOGGER.info(f"[v21]   raw id={_rm_id} media={type(_rm_media).__name__ if _rm_media else 'None'}")
-                                if _rm_media and _rm_id == mid:
-                                    try:
-                                        _rm_path = await user_client.download_media(
-                                            _rm_media,
-                                            file_name=f"ch_{mid}_",
-                                            progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("downloading", status_message, start_ts),
-                                        )
-                                        if _rm_path and os.path.exists(_rm_path):
-                                            _downloaded = True
-                                            LOGGER.info(f"[v21] channels.getMessages download OK: {_rm_path}")
-                                            _ext = os.path.splitext(_rm_path)[1].lower()
-                                            _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
-                                            _rm_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                            await _upload_to_saved(user_client, _rm_type, _rm_path, _rm_cap, thumbnail_path, mid)
-                                            success_count += 1
-                                            try: os.remove(_rm_path)
-                                            except: pass
-                                    except Exception as rde:
-                                        LOGGER.warning(f"[v21] channels.getMessages download err: {rde}")
-                                    break
-                        except Exception as ce:
-                            LOGGER.warning(f"[v21] channels.getMessages failed: {ce}")
+                            if _fwd and hasattr(_fwd, 'updates') and _fwd.updates:
+                                _downloaded = True
+                                LOGGER.info(f"[v21] forward_messages success for shell {mid}")
+                                success_count += 1
+                        except Exception as fwd_err:
+                            LOGGER.warning(f"[v21] forward_messages failed for {mid}: {fwd_err}")
 
-                        # 方法2: copy_message (如果channels.getMessages失败)
+                        # 方法2: forward 失败，尝试 channels.getMessages 检查原始媒体类型
                         if not _downloaded:
-                            LOGGER.info(f"[v21] channels.getMessages failed, trying copy_message for {mid}")
+                            try:
+                                _raw_channel_id = int(str(pvt_chat_id)[4:])
+                                _peer2 = await user_client.resolve_peer(pvt_chat_id)
+                                _r = await user_client.invoke(
+                                    raw.functions.channels.GetMessages(
+                                        channel=raw.types.InputChannel(
+                                            channel_id=_raw_channel_id,
+                                            access_hash=getattr(_peer2, 'access_hash', 0),
+                                        ),
+                                        id=[raw.types.InputMessageID(id=mid)],
+                                    )
+                                )
+                                _raw_msgs = getattr(_r, 'messages', [])
+                                for _rm in _raw_msgs:
+                                    _rm_id = getattr(_rm, 'id', None)
+                                    _rm_media = getattr(_rm, 'media', None)
+                                    if _rm_media and _rm_id == mid:
+                                        # 如果不是 Unsupported，尝试正常下载
+                                        if not isinstance(_rm_media, raw.types.MessageMediaUnsupported):
+                                            try:
+                                                _rm_path = await user_client.download_media(
+                                                    _rm_media,
+                                                    file_name=f"ch_{mid}_",
+                                                    progress=Leaves.progress_for_pyrogram,
+                                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                                )
+                                                if _rm_path and os.path.exists(_rm_path):
+                                                    _downloaded = True
+                                                    LOGGER.info(f"[v21] channels.getMessages download OK: {_rm_path}")
+                                                    _ext = os.path.splitext(_rm_path)[1].lower()
+                                                    _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                                    _rm_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                                    await _upload_to_saved(user_client, _rm_type, _rm_path, _rm_cap, thumbnail_path, mid)
+                                                    success_count += 1
+                                                    try: os.remove(_rm_path)
+                                                    except: pass
+                                            except Exception as rde:
+                                                LOGGER.warning(f"[v21] channels.getMessages download err: {rde}")
+                                        break
+                            except Exception as ce:
+                                LOGGER.warning(f"[v21] channels.getMessages failed: {ce}")
+
+                        # 方法3: 最后尝试 copy_message
+                        if not _downloaded:
+                            LOGGER.info(f"[v21] trying copy_message for shell {mid}")
                             try:
                                 _copied = await user_client.copy_message(
                                     chat_id="me",
@@ -1616,23 +1639,10 @@ def setup_pbatch_handler(app: Client):
                                 )
                                 if _copied:
                                     _downloaded = True
-                                    LOGGER.info(f"[v21] copy_message success: id={_copied.id} media={bool(_copied.media)}")
-                                    # 重新下载copy后的媒体
-                                    _copy_path = await _copied.download(
-                                        file_name=f"copy_{mid}_",
-                                        progress=Leaves.progress_for_pyrogram,
-                                        progress_args=progressArgs("downloading", status_message, start_ts),
-                                    )
-                                    if _copy_path and os.path.exists(_copy_path):
-                                        _ext = os.path.splitext(_copy_path)[1].lower()
-                                        _copy_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
-                                        _copy_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                        await _upload_to_saved(user_client, _copy_type, _copy_path, _copy_cap, thumbnail_path, mid)
-                                        success_count += 1
-                                        try: os.remove(_copy_path)
-                                        except: pass
+                                    LOGGER.info(f"[v21] copy_message success for shell {mid}")
+                                    success_count += 1
                             except Exception as copy_err:
-                                LOGGER.warning(f"[v21] copy_message failed: {copy_err}")
+                                LOGGER.warning(f"[v21] copy_message failed for {mid}: {copy_err}")
 
                         if not _downloaded:
                             LOGGER.info(f"[v21] all methods failed for shell {mid}")
