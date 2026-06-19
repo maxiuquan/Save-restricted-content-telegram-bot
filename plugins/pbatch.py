@@ -1049,6 +1049,50 @@ def setup_pbatch_handler(app: Client):
             pass
         return f"dl_{mid}_{int(time.time())}"
 
+    # ────────────────────────────────────────────────────────────────────
+    # ✅ v21.0 helper: extract video metadata (width, height, duration)
+    # This is CRITICAL to prevent squished/stretch video aspect ratio
+    # ────────────────────────────────────────────────────────────────────
+
+    def extract_video_metadata(chat_message) -> dict:
+        """
+        Extract video metadata from message.
+        Without width/height/duration, Telegram displays video with wrong aspect ratio.
+        
+        Returns:
+            dict: width, height, duration keys
+        """
+        metadata = {
+            "width": 0,
+            "height": 0,
+            "duration": 0,
+        }
+
+        video = chat_message.video
+        if video:
+            metadata["width"]    = getattr(video, "width",    0) or 0
+            metadata["height"]   = getattr(video, "height",   0) or 0
+            metadata["duration"] = getattr(video, "duration", 0) or 0
+        elif chat_message.document:
+            doc = chat_message.document
+            metadata["width"]    = getattr(doc, "width",    0) or 0
+            metadata["height"]   = getattr(doc, "height",   0) or 0
+            metadata["duration"] = getattr(doc, "duration", 0) or 0
+        elif chat_message.animation:
+            anim = chat_message.animation
+            metadata["width"]    = getattr(anim, "width",    0) or 0
+            metadata["height"]   = getattr(anim, "height",   0) or 0
+            metadata["duration"] = getattr(anim, "duration", 0) or 0
+
+        LOGGER.debug(
+            f"[VideoMeta] Extracted → "
+            f"width={metadata['width']}, "
+            f"height={metadata['height']}, "
+            f"duration={metadata['duration']}s"
+        )
+        return metadata
+
+    # ────────────────────────────────────────────────────────────────────
     # v21.0 helper: upload media to Saved Messages by type
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
         # If media_type is None (Pyrofork couldn't parse), sniff from file ext
@@ -1453,7 +1497,7 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 壳消息（受限频道返回 media=None）
-                    # 尝试用 channels.getMessages 获取完整媒体数据
+                    # ✅ 方案: 尝试 channels.getMessages → copy_message → 最终回退
                     if not _has_media and not msg.text and _media_group_id:
                         LOGGER.info(f"[v21] shell msg {mid}, trying channels.getMessages...")
                         _current_status = f"shell {idx}/{total_msg_count}"
@@ -1461,6 +1505,7 @@ def setup_pbatch_handler(app: Client):
 
                         _downloaded = False
                         try:
+                            # 方法1: channels.getMessages (客户端API)
                             _raw_channel_id = int(str(pvt_chat_id)[4:])
                             _peer = await user_client.resolve_peer(pvt_chat_id)
                             _r = await user_client.invoke(
@@ -1501,6 +1546,35 @@ def setup_pbatch_handler(app: Client):
                                     break
                         except Exception as ce:
                             LOGGER.warning(f"[v21] channels.getMessages failed: {ce}")
+
+                        # 方法2: copy_message (如果channels.getMessages失败)
+                        if not _downloaded:
+                            LOGGER.info(f"[v21] channels.getMessages failed, trying copy_message for {mid}")
+                            try:
+                                _copied = await user_client.copy_message(
+                                    chat_id="me",
+                                    from_chat_id=pvt_chat_id,
+                                    message_id=mid,
+                                )
+                                if _copied:
+                                    _downloaded = True
+                                    LOGGER.info(f"[v21] copy_message success: id={_copied.id} media={bool(_copied.media)}")
+                                    # 重新下载copy后的媒体
+                                    _copy_path = await _copied.download(
+                                        file_name=f"copy_{mid}_",
+                                        progress=Leaves.progress_for_pyrogram,
+                                        progress_args=progressArgs("downloading", status_message, start_ts),
+                                    )
+                                    if _copy_path and os.path.exists(_copy_path):
+                                        _ext = os.path.splitext(_copy_path)[1].lower()
+                                        _copy_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
+                                        _copy_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                        await _upload_to_saved(user_client, _copy_type, _copy_path, _copy_cap, thumbnail_path, mid)
+                                        success_count += 1
+                                        try: os.remove(_copy_path)
+                                        except: pass
+                            except Exception as copy_err:
+                                LOGGER.warning(f"[v21] copy_message failed: {copy_err}")
 
                         if not _downloaded:
                             LOGGER.info(f"[v21] all methods failed for shell {mid}")
