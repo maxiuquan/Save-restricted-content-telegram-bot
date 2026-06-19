@@ -2,7 +2,7 @@ from .auto_router import setup_auto_router   # ← 新增
 from .plan import setup_plan_handler
 from .info import setup_info_handler
 from .thumb import setup_thumb_handler
-from .login import setup_login_handler, setup_tdlib_login
+from .login import setup_login_handler
 from .pbatch import setup_pbatch_handler
 from .ytdl import setup_ytdl_handler
 from .ytupload import setup_ytupload_handler
@@ -23,7 +23,6 @@ def setup_plugins_handlers(app):
     setup_info_handler(app)
     setup_thumb_handler(app)
     setup_login_handler(app)
-    setup_tdlib_login(app)
     setup_pbatch_handler(app)
     setup_ytdl_handler(app)
     setup_ytupload_handler(app)

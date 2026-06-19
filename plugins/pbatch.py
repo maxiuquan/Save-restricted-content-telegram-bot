@@ -1,7 +1,5 @@
-# ✅ v20.0 完全重写：按参考项目模式（get_dialogs + 多格式 chat_id 回退）
-# ✅ 切换 pyrofork → pyrogram（requirements.txt）
-# ✅ 核心：get_chat_history 获取所有消息 → download_media → 按文件扩展名判断类型上传到 Saved Messages
-# ✅ 去除 raw MTProto、get_messages 逐条获取、去除 channel peer 预解析
+# ✅ v21.0 完全重构：移除 TDLib/tdl，回归纯 Pyrogram 下载上传流程
+# ✅ 核心：get_chat_history 获取消息 → download_media → 上传到 Saved Messages
 
 import os
 import re
@@ -39,8 +37,6 @@ from utils.helper import (
     get_video_resolution,
     get_video_thumbnail,
 )
-from utils import tdl_helper
-from utils import tdlclient
 from core import (
     daily_limit,
     prem_plan1,
@@ -223,20 +219,6 @@ def setup_pbatch_handler(app: Client):
             return None
         except Exception as e:
             LOGGER.error(f"Failed to init user client for {user_id}: {e}")
-            return None
-
-    async def _get_session_string(user_id: int, session_id: str) -> str | None:
-        """获取用户会话字符串，用于 tdl 转换。"""
-        try:
-            user_session = await user_sessions.find_one({"user_id": user_id})
-            if not user_session or not user_session.get("sessions"):
-                return None
-            session = next(
-                (s for s in user_session["sessions"] if s["session_id"] == session_id), None
-            )
-            return session["session_string"] if session else None
-        except Exception as e:
-            LOGGER.error(f"Failed to get session string for {user_id}: {e}")
             return None
 
     # ────────────────────────────────────────────────────────────────────
@@ -1067,7 +1049,7 @@ def setup_pbatch_handler(app: Client):
             pass
         return f"dl_{mid}_{int(time.time())}"
 
-    # v6.0 helper: upload media to Saved Messages by type
+    # v21.0 helper: upload media to Saved Messages by type
     async def _upload_to_saved(user_client, media_type, file_path, caption, thumb_path, msg_id):
         # If media_type is None (Pyrofork couldn't parse), sniff from file ext
         if media_type is None:
@@ -1082,22 +1064,19 @@ def setup_pbatch_handler(app: Client):
                 media_type = MessageMediaType.AUDIO
             else:
                 media_type = MessageMediaType.DOCUMENT
-            LOGGER.info(f"[PrivateBatch] sniffed media_type={media_type} for msg {msg_id} from ext")
+            LOGGER.info(f"[v21] sniffed media_type={media_type} for msg {msg_id} from ext")
 
-        # 关键修复: 如果文件没有扩展名或扩展名不匹配 media_type，使用 send_document 兜底
-        # 避免 PHOTO_EXT_INVALID / VIDEO_EXT_INVALID 等错误
+        # v21.0: 如果文件没有扩展名或扩展名不匹配 media_type，使用 send_document 兜底
         ext = os.path.splitext(file_path)[1].lower()
         if media_type == MessageMediaType.PHOTO and ext not in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
-            # 检查文件实际是否为图片（通过 ffprobe）
             try:
                 media_info = await get_media_info(file_path)
-                # 如果 get_media_info 成功识别为视频/音频等，跳过兜底
-                LOGGER.info(f"[PrivateBatch] msg {msg_id} photo ext invalid, falling back to document")
+                LOGGER.info(f"[v21] msg {msg_id} photo ext invalid, falling back to document")
                 media_type = MessageMediaType.DOCUMENT
             except Exception:
                 media_type = MessageMediaType.DOCUMENT
         elif media_type == MessageMediaType.VIDEO and ext not in ('.mp4', '.mkv', '.webm', '.avi', '.mov'):
-            LOGGER.info(f"[PrivateBatch] msg {msg_id} video ext invalid, falling back to document")
+            LOGGER.info(f"[v21] msg {msg_id} video ext invalid, falling back to document")
             media_type = MessageMediaType.DOCUMENT
         elif media_type == MessageMediaType.AUDIO and ext not in ('.mp3', '.m4a', '.wav', '.flac', '.aac'):
             media_type = MessageMediaType.DOCUMENT
@@ -1105,7 +1084,6 @@ def setup_pbatch_handler(app: Client):
             media_type = MessageMediaType.DOCUMENT
 
         if media_type == MessageMediaType.VIDEO:
-            # 关键修复: 缩略图生成可能失败（ffmpeg 不可用、视频损坏等），但不应阻止视频上传
             duration, _, _ = await get_media_info(file_path)
             width, height = await get_video_resolution(file_path)
 
@@ -1114,7 +1092,7 @@ def setup_pbatch_handler(app: Client):
             try:
                 thumb = await get_video_thumbnail(file_path, duration)
             except Exception as thumb_err:
-                LOGGER.warning(f"[PrivateBatch] thumbnail gen failed for {msg_id}: {thumb_err}, using no thumb")
+                LOGGER.warning(f"[v21] thumbnail gen failed for {msg_id}: {thumb_err}, using no thumb")
                 thumb = None
 
             # 第一次尝试：send_video with thumb
@@ -1122,28 +1100,28 @@ def setup_pbatch_handler(app: Client):
                 await user_client.send_video("me", file_path, caption=caption,
                     duration=duration or 0, width=width, height=height,
                     thumb=thumb, supports_streaming=True)
-                LOGGER.info(f"[PrivateBatch] ok video msg {msg_id}")
+                LOGGER.info(f"[v21] ok video msg {msg_id}")
             except Exception as video_err:
-                LOGGER.warning(f"[PrivateBatch] send_video failed (with thumb) for {msg_id}: {video_err}")
+                LOGGER.warning(f"[v21] send_video failed (with thumb) for {msg_id}: {video_err}")
                 # 第二次尝试：不带缩略图
                 try:
                     await user_client.send_video("me", file_path, caption=caption,
                         duration=duration or 0, width=width, height=height,
                         supports_streaming=True)
-                    LOGGER.info(f"[PrivateBatch] ok video (no thumb) msg {msg_id}")
+                    LOGGER.info(f"[v21] ok video (no thumb) msg {msg_id}")
                 except Exception as video_err2:
-                    LOGGER.warning(f"[PrivateBatch] send_video failed (no thumb) for {msg_id}: {video_err2}, fallback to document")
+                    LOGGER.warning(f"[v21] send_video failed (no thumb) for {msg_id}: {video_err2}, fallback to document")
                     # 最终兜底：作为文档发送
                     await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
-                    LOGGER.info(f"[PrivateBatch] ok document (fallback from video) msg {msg_id}")
+                    LOGGER.info(f"[v21] ok document (fallback from video) msg {msg_id}")
         elif media_type == MessageMediaType.PHOTO:
             try:
                 await user_client.send_photo("me", file_path, caption=caption)
-                LOGGER.info(f"[PrivateBatch] ok photo msg {msg_id}")
+                LOGGER.info(f"[v21] ok photo msg {msg_id}")
             except Exception as photo_err:
-                LOGGER.warning(f"[PrivateBatch] send_photo failed for {msg_id}: {photo_err}, fallback to document")
+                LOGGER.warning(f"[v21] send_photo failed for {msg_id}: {photo_err}, fallback to document")
                 await user_client.send_document("me", file_path, caption=caption)
-                LOGGER.info(f"[PrivateBatch] ok document (fallback from photo) msg {msg_id}")
+                LOGGER.info(f"[v21] ok document (fallback from photo) msg {msg_id}")
         elif media_type == MessageMediaType.DOCUMENT:
             thumb = None
             ext = os.path.splitext(file_path)[1].lower()
@@ -1153,22 +1131,22 @@ def setup_pbatch_handler(app: Client):
                     thumb = await get_video_thumbnail(file_path, doc_dur or 0)
                 except Exception: pass
             await user_client.send_document("me", file_path, caption=caption, thumb=thumb)
-            LOGGER.info(f"[PrivateBatch] ok document msg {msg_id}")
+            LOGGER.info(f"[v21] ok document msg {msg_id}")
         elif media_type == MessageMediaType.AUDIO:
             duration, artist, title = await get_media_info(file_path)
             await user_client.send_audio("me", file_path, caption=caption,
                 duration=duration or 0, performer=artist, title=title)
-            LOGGER.info(f"[PrivateBatch] ok audio msg {msg_id}")
+            LOGGER.info(f"[v21] ok audio msg {msg_id}")
         elif media_type == MessageMediaType.VIDEO_NOTE:
             duration, _, _ = await get_media_info(file_path)
             await user_client.send_video_note("me", file_path, duration=duration or 0)
-            LOGGER.info(f"[PrivateBatch] ok video_note msg {msg_id}")
+            LOGGER.info(f"[v21] ok video_note msg {msg_id}")
         elif media_type == MessageMediaType.VOICE:
             await user_client.send_voice("me", file_path, caption=caption)
-            LOGGER.info(f"[PrivateBatch] ok voice msg {msg_id}")
+            LOGGER.info(f"[v21] ok voice msg {msg_id}")
         else:
             await user_client.send_document("me", file_path, caption=caption)
-            LOGGER.info(f"[PrivateBatch] ok fallback msg {msg_id} type={media_type}")
+            LOGGER.info(f"[v21] ok fallback msg {msg_id} type={media_type}")
 
     async def _apply_delay(idx):
         if idx < 25: t = 3
@@ -1185,7 +1163,7 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time.time()
 
-        LOGGER.info(f"[PrivateBatch] v20.0: fresh rewrite with pyrogram")
+        LOGGER.info(f"[PrivateBatch] v21.0: simplified with pure Pyrogram")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1291,15 +1269,12 @@ def setup_pbatch_handler(app: Client):
         _handled_by_grouped_fallback: set = set()
 
         try:
-            # ── v20.0 核心：使用 get_messages 按 ID 列表获取（与公共批量一致） ──
-            # 关键修复: get_chat_history 可能会漏掉 start_message_id（视频等大文件有时不会在首次返回）
-            # 改用 get_messages + 显式 message_ids，更可靠且能确保 start_message_id 包含在内
-            LOGGER.info(f"[v20] start={start_message_id} count={count}")
+            # ── v21.0 核心：使用 get_chat_history 获取消息 ──
+            LOGGER.info(f"[v21] start={start_message_id} count={count}")
 
             # 关键步骤：用 raw API 获取 channel access_hash 并注入 peer 缓存
-            # 临时创建的客户端没有私密频道的 peer 缓存，直接 get_messages 会报 Peer id invalid
             try:
-                _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100XXXXXXXXX → XXXXXXXXX
+                _raw_channel_id = int(str(pvt_chat_id)[4:])
                 _r = await user_client.invoke(
                     raw.functions.channels.GetChannels(
                         id=[raw.types.InputChannel(channel_id=_raw_channel_id, access_hash=0)]
@@ -1314,26 +1289,22 @@ def setup_pbatch_handler(app: Client):
                         )
                         if hasattr(user_client, 'peers_by_id'):
                             user_client.peers_by_id[pvt_chat_id] = _peer
-                        LOGGER.info(f"[v20] raw resolved and cached peer for -100{_raw_channel_id}")
+                        LOGGER.info(f"[v21] raw resolved and cached peer for -100{_raw_channel_id}")
             except Exception as e:
-                LOGGER.warning(f"[v20] raw peer resolve failed: {e}")
+                LOGGER.warning(f"[v21] raw peer resolve failed: {e}")
 
-            # 关键修复: 使用 get_messages 显式获取 [start, start+count) 范围的消息
-            # 这与公共批量 (/batch) 的逻辑一致，确保 start_message_id 一定被包含
             target_message_ids = list(range(start_message_id, start_message_id + count))
-            LOGGER.info(f"[v20] target message ids: {target_message_ids}")
+            LOGGER.info(f"[v21] target message ids: {target_message_ids}")
 
-            # ✅ 模拟手机客户端: 用 get_chat_history(offset_id=) 获取消息
-            # 手机客户端使用 messages.getHistory API，返回完整媒体数据
-            # 之前用 offset 参数是错的 — offset 是序列偏移，offset_id 才是消息 ID
+            # 使用 get_chat_history 获取消息
             all_messages = []
             try:
                 _end_id = start_message_id + count - 1
                 _collected = []
-                LOGGER.info(f"[v20] get_chat_history with offset_id={start_message_id + count}, limit=100")
+                LOGGER.info(f"[v21] get_chat_history with offset_id={start_message_id + count}, limit=100")
                 async for m in user_client.get_chat_history(
                     chat_id=pvt_chat_id,
-                    offset_id=start_message_id + count,  # 从结束位置之后开始，获取更早的消息
+                    offset_id=start_message_id + count,
                     limit=100,
                 ):
                     if m.empty or not m.id:
@@ -1343,16 +1314,15 @@ def setup_pbatch_handler(app: Client):
                     if m.id > _end_id:
                         continue
                     _collected.append(m)
-                    LOGGER.info(f"[v20]   got msg id={m.id} media={bool(m.media)} v={bool(getattr(m,'video',None))} p={bool(getattr(m,'photo',None))} d={bool(getattr(m,'document',None))}")
+                    LOGGER.info(f"[v21]   got msg id={m.id} media={bool(m.media)} v={bool(getattr(m,'video',None))} p={bool(getattr(m,'photo',None))} d={bool(getattr(m,'document',None))}")
                     if m.id == start_message_id:
                         break
-                all_messages = list(reversed(_collected))  # get_chat_history 返回降序，反转
-                LOGGER.info(f"[v20] get_chat_history collected {len(all_messages)} msgs in [{start_message_id}, {_end_id}]")
+                all_messages = list(reversed(_collected))
+                LOGGER.info(f"[v21] get_chat_history collected {len(all_messages)} msgs in [{start_message_id}, {_end_id}]")
             except Exception as e:
-                LOGGER.warning(f"[v20] get_chat_history failed: {type(e).__name__}: {e}")
+                LOGGER.warning(f"[v21] get_chat_history failed: {type(e).__name__}: {e}")
             if not all_messages:
-                LOGGER.info("[v20] get_chat_history empty, falling back to expanded get_messages")
-                # 降级回 get_messages
+                LOGGER.info("[v21] get_chat_history empty, falling back to expanded get_messages")
                 all_messages = []
                 CHUNK = 200
                 try:
@@ -1369,16 +1339,16 @@ def setup_pbatch_handler(app: Client):
                                     if m and not getattr(m, 'empty', False) and m.id:
                                         all_messages.append(m)
                         except Exception as e2:
-                            LOGGER.warning(f"[v20] chunk fetch failed: {e2}")
+                            LOGGER.warning(f"[v21] chunk fetch failed: {e2}")
                 except Exception as e2:
-                    LOGGER.warning(f"[v20] get_messages failed: {e2}")
+                    LOGGER.warning(f"[v21] get_messages failed: {e2}")
 
             # 按 ID 升序排序
             all_messages.sort(key=lambda m: m.id)
 
             if all_messages:
                 got_ids = [m.id for m in all_messages]
-                LOGGER.info(f"[v20] got message ids: {got_ids}")
+                LOGGER.info(f"[v21] got message ids: {got_ids}")
 
             messages = all_messages
 
@@ -1394,7 +1364,7 @@ def setup_pbatch_handler(app: Client):
                 return
 
             total_msg_count = len(messages)
-            LOGGER.info(f"[v20] got {total_msg_count} msgs")
+            LOGGER.info(f"[v21] got {total_msg_count} msgs")
 
             # ── 遍历处理每一条消息 ──
             for j, msg in enumerate(messages, 1):
@@ -1406,7 +1376,7 @@ def setup_pbatch_handler(app: Client):
 
                 # 跳过已通过 grouped fallback 处理过的消息
                 if mid in _handled_by_grouped_fallback:
-                    LOGGER.info(f"[v20] skip {mid} — already handled by grouped fallback")
+                    LOGGER.info(f"[v21] skip {mid} — already handled by grouped fallback")
                     continue
 
                 try:
@@ -1424,7 +1394,7 @@ def setup_pbatch_handler(app: Client):
                     _media_group_id = getattr(msg, 'media_group_id', None)
                     _is_scheduled = getattr(msg, 'from_scheduled', False)
                     LOGGER.info(
-                        f"[v20] {idx}/{total_msg_count} id={mid} "
+                        f"[v21] {idx}/{total_msg_count} id={mid} "
                         f"media={_has_media} v={_has_video} p={_has_photo} d={_has_doc} "
                         f"a={_has_audio} vn={_has_vn} vo={_has_voice} an={_has_anim} s={_has_sticker} "
                         f"grouped={_grouped_id} mgid={_media_group_id} sched={_is_scheduled}"
@@ -1443,15 +1413,15 @@ def setup_pbatch_handler(app: Client):
                         await asyncio.sleep(1)
                         continue
 
-                    # 媒体消息：同时检查 msg.media 和具体属性（解决 msg.media 为 None 但实际有媒体的问题）
+                    # 媒体消息：同时检查 msg.media 和具体属性
                     if _has_media or _has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice or _has_anim or _has_sticker:
                         caption_text = msg.caption.markdown if msg.caption else ""
-                        media_type = msg.media  # 可能为 None，_upload_to_saved 会 fallback 到文件扩展名判断
+                        media_type = msg.media
 
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()
 
-                        # 关键修复: 使用正确的文件扩展名（参考 devgaganin 项目的实现）
+                        # 使用正确的文件扩展名
                         _dl_name = _build_dl_filename(msg, mid, media_type)
                         file_path = await user_client.download_media(
                             msg,
@@ -1461,7 +1431,7 @@ def setup_pbatch_handler(app: Client):
                         )
 
                         if not file_path or not os.path.exists(file_path):
-                            LOGGER.warning(f"[v20] dl failed: {mid}")
+                            LOGGER.warning(f"[v21] dl failed: {mid}")
                             fail_count += 1
                             continue
 
@@ -1483,17 +1453,15 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 无媒体无文字 → 壳消息（受限频道返回 media=None）
-                    # ✅ 方案: 模拟手机客户端 — 用 channels.getMessages 代替 messages.getMessages
-                    # 手机客户端查看频道消息使用 channels.getMessages，这是不同的 MTProto API
+                    # 尝试用 channels.getMessages 获取完整媒体数据
                     if not _has_media and not msg.text and _media_group_id:
-                        LOGGER.info(f"[v20] shell msg {mid}, trying channels.getMessages (phone client API)...")
+                        LOGGER.info(f"[v21] shell msg {mid}, trying channels.getMessages...")
                         _current_status = f"shell {idx}/{total_msg_count}"
                         _update_progress()
 
                         _downloaded = False
                         try:
-                            # 手机客户端专用: channels.getMessages
-                            _raw_channel_id = int(str(pvt_chat_id)[4:])  # -100X → X
+                            _raw_channel_id = int(str(pvt_chat_id)[4:])
                             _peer = await user_client.resolve_peer(pvt_chat_id)
                             _r = await user_client.invoke(
                                 raw.functions.channels.GetMessages(
@@ -1505,14 +1473,12 @@ def setup_pbatch_handler(app: Client):
                                 )
                             )
                             _raw_msgs = getattr(_r, 'messages', [])
-                            LOGGER.info(f"[v20] channels.getMessages: {len(_raw_msgs)} msgs")
+                            LOGGER.info(f"[v21] channels.getMessages: {len(_raw_msgs)} msgs")
                             for _rm in _raw_msgs:
                                 _rm_id = getattr(_rm, 'id', None)
                                 _rm_media = getattr(_rm, 'media', None)
-                                _rm_media_type = type(_rm_media).__name__ if _rm_media else 'None'
-                                LOGGER.info(f"[v20]   raw id={_rm_id} media_type={_rm_media_type}")
+                                LOGGER.info(f"[v21]   raw id={_rm_id} media={type(_rm_media).__name__ if _rm_media else 'None'}")
                                 if _rm_media and _rm_id == mid:
-                                    # 手机客户端 API 返回了完整媒体！尝试下载
                                     try:
                                         _rm_path = await user_client.download_media(
                                             _rm_media,
@@ -1522,7 +1488,7 @@ def setup_pbatch_handler(app: Client):
                                         )
                                         if _rm_path and os.path.exists(_rm_path):
                                             _downloaded = True
-                                            LOGGER.info(f"[v20] channels.getMessages download OK: {_rm_path}")
+                                            LOGGER.info(f"[v21] channels.getMessages download OK: {_rm_path}")
                                             _ext = os.path.splitext(_rm_path)[1].lower()
                                             _rm_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
                                             _rm_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
@@ -1531,101 +1497,29 @@ def setup_pbatch_handler(app: Client):
                                             try: os.remove(_rm_path)
                                             except: pass
                                     except Exception as rde:
-                                        LOGGER.warning(f"[v20] channels.getMessages download err: {type(rde).__name__}: {rde}")
+                                        LOGGER.warning(f"[v21] channels.getMessages download err: {rde}")
                                     break
                         except Exception as ce:
-                            LOGGER.warning(f"[v20] channels.getMessages failed: {type(ce).__name__}: {ce}")
+                            LOGGER.warning(f"[v21] channels.getMessages failed: {ce}")
 
                         if not _downloaded:
-                            # ✅ TDLib 回退 — 模拟真实 Telegram 客户端（Telegram Desktop 同款底层库）
-                            LOGGER.info(f"[v20] channels.getMessages no media for {mid}, trying TDLib (real client)...")
-                            try:
-                                if tdlclient.is_tdlib_available() and tdlclient.has_tdlib_session(user_id):
-                                    _tdlib_chat_id = int(str(pvt_chat_id)[4:]) if str(pvt_chat_id).startswith("-100") else pvt_chat_id
-                                    _tdlib_path = await asyncio.to_thread(
-                                        tdlclient.download_via_tdlib,
-                                        user_id, _tdlib_chat_id, mid,
-                                    )
-                                    if _tdlib_path and os.path.exists(_tdlib_path):
-                                        _downloaded = True
-                                        LOGGER.info(f"[v20] TDLib downloaded: {_tdlib_path}")
-                                        _ext = os.path.splitext(_tdlib_path)[1].lower()
-                                        _tdlib_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
-                                        _tdlib_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                        await _upload_to_saved(user_client, _tdlib_type, _tdlib_path, _tdlib_cap, thumbnail_path, mid)
-                                        success_count += 1
-                                        try: os.remove(_tdlib_path)
-                                        except: pass
-                                else:
-                                    LOGGER.info(f"[v20] TDLib not available for user {user_id}")
-                            except Exception as tde:
-                                LOGGER.warning(f"[v20] TDLib err: {type(tde).__name__}: {tde}")
-
-                        if not _downloaded:
-                            # tdl 回退
-                            LOGGER.info(f"[v20] channels.getMessages no media for {mid}, trying tdl...")
-                            try:
-                                if tdl_helper.is_tdl_installed():
-                                    _sess_str = await _get_session_string(user_id, session_id)
-                                    if _sess_str:
-                                        _tdl_sess = tdl_helper.pyrogram_session_to_tdl(_sess_str, user_id)
-                                        if _tdl_sess:
-                                            _tdl_link = tdl_helper.build_message_link(pvt_chat_id, mid)
-                                            _tdl_out = os.path.join("downloads", f"tdl_{user_id}")
-                                            os.makedirs(_tdl_out, exist_ok=True)
-                                            _tdl_path = await tdl_helper.download_with_tdl(
-                                                message_link=_tdl_link, session_ident=_tdl_sess,
-                                                download_dir=_tdl_out, timeout=600,
-                                            )
-                                            if _tdl_path and os.path.exists(_tdl_path):
-                                                _downloaded = True
-                                                _ext = os.path.splitext(_tdl_path)[1].lower()
-                                                _tdl_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
-                                                _tdl_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                                await _upload_to_saved(user_client, _tdl_type, _tdl_path, _tdl_cap, thumbnail_path, mid)
-                                                success_count += 1
-                                                try: os.remove(_tdl_path)
-                                                except: pass
-                            except Exception as tde:
-                                LOGGER.warning(f"[v20] tdl err: {type(tde).__name__}: {tde}")
-
-                        if not _downloaded:
-                            LOGGER.info(f"[v20] all methods failed for shell {mid}, trying Pyrogram direct...")
-                            try:
-                                _shell_path = await msg.download(
-                                    file_name=f"shell_{mid}_",
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("downloading", status_message, start_ts),
-                                )
-                                if _shell_path and os.path.exists(_shell_path):
-                                    _downloaded = True
-                                    _ext = os.path.splitext(_shell_path)[1].lower()
-                                    _s_type = MessageMediaType.VIDEO if _ext in ('.mp4','.mkv','.webm','.mov','.avi') else (MessageMediaType.PHOTO if _ext in ('.jpg','.jpeg','.png','.webp','.gif') else MessageMediaType.DOCUMENT)
-                                    _s_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                    await _upload_to_saved(user_client, _s_type, _shell_path, _s_cap, thumbnail_path, mid)
-                                    success_count += 1
-                                    try: os.remove(_shell_path)
-                                    except: pass
-                            except Exception as de:
-                                LOGGER.warning(f"[v20] shell direct err: {type(de).__name__}: {de}")
-
-                        if not _downloaded:
+                            LOGGER.info(f"[v21] all methods failed for shell {mid}")
                             fail_count += 1
                         _handled_by_grouped_fallback.add(mid)
                         continue
 
                     # 无媒体无文字且不在媒体组中 → 跳过
-                    LOGGER.warning(f"[v20] skip: {mid}")
+                    LOGGER.warning(f"[v21] skip: {mid}")
                     fail_count += 1
                     _update_progress()
 
                 except FloodWait as fw:
                     w = fw.value if hasattr(fw, 'value') else 60
-                    LOGGER.warning(f"[v20] FloodWait {w}s at {mid}")
+                    LOGGER.warning(f"[v21] FloodWait {w}s at {mid}")
                     await asyncio.sleep(w + 2)
                     fail_count += 1
                 except Exception as e:
-                    LOGGER.error(f"[v20] err {mid}: {type(e).__name__}: {e}")
+                    LOGGER.error(f"[v21] err {mid}: {type(e).__name__}: {e}")
                     fail_count += 1
 
         except Exception as e:

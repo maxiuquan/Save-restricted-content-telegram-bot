@@ -20,12 +20,3 @@ google-auth-oauthlib
 google-auth-httplib2
 aiohttp
 prompt_toolkit
-python-telegram
-# ⚠️ 系统依赖（python-telegram 通过 libtdjson.so 需要 OpenSSL 1.1）
-#    Ubuntu 22.04+ / Debian Bookworm+ 默认只有 OpenSSL 3.0，需要手动安装：
-#      sudo apt update && sudo apt install libssl1.1 -y
-#    如果系统源没有 libssl1.1（如 Ubuntu 22.04+），从旧源安装：
-#      wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb
-#      sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb
-#    验证: dpkg -l | grep libssl1.1
-tdlib
