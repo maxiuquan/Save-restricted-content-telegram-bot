@@ -671,6 +671,27 @@ async def processMediaGroup(
                         media_type = "document"
                     elif media_class == 'MessageMediaAudio':
                         media_type = "audio"
+                
+                # ✅ v21.2 增强日志: 记录媒体类型识别结果
+                LOGGER.info(
+                    f"[MediaGroup] id={msg.id} → media_type={media_type} "
+                    f"(photo={bool(msg.photo)} video={bool(msg.video)} "
+                    f"doc={bool(msg.document)} audio={bool(msg.audio)} "
+                    f"media={type(msg.media).__name__ if msg.media else None})"
+                )
+                
+                # 如果没有识别到媒体类型，尝试通过文件扩展名判断
+                if not media_type and media_path:
+                    ext = os.path.splitext(media_path)[1].lower()
+                    if ext in ('.mp4', '.mkv', '.webm', '.mov', '.avi'):
+                        media_type = "video"
+                        LOGGER.info(f"[MediaGroup] id={msg.id} inferred video from ext: {ext}")
+                    elif ext in ('.jpg', '.jpeg', '.png', '.webp'):
+                        media_type = "photo"
+                        LOGGER.info(f"[MediaGroup] id={msg.id} inferred photo from ext: {ext}")
+                    elif ext in ('.mp3', '.m4a', '.wav'):
+                        media_type = "audio"
+                        LOGGER.info(f"[MediaGroup] id={msg.id} inferred audio from ext: {ext}")
 
                 if media_type == "photo":
                     valid_media.append(
@@ -727,6 +748,8 @@ async def processMediaGroup(
                 continue
 
     LOGGER.info(f"Valid media count: {len(valid_media)}")
+    for i, m in enumerate(valid_media):
+        LOGGER.info(f"[MediaGroup] valid_media[{i}] = {type(m).__name__}")
 
     if valid_media:
         upload_client = user_client if user_client else bot
