@@ -130,9 +130,7 @@ class TDLibClient:
                 files_directory=str(self._session_dir / "files"),
                 library_path=None,
             )
-            # 启动客户端（建立 TDLib 连接）
-            self._tg.start()
-            LOGGER.info(f"[TDLib] 客户端已创建并启动 for user {self._user_id}")
+            LOGGER.info(f"[TDLib] 客户端已创建 for user {self._user_id}")
         except OSError as e:
             err_str = str(e)
             if 'libssl.so.1.1' in err_str or 'libcrypto.so.1.1' in err_str:
@@ -159,23 +157,45 @@ class TDLibClient:
     def send_code(self):
         """发送验证码（设置手机号，TDLib 自动发送验证码）。"""
         self._ensure_client()
-        # 使用 call_method 发送 TDLib JSON 命令（替代不稳定的 send 方法）
-        try:
-            self._tg.call_method('setAuthenticationPhoneNumber', {
-                'phone_number': self._phone,
-                'settings': {'@type': 'phoneNumberAuthenticationSettings'},
-            })
-        except Exception:
-            # 如果 call_method 也不支持，尝试 send
+        # 尝试多种方法发送手机号
+        methods_called = []
+        
+        # 方法1: 使用库提供的专用方法
+        if hasattr(self._tg, 'set_authentication_phone_number'):
+            try:
+                self._tg.set_authentication_phone_number(self._phone)
+                methods_called.append('set_authentication_phone_number')
+            except Exception as e:
+                LOGGER.warning(f"[TDLib] set_authentication_phone_number 失败: {e}")
+        
+        # 方法2: 使用 call_method
+        if not methods_called:
+            try:
+                self._tg.call_method('setAuthenticationPhoneNumber', {
+                    'phone_number': self._phone,
+                    'settings': {'@type': 'phoneNumberAuthenticationSettings'},
+                })
+                methods_called.append('call_method')
+            except Exception as e:
+                LOGGER.warning(f"[TDLib] call_method 失败: {e}")
+        
+        # 方法3: 使用 send
+        if not methods_called:
             try:
                 self._tg.send({
                     '@type': 'setAuthenticationPhoneNumber',
                     'phone_number': self._phone,
                     'settings': {'@type': 'phoneNumberAuthenticationSettings'},
                 })
+                methods_called.append('send')
             except AttributeError:
-                LOGGER.warning("[TDLib] 无法发送 setAuthenticationPhoneNumber，等待 Telegram 自动触发")
-        LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone}")
+                LOGGER.warning("[TDLib] 所有方法都不可用")
+        
+        if methods_called:
+            LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone} (使用: {', '.join(methods_called)})")
+        else:
+            LOGGER.error("[TDLib] 无法发送验证码，Telegram 对象不支持任何认证方法")
+        
         # 等待验证码发送
         time.sleep(3)
 
