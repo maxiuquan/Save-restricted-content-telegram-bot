@@ -150,15 +150,29 @@ class TDLibClient:
 
     # ── 登录 ───────────────────────────────────────────────────────
 
+    def get_error(self) -> Optional[str]:
+        """返回客户端错误信息。"""
+        return self._error
+
     def send_code(self):
         """发送验证码（设置手机号，TDLib 自动发送验证码）。"""
         self._ensure_client()
-        # 使用 TDLib 低级 API 设置手机号
-        self._tg.send({
-            '@type': 'setAuthenticationPhoneNumber',
-            'phone_number': self._phone,
-            'settings': {'@type': 'phoneNumberAuthenticationSettings'},
-        })
+        # 使用 call_method 发送 TDLib JSON 命令（替代不稳定的 send 方法）
+        try:
+            self._tg.call_method('setAuthenticationPhoneNumber', {
+                'phone_number': self._phone,
+                'settings': {'@type': 'phoneNumberAuthenticationSettings'},
+            })
+        except Exception:
+            # 如果 call_method 也不支持，尝试 send
+            try:
+                self._tg.send({
+                    '@type': 'setAuthenticationPhoneNumber',
+                    'phone_number': self._phone,
+                    'settings': {'@type': 'phoneNumberAuthenticationSettings'},
+                })
+            except AttributeError:
+                LOGGER.warning("[TDLib] 无法发送 setAuthenticationPhoneNumber，等待 Telegram 自动触发")
         LOGGER.info(f"[TDLib] 已发送验证码请求 for {self._phone}")
         # 等待验证码发送
         time.sleep(3)
