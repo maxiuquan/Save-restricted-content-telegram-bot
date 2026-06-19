@@ -117,7 +117,7 @@ class TDLibClient:
     # ── 初始化 ─────────────────────────────────────────────────────
 
     def _ensure_client(self):
-        """确保 TDLib 客户端已创建。"""
+        """确保 TDLib 客户端已创建并等待就绪。"""
         if self._tg is not None:
             return
         try:
@@ -131,6 +131,8 @@ class TDLibClient:
                 library_path=None,
             )
             LOGGER.info(f"[TDLib] 客户端已创建 for user {self._user_id}")
+            # 等待 TDLib 完全初始化（直到授权状态变为 waitPhoneNumber）
+            self._wait_until_ready()
         except OSError as e:
             err_str = str(e)
             if 'libssl.so.1.1' in err_str or 'libcrypto.so.1.1' in err_str:
@@ -147,6 +149,35 @@ class TDLibClient:
                 self._error = f"TDLib 客户端初始化失败: {err_str}"
                 LOGGER.error(f"[TDLib] {self._error}")
             raise
+
+    # ── 等待就绪 ───────────────────────────────────────────────────
+
+    def _wait_until_ready(self, timeout: int = 15):
+        """等待 TDLib 客户端初始化完成并进入可认证状态。"""
+        if self._tg is None:
+            return
+        start_time = time.time()
+        LOGGER.info("[TDLib] 等待客户端初始化...")
+        while time.time() - start_time < timeout:
+            try:
+                # 尝试获取授权状态
+                state = self._tg.call_method('getAuthorizationState', {})
+                state_type = state.get('@type', '')
+                LOGGER.info(f"[TDLib] 授权状态: {state_type}")
+                
+                # 如果状态是 waitPhoneNumber 或 waitCode，说明可以认证了
+                if state_type in ('authorizationStateWaitPhoneNumber', 'authorizationStateWaitCode'):
+                    LOGGER.info("[TDLib] 客户端已就绪，可以发送验证码")
+                    return
+                # 如果已经是 ready，说明有旧会话
+                if state_type == 'authorizationStateReady':
+                    self._logged_in = True
+                    LOGGER.info("[TDLib] 已有有效会话，无需重新认证")
+                    return
+            except Exception as e:
+                LOGGER.debug(f"[TDLib] 状态检查失败: {e}")
+            time.sleep(1)
+        LOGGER.warning("[TDLib] 等待客户端就绪超时")
 
     # ── 登录 ───────────────────────────────────────────────────────
 
