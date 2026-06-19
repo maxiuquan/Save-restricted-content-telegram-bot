@@ -1,5 +1,6 @@
-# ✅ v21.0 完全重构：移除 TDLib/tdl，回归纯 Pyrogram 下载上传流程
+# ✅ v21.1 全面优化版
 # ✅ 核心：get_chat_history 获取消息 → download_media → 上传到 Saved Messages
+# ✅ 新增: 文件名清理、FileReferenceExpired重试、thumbnail优化、详细日志追踪
 
 import os
 import re
@@ -994,13 +995,14 @@ def setup_pbatch_handler(app: Client):
         为 download_media 构建 file_name。
         优先使用消息自带的 file_name（包含原始扩展名），
         否则根据媒体类型生成 "dl_{mid}_{ts}{ext}"。
+        ✅ 新增: 清理文件名中的非法字符，防止目录穿越攻击
         """
         try:
             # 1) 视频：使用 msg.video.file_name（参考 devgaganin）
             if hasattr(msg, 'video') and msg.video:
                 fname = getattr(msg.video, 'file_name', None)
                 if fname:
-                    return fname
+                    return sanitize_filename(fname)
                 ext = _get_file_ext(msg, media_type) or '.mp4'
                 return f"dl_{mid}_{int(time.time())}{ext}"
 
@@ -1008,7 +1010,7 @@ def setup_pbatch_handler(app: Client):
             if hasattr(msg, 'audio') and msg.audio:
                 fname = getattr(msg.audio, 'file_name', None)
                 if fname:
-                    return fname
+                    return sanitize_filename(fname)
                 ext = _get_file_ext(msg, media_type) or '.mp3'
                 return f"dl_{mid}_{int(time.time())}{ext}"
 
@@ -1016,7 +1018,7 @@ def setup_pbatch_handler(app: Client):
             if hasattr(msg, 'document') and msg.document:
                 fname = getattr(msg.document, 'file_name', None)
                 if fname:
-                    return fname
+                    return sanitize_filename(fname)
                 # 没有 file_name 时使用时间戳+ext
                 ext = _get_file_ext(msg, media_type) or ''
                 return f"dl_{mid}_{int(time.time())}{ext}"
@@ -1048,6 +1050,42 @@ def setup_pbatch_handler(app: Client):
         except Exception:
             pass
         return f"dl_{mid}_{int(time.time())}"
+
+    # ────────────────────────────────────────────────────────────────────
+    # ✅ v21.0 helper: sanitize filename (prevent directory traversal & invalid chars)
+    # ────────────────────────────────────────────────────────────────────
+
+    def sanitize_filename(fname: str) -> str:
+        """
+        Clean filename to prevent:
+        - Directory traversal (../, ..\)
+        - Invalid chars on Windows/Unix (\, /, :, *, ?, ", <, >, |)
+        - Leading/trailing spaces and dots
+        """
+        if not fname:
+            return ""
+        
+        # Remove directory separators
+        fname = fname.replace('\\', '/').split('/')[-1]
+        
+        # Replace invalid characters with underscore
+        invalid_chars = r'[\\/:*?"<>|]'
+        import re
+        fname = re.sub(invalid_chars, '_', fname)
+        
+        # Strip leading/trailing spaces and dots
+        fname = fname.strip(' .')
+        
+        # Prevent empty filename
+        if not fname:
+            fname = f"file_{int(time.time())}"
+        
+        # Truncate to 128 chars (Telegram limit)
+        if len(fname) > 128:
+            name, ext = os.path.splitext(fname)
+            fname = name[:128-len(ext)] + ext
+        
+        return fname
 
     # ────────────────────────────────────────────────────────────────────
     # ✅ v21.0 helper: extract video metadata (width, height, duration)
@@ -1131,10 +1169,11 @@ def setup_pbatch_handler(app: Client):
             duration, _, _ = await get_media_info(file_path)
             width, height = await get_video_resolution(file_path)
 
-            # 尝试生成缩略图，失败时使用空缩略图
+            # ✅ 优化: 尝试生成缩略图，失败时使用空缩略图
             thumb = None
             try:
                 thumb = await get_video_thumbnail(file_path, duration)
+                LOGGER.info(f"[v21] thumbnail generated for {msg_id}")
             except Exception as thumb_err:
                 LOGGER.warning(f"[v21] thumbnail gen failed for {msg_id}: {thumb_err}, using no thumb")
                 thumb = None
@@ -1207,7 +1246,8 @@ def setup_pbatch_handler(app: Client):
         count      = state["count"]
         start_ts   = time.time()
 
-        LOGGER.info(f"[PrivateBatch] v21.0: simplified with pure Pyrogram")
+        LOGGER.info(f"[PrivateBatch] v21.1: pure Pyrogram with optimizations")
+        LOGGER.info(f"[PrivateBatch] user={user_id} chat={chat_id} session={session_id} url={url} count={count}")
         cancel_flags.pop(chat_id, None)
 
         try:
@@ -1467,15 +1507,33 @@ def setup_pbatch_handler(app: Client):
 
                         # 使用正确的文件扩展名
                         _dl_name = _build_dl_filename(msg, mid, media_type)
-                        file_path = await user_client.download_media(
-                            msg,
-                            file_name=_dl_name,
-                            progress=Leaves.progress_for_pyrogram,
-                            progress_args=progressArgs("downloading", status_message, start_ts),
-                        )
-
+                        
+                        # ✅ 新增: download_media 添加 FileReferenceExpired 重试
+                        file_path = None
+                        for _retry in range(3):
+                            try:
+                                file_path = await user_client.download_media(
+                                    msg,
+                                    file_name=_dl_name,
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                )
+                                break
+                            except FileReferenceExpired:
+                                LOGGER.warning(f"[v21] FileReferenceExpired for {mid}, retrying... ({_retry+1}/3)")
+                                # 重新获取消息
+                                try:
+                                    msg = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=mid)
+                                    if not msg:
+                                        break
+                                except Exception:
+                                    break
+                            except Exception as dl_err:
+                                LOGGER.error(f"[v21] download error for {mid}: {dl_err}")
+                                break
+                        
                         if not file_path or not os.path.exists(file_path):
-                            LOGGER.warning(f"[v21] dl failed: {mid}")
+                            LOGGER.warning(f"[v21] dl failed after retries: {mid}")
                             fail_count += 1
                             continue
 
@@ -1597,9 +1655,16 @@ def setup_pbatch_handler(app: Client):
                     fail_count += 1
 
         except Exception as e:
-            LOGGER.error(f"[PrivateBatch] Unexpected error: {e}")
+            LOGGER.error(f"[PrivateBatch] Unexpected error: {e}", exc_info=True)
         finally:
             _cleanup_bg()
+
+        # ── 详细统计日志 ──
+        elapsed = int(time.time() - start_ts)
+        LOGGER.info(
+            f"[PrivateBatch] Completed: success={success_count} fail={fail_count} "
+            f"total={success_count+fail_count} elapsed={elapsed}s"
+        )
 
         # ── 更新统计 ──
         await daily_limit.update_one(
