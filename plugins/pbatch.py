@@ -1451,6 +1451,42 @@ def setup_pbatch_handler(app: Client):
             total_msg_count = len(messages)
             LOGGER.info(f"[v21] got {total_msg_count} msgs")
 
+            # ── 预处理：扩展媒体组消息 ──
+            # 对于有 media_group_id 的消息，扫描整个媒体组以确保不漏掉任何媒体
+            _expanded_ids = set(m.id for m in messages)
+            _expanded_msgs = list(messages)
+            _mgid_set = {}
+            for m in messages:
+                _mgid = getattr(m, 'media_group_id', None)
+                if _mgid:
+                    _mgid_set.setdefault(_mgid, []).append(m)
+            
+            for _mgid, _mg_msgs in _mgid_set.items():
+                _first_mid = min(m.id for m in _mg_msgs)
+                _last_mid = max(m.id for m in _mg_msgs)
+                LOGGER.info(f"[v21] expanding media_group {_mgid} from [{_first_mid}, {_last_mid}] ({len(_mg_msgs)} msgs)")
+                try:
+                    _found_new = 0
+                    async for _exp_msg in user_client.get_chat_history(
+                        chat_id=pvt_chat_id,
+                        min_id=_first_mid - 10,
+                        max_id=_last_mid + 10,
+                    ):
+                        if getattr(_exp_msg, 'media_group_id', None) == _mgid:
+                            if _exp_msg.id not in _expanded_ids:
+                                _expanded_msgs.append(_exp_msg)
+                                _expanded_ids.add(_exp_msg.id)
+                                _found_new += 1
+                                LOGGER.info(f"[v21]   expanded: id={_exp_msg.id} media={bool(getattr(_exp_msg, 'media'))} v={bool(getattr(_exp_msg, 'video'))} p={bool(getattr(_exp_msg, 'photo'))}")
+                    if _found_new:
+                        LOGGER.info(f"[v21] media_group {_mgid} expanded by {_found_new} msgs")
+                except Exception as _exp_e:
+                    LOGGER.warning(f"[v21] media_group expansion failed for {_mgid}: {_exp_e}")
+            
+            messages = _expanded_msgs
+            total_msg_count = len(messages)
+            LOGGER.info(f"[v21] total messages after expansion: {total_msg_count}")
+
             # ── 遍历处理每一条消息 ──
             for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
