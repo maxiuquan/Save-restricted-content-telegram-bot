@@ -1487,6 +1487,27 @@ def setup_pbatch_handler(app: Client):
             total_msg_count = len(messages)
             LOGGER.info(f"[v21] total messages after expansion: {total_msg_count}")
 
+            # ── 预处理：修复媒体组中的 shell message ──
+            # 对于有 media_group_id 但没有具体媒体属性的消息，refetch 以获取完整信息
+            _fixed_msgs = []
+            for m in messages:
+                _mgid = getattr(m, 'media_group_id', None)
+                if _mgid and not (m.video or m.photo or m.document or m.audio):
+                    # 这是媒体组中的 shell message，尝试 refetch
+                    try:
+                        _refetched = await user_client.get_messages(chat_id=pvt_chat_id, message_ids=m.id)
+                        if _refetched and not getattr(_refetched, 'empty', True):
+                            LOGGER.info(f"[v21] refetched shell msg {m.id} → {_refetched.id} video={bool(_refetched.video)} photo={bool(_refetched.photo)}")
+                            _fixed_msgs.append(_refetched)
+                        else:
+                            _fixed_msgs.append(m)
+                    except Exception as _ref_e:
+                        LOGGER.warning(f"[v21] refetch failed for shell msg {m.id}: {_ref_e}")
+                        _fixed_msgs.append(m)
+                else:
+                    _fixed_msgs.append(m)
+            messages = _fixed_msgs
+
             # ── 遍历处理每一条消息 ──
             for j, msg in enumerate(messages, 1):
                 if cancel_flags.get(chat_id):
@@ -1537,7 +1558,39 @@ def setup_pbatch_handler(app: Client):
                     # 媒体消息：同时检查 msg.media 和具体属性
                     if _has_media or _has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice or _has_anim or _has_sticker:
                         caption_text = msg.caption.markdown if msg.caption else ""
-                        media_type = msg.media
+                        
+                        # ✅ 修复: 对于 shell message，需要从 msg.media 推断正确的 media_type 枚举
+                        if msg.video:
+                            media_type = MessageMediaType.VIDEO
+                        elif msg.photo:
+                            media_type = MessageMediaType.PHOTO
+                        elif msg.document:
+                            media_type = MessageMediaType.DOCUMENT
+                        elif msg.audio:
+                            media_type = MessageMediaType.AUDIO
+                        elif msg.video_note:
+                            media_type = MessageMediaType.VIDEO_NOTE
+                        elif msg.voice:
+                            media_type = MessageMediaType.VOICE
+                        elif msg.animation:
+                            media_type = MessageMediaType.ANIMATION
+                        elif msg.sticker:
+                            media_type = MessageMediaType.STICKER
+                        elif _has_media:
+                            # Shell message: 从 msg.media 推断
+                            _media_class = type(msg.media).__name__ if msg.media else None
+                            if _media_class == 'MessageMediaPhoto':
+                                media_type = MessageMediaType.PHOTO
+                            elif _media_class == 'MessageMediaVideo':
+                                media_type = MessageMediaType.VIDEO
+                            elif _media_class == 'MessageMediaDocument':
+                                media_type = MessageMediaType.DOCUMENT
+                            elif _media_class == 'MessageMediaAudio':
+                                media_type = MessageMediaType.AUDIO
+                            else:
+                                media_type = msg.media  # 保持原样，让 _upload_to_saved 处理
+                        else:
+                            media_type = msg.media
 
                         _current_status = f"download {idx}/{total_msg_count}"
                         _update_progress()

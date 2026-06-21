@@ -500,15 +500,18 @@ async def processMediaGroup(
                 f"media={type(msg.media).__name__ if msg.media else None} "
                 f"chat={msg.chat.id if msg.chat else None}"
             )
-            # Try to refetch via user_client for full media attributes
+            # Try to refetch via user_client (or bot) for full media attributes
             _chat_id = None
             if hasattr(msg, 'chat') and msg.chat:
                 _chat_id = msg.chat.id
             elif hasattr(chat_message, 'chat') and chat_message.chat:
                 _chat_id = chat_message.chat.id
-            if _chat_id and msg.id and user_client:
+            
+            # Use user_client if available, otherwise fall back to bot
+            _refetch_client = user_client if user_client else bot
+            if _chat_id and msg.id and _refetch_client:
                 try:
-                    refetched = await user_client.get_messages(
+                    refetched = await _refetch_client.get_messages(
                         chat_id=_chat_id, message_ids=msg.id
                     )
                     if refetched and (refetched.photo or refetched.video or refetched.document or refetched.audio):
@@ -533,7 +536,7 @@ async def processMediaGroup(
             else:
                 LOGGER.info(
                     f"[MediaGroup] Shell msg id={msg.id} skip refetch: "
-                    f"chat_id={_chat_id} user_client={bool(user_client)}"
+                    f"chat_id={_chat_id} msg_id={msg.id} client={bool(_refetch_client)}"
                 )
 
         # ✅ Process messages with media (including shell messages via msg.media)
@@ -544,9 +547,9 @@ async def processMediaGroup(
             LOGGER.info(
                 f"[MediaGroup] Shell msg id={msg.id}: no media attr/obj, try copy_to_saved..."
             )
-            if _chat_id and user_client:
+            if _chat_id and _refetch_client:
                 try:
-                    copied = await user_client.copy_message(
+                    copied = await _refetch_client.copy_message(
                         chat_id="me",  # Saved Messages
                         from_chat_id=_chat_id,
                         message_id=msg.id,
@@ -571,7 +574,7 @@ async def processMediaGroup(
                     )
             # ✅ NEW: If copy also fails, try get_chat_history to find sibling media
             # in the same media group (restricted channels may strip media from shell)
-            if not has_media_attr and not has_media_obj and user_client and _chat_id:
+            if not has_media_attr and not has_media_obj and _refetch_client and _chat_id:
                 _mgid = getattr(msg, 'media_group_id', None)
                 if _mgid:
                     LOGGER.info(
@@ -582,7 +585,7 @@ async def processMediaGroup(
                         existing_ids = {m.id for m in media_group_messages}
                         new_count = 0
                         # Use offset=message_ids to search around this specific message
-                        async for sibling in user_client.get_chat_history(
+                        async for sibling in _refetch_client.get_chat_history(
                             chat_id=_chat_id,
                             offset=msg.id - 5,
                             limit=50,
