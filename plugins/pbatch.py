@@ -1747,7 +1747,7 @@ def setup_pbatch_handler(app: Client):
                                         _ref_path = await _refreshed.download(
                                             file_name=f"shell_{mid}_",
                                             progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progress_args("downloading", status_message, start_ts),
+                                            progress_args=progressArgs("downloading", status_message, start_ts),
                                         )
                                         if _ref_path and os.path.exists(_ref_path):
                                             _downloaded = True
@@ -1791,7 +1791,7 @@ def setup_pbatch_handler(app: Client):
                                         _gm_path = await _gm_msg.download(
                                             file_name=f"group_{_gm_msg.id}_",
                                             progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progress_args("downloading", status_message, start_ts),
+                                            progress_args=progressArgs("downloading", status_message, start_ts),
                                         )
                                         if _gm_path and os.path.exists(_gm_path):
                                             _downloaded = True
