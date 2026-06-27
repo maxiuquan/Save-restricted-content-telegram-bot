@@ -20,23 +20,13 @@ from telethon.tl.types import (
     InputPeerChannel, InputPeerChat, InputPeerUser, InputPeerSelf,
     PeerChannel, PeerChat, PeerUser,
     InputChannel, InputMessageID,
-    MessageEntityBold, MessageEntityItalic, MessageEntityCode,
-    MessageEntityPre, MessageEntityTextUrl, MessageEntityUrl,
-    MessageEntityMention, MessageEntityHashtag, MessageEntityBotCommand,
-    MessageEntityEmail, MessageEntityPhone, MessageEntityCashtag,
-    MessageEntityUnderline, MessageEntityStrikethrough, MessageEntityBlockquote,
-    MessageEntitySpoiler, MessageEntityCustomEmoji,
-    TypeMessageEntity,
 )
 from telethon.tl.functions.channels import GetMessagesRequest as ChannelsGetMessages
 from telethon.tl.functions.messages import (
-    GetMessagesRequest, GetHistoryRequest, ForwardMessagesRequest,
-    GetDiscussionMessageRequest,
+    ForwardMessagesRequest,
 )
-from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.errors import (
-    ChatForwardsRestrictedError, MessageIdInvalidError,
-    ChannelPrivateError, ChatWriteForbiddenError,
+    ChatForwardsRestrictedError,
 )
 from telethon import utils as telethon_utils
 
@@ -396,7 +386,7 @@ class TelethonUserClient:
             from telethon.tl.types import (
                 InputChannel, InputMessageID, InputPeerChannel, InputPeerSelf,
                 MessageMediaUnsupported, MessageMediaPhoto, MessageMediaDocument,
-                MessageMediaVideo, Message, DocumentAttributeVideo,
+                Message, DocumentAttributeVideo,
                 DocumentAttributeAudio, DocumentAttributeAnimated,
                 DocumentAttributeSticker,
             )
