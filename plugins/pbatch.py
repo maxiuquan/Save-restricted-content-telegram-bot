@@ -1119,8 +1119,8 @@ def setup_pbatch_handler(app: Client):
     def sanitize_filename(fname: str) -> str:
         """
         Clean filename to prevent:
-        - Directory traversal (../, ..\)
-        - Invalid chars on Windows/Unix (\, /, :, *, ?, ", <, >, |)
+        - Directory traversal (../, ..\\)
+        - Invalid chars on Windows/Unix (\\, /, :, *, ?, ", <, >, |)
         - Leading/trailing spaces and dots
         """
         if not fname:
@@ -1885,8 +1885,8 @@ def setup_pbatch_handler(app: Client):
                                         try: os.remove(_raw_path)
                                         except: pass
                                         _handled_by_grouped_fallback.add(mid)
-                                else:
-                                    LOGGER.info(f"[v21] raw API download returned empty for shell {mid}")
+                                    else:
+                                        LOGGER.info(f"[v21] raw API download returned empty for shell {mid}")
                                 except Exception as _raw_dl_err:
                                     LOGGER.warning(f"[v21] raw API download failed for shell {mid}: {_raw_dl_err}")
 
