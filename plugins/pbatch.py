@@ -1840,35 +1840,53 @@ def setup_pbatch_handler(app: Client):
                         if not _downloaded and TELETHON_AVAILABLE:
                             LOGGER.info(f"[v21] trying Telethon fallback for shell {mid}")
                             try:
-                                from config import API_ID, API_HASH, TELETHON_SESSION
-                                _td_client = await get_telethon_client(TELETHON_SESSION, API_ID, API_HASH)
-                                if _td_client:
-                                    _td_path = await telethon_download_media(
-                                        _td_client,
-                                        pvt_chat_id,
-                                        mid,
-                                        f"td_{mid}_",
-                                    )
-                                    if _td_path and os.path.exists(_td_path):
-                                        _td_ext = os.path.splitext(_td_path)[1].lower()
-                                        _td_type = (
-                                            MessageMediaType.VIDEO if _td_ext in ('.mp4','.mkv','.webm','.mov','.avi')
-                                            else MessageMediaType.PHOTO if _td_ext in ('.jpg','.jpeg','.png','.webp','.gif')
-                                            else MessageMediaType.DOCUMENT
+                                from config import API_ID, API_HASH
+                                _td_session_str = ""
+
+                                # 优先从数据库读取（登录时自动生成）
+                                _user_session = await user_sessions.find_one({"user_id": user_id})
+                                if _user_session and _user_session.get("sessions"):
+                                    for _s in _user_session["sessions"]:
+                                        if _s.get("session_id") == session_id:
+                                            _td_session_str = _s.get("telethon_session", "")
+                                            break
+
+                                # 兼容 .env 中的 TELETHON_SESSION
+                                if not _td_session_str:
+                                    from config import TELETHON_SESSION
+                                    _td_session_str = TELETHON_SESSION
+
+                                if _td_session_str:
+                                    _td_client = await get_telethon_client(_td_session_str, API_ID, API_HASH)
+                                    if _td_client:
+                                        _td_path = await telethon_download_media(
+                                            _td_client,
+                                            pvt_chat_id,
+                                            mid,
+                                            f"td_{mid}_",
                                         )
-                                        _td_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                        await _upload_to_saved(user_client, _td_type, _td_path, _td_cap, thumbnail_path, mid)
-                                        _downloaded = True
-                                        success_count += 1
-                                        LOGGER.info(f"[v21] Telethon OK: shell {mid} type={_td_type}")
-                                        try: os.remove(_td_path)
-                                        except: pass
-                                        _handled_by_grouped_fallback.add(mid)
+                                        if _td_path and os.path.exists(_td_path):
+                                            _td_ext = os.path.splitext(_td_path)[1].lower()
+                                            _td_type = (
+                                                MessageMediaType.VIDEO if _td_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                                else MessageMediaType.PHOTO if _td_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                                else MessageMediaType.DOCUMENT
+                                            )
+                                            _td_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _td_type, _td_path, _td_cap, thumbnail_path, mid)
+                                            _downloaded = True
+                                            success_count += 1
+                                            LOGGER.info(f"[v21] Telethon OK: shell {mid} type={_td_type}")
+                                            try: os.remove(_td_path)
+                                            except: pass
+                                            _handled_by_grouped_fallback.add(mid)
+                                        else:
+                                            LOGGER.info(f"[v21] Telethon download returned empty for shell {mid}")
+                                        await _td_client.disconnect()
                                     else:
-                                        LOGGER.info(f"[v21] Telethon download returned empty for shell {mid}")
-                                    await _td_client.disconnect()
+                                        LOGGER.info(f"[v21] Telethon client not available (check TELETHON_SESSION in .env)")
                                 else:
-                                    LOGGER.info(f"[v21] Telethon client not available (check TELETHON_SESSION in .env)")
+                                    LOGGER.info(f"[v21] No Telethon session found for user {user_id}")
                             except Exception as _td_err:
                                 LOGGER.warning(f"[v21] Telethon fallback failed for shell {mid}: {_td_err}")
 

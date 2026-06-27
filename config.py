@@ -38,7 +38,7 @@ DB_URL = os.getenv("DB_URL", "") or MONGO_URL
 LOG_GROUP_ID = _get_int("LOG_GROUP_ID")
 FORCE_SUB_CHANNEL = os.getenv("FORCE_SUB_CHANNEL", "")
 COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!|.|#|,|/")
-TELETHON_SESSION = os.getenv("TELETHON_SESSION", "")  # Telethon 备用下载器 session
+TELETHON_SESSION = os.getenv("TELETHON_SESSION", "")  # Telethon 备用 session（可选，优先使用数据库中的）
 
 # 第三方
 FILELION_API = os.getenv("FILELION_API", "")

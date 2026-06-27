@@ -11,6 +11,7 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import raw
 from pyrogram.errors import (
     ApiIdInvalid,
     PhoneNumberInvalid,
@@ -572,6 +573,21 @@ def setup_login_handler(app: Client):
                 _clear_state(chat_id)
                 return
 
+            # 🔑 同时生成 Telethon 会话（Android 设备模拟），用于受限内容下载
+            telethon_session = await _generate_telethon_session(user_client, user_id, session_id)
+            if telethon_session:
+                try:
+                    await asyncio.wait_for(
+                        user_sessions.update_one(
+                            {"user_id": user_id, "sessions.session_id": session_id},
+                            {"$set": {"sessions.$.telethon_session": telethon_session}},
+                        ),
+                        timeout=DB_TIMEOUT
+                    )
+                    LOGGER.info(f"[Login] Telethon session saved for user {user_id}")
+                except Exception as e:
+                    LOGGER.warning(f"[Login] Failed to save Telethon session: {e}")
+
             await asyncio.sleep(1)
             await user_client.disconnect()
             _cleanup_session_file(user_id, session_id)
@@ -618,6 +634,62 @@ def setup_login_handler(app: Client):
                 await user_client.disconnect()
             except Exception:
                 pass
+
+    async def _generate_telethon_session(user_client, user_id: int, session_id: str) -> str:
+        """
+        使用 auth.ExportAuthorization / ImportAuthorization 将 Pyrofork 会话
+        导出为 Telethon 会话，无需用户重新输入验证码。
+        """
+        try:
+            from telethon import TelegramClient
+            from telethon.sessions import StringSession
+            from telethon.tl.functions.auth import ImportAuthorizationRequest
+
+            # 1. 从 Pyrofork 导出授权
+            dc_id = getattr(user_client, 'dc_id', 2)
+            exported = await user_client.invoke(
+                raw.functions.auth.ExportAuthorization(dc_id=dc_id)
+            )
+
+            # 2. 创建 Telethon 客户端（Android 设备模拟）
+            td = TelegramClient(
+                StringSession(),
+                API_ID,
+                API_HASH,
+                device_model="SM-S9180",
+                system_version="Android 13",
+                app_version="10.14.0",
+                lang_code="zh",
+                system_lang_code="zh-CN",
+            )
+            await td.connect()
+
+            # 3. 导入授权到 Telethon
+            await td(ImportAuthorizationRequest(
+                id=exported.id,
+                bytes=exported.bytes,
+            ))
+
+            # 4. 获取当前用户信息以确认登录成功
+            me = await td.get_me()
+            if not me:
+                LOGGER.warning(f"[Login] Telethon get_me returned None for user {user_id}")
+                await td.disconnect()
+                return ""
+
+            # 5. 导出 Telethon session string
+            td_session = td.session.save()
+            await td.disconnect()
+
+            LOGGER.info(f"[Login] Telethon session generated for user {user_id} (@{me.username or me.id})")
+            return td_session
+
+        except ImportError:
+            LOGGER.warning("[Login] Telethon not installed, skipping Telethon session generation")
+            return ""
+        except Exception as e:
+            LOGGER.warning(f"[Login] Telethon session generation failed for user {user_id}: {e}")
+            return ""
 
     async def _otp_timeout(client: Client, chat_id: int, state: dict):
         await asyncio.sleep(TIMEOUT_OTP)
