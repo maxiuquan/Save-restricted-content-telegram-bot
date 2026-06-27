@@ -20,6 +20,18 @@ from pyrogram.errors import (
     AuthKeyUnregistered,
     FloodWait,
 )
+# Telethon raw types（user_client 使用 Telethon 后的 isinstance 兼容）
+try:
+    from telethon.tl.types import (
+        MessageMediaUnsupported as _TUnsupported,
+        MessageMediaPhoto as _TPhoto,
+        MessageMediaDocument as _TDocument,
+        Message as _TMessage,
+    )
+    _TELETHON_TYPES = True
+except ImportError:
+    _TUnsupported = _TPhoto = _TDocument = _TMessage = None
+    _TELETHON_TYPES = False
 from pyleaves import Leaves
 from config import COMMAND_PREFIX, LOG_GROUP_ID
 from utils import (
@@ -67,6 +79,49 @@ TELEGRAM_LINK_PATTERN = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/(?:c/)?([a-zA-Z0-9_]+|\d+)/(\d+)(?:/\d+)?"
 )
 
+
+# ═════════════════════════════════════════════════════════════════════════
+# 类型判断辅助（兼容 Pyrofork 和 Telethon raw types）
+# ═════════════════════════════════════════════════════════════════════════
+
+def _is_unsupported_media(media) -> bool:
+    """检查是否为 MessageMediaUnsupported（兼容 Pyrofork 和 Telethon）"""
+    if media is None:
+        return False
+    if isinstance(media, raw.types.MessageMediaUnsupported):
+        return True
+    if _TELETHON_TYPES and _TUnsupported and isinstance(media, _TUnsupported):
+        return True
+    return False
+
+def _is_message(obj) -> bool:
+    """检查是否为 Message 类型（兼容 Pyrofork 和 Telethon）"""
+    if isinstance(obj, raw.types.Message):
+        return True
+    if _TELETHON_TYPES and _TMessage and isinstance(obj, _TMessage):
+        return True
+    return False
+
+def _is_media_video(media) -> bool:
+    """检查是否为视频媒体"""
+    if isinstance(media, raw.types.MessageMediaVideo):
+        return True
+    if _TELETHON_TYPES and _TDocument and isinstance(media, _TDocument):
+        doc = getattr(media, 'document', None)
+        if doc:
+            from telethon.tl.types import DocumentAttributeVideo
+            for attr in getattr(doc, 'attributes', []):
+                if isinstance(attr, DocumentAttributeVideo) and not getattr(attr, 'round_message', False):
+                    return True
+    return False
+
+def _is_media_document(media) -> bool:
+    """检查是否为文档媒体"""
+    if isinstance(media, raw.types.MessageMediaDocument):
+        return True
+    if _TELETHON_TYPES and _TDocument and isinstance(media, _TDocument):
+        return True
+    return False
 
 # ═════════════════════════════════════════════════════════════════════════
 # 持久化辅助函数
@@ -2028,7 +2083,7 @@ def setup_pbatch_handler(app: Client):
                                     _rm_media = getattr(_rm, 'media', None)
                                     if _rm_media and _rm_id == mid:
                                         # 如果不是 Unsupported，尝试正常下载
-                                        if not isinstance(_rm_media, raw.types.MessageMediaUnsupported):
+                                        if not _is_unsupported_media(_rm_media):
                                             try:
                                                 _rm_path = await user_client.download_media(
                                                     _rm_media,
@@ -2187,13 +2242,13 @@ def setup_pbatch_handler(app: Client):
                                         )
                                         _raw_messages = getattr(_raw_result, 'messages', [])
                                         for _rm in _raw_messages:
-                                            if isinstance(_rm, raw.types.Message):
+                                            if _is_message(_rm):
                                                 _rm_media = getattr(_rm, 'media', None)
                                                 if _rm_media:
                                                     _rm_mgid = getattr(_rm, 'media_group_id', None)
                                                     if _rm_mgid == _media_group_id:
-                                                        _rm_has_video = isinstance(_rm_media, raw.types.MessageMediaVideo)
-                                                        _rm_has_doc = isinstance(_rm_media, raw.types.MessageMediaDocument)
+                                                        _rm_has_video = _is_media_video(_rm_media)
+                                                        _rm_has_doc = _is_media_document(_rm_media)
                                                         if _rm_has_video or _rm_has_doc:
                                                             LOGGER.info(f"[v21] raw API found video/doc in msg {_search_id} for mgid={_media_group_id}")
                                                             try:

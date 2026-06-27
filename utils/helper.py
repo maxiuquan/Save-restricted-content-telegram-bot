@@ -285,22 +285,11 @@ async def safe_stop_client(user_client):
 def create_optimized_user_client(session_name: str, session_string: str):
     """
     Creates a temporary user client for download/upload.
-    v21.3: Android device emulation to bypass restricted content MessageMediaUnsupported.
+    v22: 使用 Telethon + Android 设备模拟，直接替代 Pyrofork。
     """
-    from pyrogram import Client as PyroClient
-    return PyroClient(
-        name=session_name,
-        session_string=session_string,
-        in_memory=True,
-        no_updates=True,
-        workers=4,
-        max_concurrent_transmissions=2,
-        # Android 设备模拟 — 绕过受限频道 MessageMediaUnsupported
-        system_version="Android 13",
-        device_model="SM-S9180",
-        app_version="10.14.0",
-        lang_code="zh",
-    )
+    from utils.telethon_client import TelethonUserClient
+    from config import API_ID, API_HASH
+    return TelethonUserClient(session_string, API_ID, API_HASH)
 
 
 async def send_media_to_saved(

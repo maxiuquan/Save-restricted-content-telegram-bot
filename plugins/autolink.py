@@ -226,18 +226,9 @@ def setup_autolink_handler(app: Client):
                 return None
 
             try:
-                user_client = Client(
-                    name=f"user_session_{user_id}_{session_id}",
-                    session_string=session["session_string"],
-                    in_memory=True,   # ✅ no SQLite file on disk
-                    no_updates=True,  # ✅ no handle_updates() task
-                    workers=4,
-                    # Android 设备模拟
-                    system_version="Android 13",
-                    device_model="SM-S9180",
-                    app_version="10.14.0",
-                    lang_code="zh",
-                )
+                from utils.telethon_client import TelethonUserClient
+                from config import API_ID, API_HASH
+                user_client = TelethonUserClient(session["session_string"], API_ID, API_HASH)
                 await asyncio.wait_for(user_client.start(), timeout=10.0)
                 return user_client
             except Exception as e:
