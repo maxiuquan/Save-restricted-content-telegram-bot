@@ -1737,32 +1737,98 @@ def setup_pbatch_handler(app: Client):
                         # 这是处理受限频道 shell message 的最底层方法
                         if not _downloaded and _raw_msg_for_download:
                             LOGGER.info(f"[v21] trying raw API download for MessageMediaUnsupported")
+                            
+                            # 方法0a: 尝试直接用 user_client.get_messages() 获取消息
+                            # 用户会话可能能解析出真实媒体类型
                             try:
-                                _raw_path = await user_client.download_media(
-                                    _raw_msg_for_download,
-                                    file_name=f"raw_{mid}_",
-                                    progress=Leaves.progress_for_pyrogram,
-                                    progressArgs=progressArgs("downloading", status_message, start_ts),
+                                _refetched_msg = await user_client.get_messages(
+                                    chat_id=pvt_chat_id,
+                                    message_ids=mid,
                                 )
-                                if _raw_path and os.path.exists(_raw_path):
-                                    _raw_ext = os.path.splitext(_raw_path)[1].lower()
-                                    _raw_type = (
-                                        MessageMediaType.VIDEO if _raw_ext in ('.mp4','.mkv','.webm','.mov','.avi')
-                                        else MessageMediaType.PHOTO if _raw_ext in ('.jpg','.jpeg','.png','.webp','.gif')
-                                        else MessageMediaType.DOCUMENT
+                                if _refetched_msg and not getattr(_refetched_msg, 'empty', True):
+                                    _ref_media = getattr(_refetched_msg, 'media', None)
+                                    _ref_has_video = bool(getattr(_refetched_msg, 'video', False))
+                                    _ref_has_photo = bool(getattr(_refetched_msg, 'photo', False))
+                                    _ref_has_doc = bool(getattr(_refetched_msg, 'document', False))
+                                    LOGGER.info(f"[v21] refetched via user_client: media={bool(_ref_media)} video={_ref_has_video} photo={_ref_has_photo} doc={_ref_has_doc}")
+                                    
+                                    if _ref_has_video or _ref_has_photo or _ref_has_doc:
+                                        _ref_path = await _refetched_msg.download(
+                                            file_name=f"refetch_{mid}_",
+                                            progress=Leaves.progress_for_pyrogram,
+                                            progressArgs=progressArgs("downloading", status_message, start_ts),
+                                        )
+                                        if _ref_path and os.path.exists(_ref_path):
+                                            _ref_ext = os.path.splitext(_ref_path)[1].lower()
+                                            _ref_type = (
+                                                MessageMediaType.VIDEO if _ref_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                                else MessageMediaType.PHOTO if _ref_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                                else MessageMediaType.DOCUMENT
+                                            )
+                                            _ref_cap = await get_parsed_msg(_refetched_msg.caption or "", _refetched_msg.caption_entities or [])
+                                            await _upload_to_saved(user_client, _ref_type, _ref_path, _ref_cap, thumbnail_path, mid)
+                                            _downloaded = True
+                                            success_count += 1
+                                            LOGGER.info(f"[v21] refetch download OK: shell {mid} type={_ref_type}")
+                                            try: os.remove(_ref_path)
+                                            except: pass
+                                            _handled_by_grouped_fallback.add(mid)
+                            except Exception as _ref_err:
+                                LOGGER.warning(f"[v21] refetch via user_client failed: {_ref_err}")
+                            
+                            # 方法0b: 使用 raw API ForwardMessages 转发到 Saved Messages
+                            # 使用 noforwards=True 绕过转发限制
+                            if not _downloaded:
+                                LOGGER.info(f"[v21] trying raw ForwardMessages for MessageMediaUnsupported")
+                                try:
+                                    _fwd_peer = await user_client.resolve_peer(pvt_chat_id)
+                                    _fwd_random = random.randint(1, 2**63 - 1)
+                                    _fwd_result = await user_client.invoke(
+                                        raw.functions.messages.ForwardMessages(
+                                            from_peer=_fwd_peer,
+                                            id=[mid],
+                                            to_peer=raw.types.InputPeerSelf(),
+                                            random_id=[_fwd_random],
+                                            noforwards=True,
+                                        )
                                     )
-                                    _raw_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
-                                    await _upload_to_saved(user_client, _raw_type, _raw_path, _raw_cap, thumbnail_path, mid)
-                                    _downloaded = True
-                                    success_count += 1
-                                    LOGGER.info(f"[v21] raw API download OK: shell {mid} type={_raw_type} path={_raw_path}")
-                                    try: os.remove(_raw_path)
-                                    except: pass
-                                    _handled_by_grouped_fallback.add(mid)
+                                    _fwd_updates = getattr(_fwd_result, 'updates', [])
+                                    if _fwd_updates:
+                                        LOGGER.info(f"[v21] raw ForwardMessages succeeded for shell {mid}")
+                                        _downloaded = True
+                                        success_count += 1
+                                        _handled_by_grouped_fallback.add(mid)
+                                except Exception as _fwd_err:
+                                    LOGGER.warning(f"[v21] raw ForwardMessages failed for shell {mid}: {_fwd_err}")
+
+                            # 方法0c: 尝试 download_media 下载原始消息对象
+                            if not _downloaded:
+                                try:
+                                    _raw_path = await user_client.download_media(
+                                        _raw_msg_for_download,
+                                        file_name=f"raw_{mid}_",
+                                        progress=Leaves.progress_for_pyrogram,
+                                        progressArgs=progressArgs("downloading", status_message, start_ts),
+                                    )
+                                    if _raw_path and os.path.exists(_raw_path):
+                                        _raw_ext = os.path.splitext(_raw_path)[1].lower()
+                                        _raw_type = (
+                                            MessageMediaType.VIDEO if _raw_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                            else MessageMediaType.PHOTO if _raw_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                            else MessageMediaType.DOCUMENT
+                                        )
+                                        _raw_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                        await _upload_to_saved(user_client, _raw_type, _raw_cap, thumbnail_path, mid)
+                                        _downloaded = True
+                                        success_count += 1
+                                        LOGGER.info(f"[v21] raw API download OK: shell {mid} type={_raw_type} path={_raw_path}")
+                                        try: os.remove(_raw_path)
+                                        except: pass
+                                        _handled_by_grouped_fallback.add(mid)
                                 else:
                                     LOGGER.info(f"[v21] raw API download returned empty for shell {mid}")
-                            except Exception as _raw_dl_err:
-                                LOGGER.warning(f"[v21] raw API download failed for shell {mid}: {_raw_dl_err}")
+                                except Exception as _raw_dl_err:
+                                    LOGGER.warning(f"[v21] raw API download failed for shell {mid}: {_raw_dl_err}")
 
                         # 方法1: 使用 get_media_group() 获取完整媒体组（参考 bisnuray/RestrictedContentDL）
                         # 这是最可靠的方法，因为 Pyrogram 的 get_media_group() 会通过 user client
