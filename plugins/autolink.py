@@ -232,6 +232,11 @@ def setup_autolink_handler(app: Client):
                     in_memory=True,   # ✅ no SQLite file on disk
                     no_updates=True,  # ✅ no handle_updates() task
                     workers=4,
+                    # Android 设备模拟
+                    system_version="Android 13",
+                    device_model="SM-S9180",
+                    app_version="10.14.0",
+                    lang_code="zh",
                 )
                 await asyncio.wait_for(user_client.start(), timeout=10.0)
                 return user_client

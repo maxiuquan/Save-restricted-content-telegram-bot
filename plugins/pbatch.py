@@ -39,6 +39,11 @@ from utils.helper import (
     get_video_resolution,
     get_video_thumbnail,
 )
+# Telethon 备用下载器（Android 设备模拟）
+try:
+    from utils.telethon_dl import get_telethon_client, telethon_download_media, TELETHON_AVAILABLE
+except ImportError:
+    TELETHON_AVAILABLE = False
 from core import (
     daily_limit,
     prem_plan1,
@@ -1829,6 +1834,43 @@ def setup_pbatch_handler(app: Client):
                                     LOGGER.info(f"[v21] raw API download returned empty for shell {mid}")
                                 except Exception as _raw_dl_err:
                                     LOGGER.warning(f"[v21] raw API download failed for shell {mid}: {_raw_dl_err}")
+
+                        # 方法0d: Telethon 备用下载器（Android 设备模拟）
+                        # 如果 Pyrofork 所有方法都失败，尝试用 Telethon
+                        if not _downloaded and TELETHON_AVAILABLE:
+                            LOGGER.info(f"[v21] trying Telethon fallback for shell {mid}")
+                            try:
+                                from config import API_ID, API_HASH, TELETHON_SESSION
+                                _td_client = await get_telethon_client(TELETHON_SESSION, API_ID, API_HASH)
+                                if _td_client:
+                                    _td_path = await telethon_download_media(
+                                        _td_client,
+                                        pvt_chat_id,
+                                        mid,
+                                        f"td_{mid}_",
+                                    )
+                                    if _td_path and os.path.exists(_td_path):
+                                        _td_ext = os.path.splitext(_td_path)[1].lower()
+                                        _td_type = (
+                                            MessageMediaType.VIDEO if _td_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                            else MessageMediaType.PHOTO if _td_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                            else MessageMediaType.DOCUMENT
+                                        )
+                                        _td_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                        await _upload_to_saved(user_client, _td_type, _td_path, _td_cap, thumbnail_path, mid)
+                                        _downloaded = True
+                                        success_count += 1
+                                        LOGGER.info(f"[v21] Telethon OK: shell {mid} type={_td_type}")
+                                        try: os.remove(_td_path)
+                                        except: pass
+                                        _handled_by_grouped_fallback.add(mid)
+                                    else:
+                                        LOGGER.info(f"[v21] Telethon download returned empty for shell {mid}")
+                                    await _td_client.disconnect()
+                                else:
+                                    LOGGER.info(f"[v21] Telethon client not available (check TELETHON_SESSION in .env)")
+                            except Exception as _td_err:
+                                LOGGER.warning(f"[v21] Telethon fallback failed for shell {mid}: {_td_err}")
 
                         # 方法1: 使用 get_media_group() 获取完整媒体组（参考 bisnuray/RestrictedContentDL）
                         # 这是最可靠的方法，因为 Pyrogram 的 get_media_group() 会通过 user client
