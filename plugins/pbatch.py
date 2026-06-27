@@ -1467,12 +1467,13 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.info(f"[v21] expanding media_group {_mgid} from [{_first_mid}, {_last_mid}] ({len(_mg_msgs)} msgs)")
                 try:
                     _found_new = 0
+                    _min_search_id = _first_mid - 10
                     async for _exp_msg in user_client.get_chat_history(
                         chat_id=pvt_chat_id,
-                        min_id=_first_mid - 10,
-                        max_id=_last_mid + 10,
+                        offset_id=_last_mid + 11,
+                        limit=200,
                     ):
-                        if getattr(_exp_msg, 'media_group_id', None) == _mgid:
+                        if _exp_msg.id >= _min_search_id and getattr(_exp_msg, 'media_group_id', None) == _mgid:
                             if _exp_msg.id not in _expanded_ids:
                                 _expanded_msgs.append(_exp_msg)
                                 _expanded_ids.add(_exp_msg.id)
@@ -1766,11 +1767,14 @@ def setup_pbatch_handler(app: Client):
                             LOGGER.info(f"[v21] trying media_group scan for shell {mid} (mgid={_media_group_id})")
                             try:
                                 _scan_count = 0
+                                _scan_min_id = mid - 200
                                 async for _gm_msg in user_client.get_chat_history(
                                     chat_id=pvt_chat_id,
-                                    min_id=mid - 200,
-                                    max_id=mid + 50,
+                                    offset_id=mid + 51,
+                                    limit=200,
                                 ):
+                                    if _gm_msg.id < _scan_min_id:
+                                        continue
                                     if getattr(_gm_msg, 'media_group_id', None) != _media_group_id:
                                         continue
                                     if _gm_msg.id == mid:
