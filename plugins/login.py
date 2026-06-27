@@ -637,19 +637,28 @@ def setup_login_handler(app: Client):
 
     async def _generate_telethon_session(user_client, user_id: int, session_id: str) -> str:
         """
-        使用 auth.ExportAuthorization / ImportAuthorization 将 Pyrofork 会话
-        导出为 Telethon 会话，无需用户重新输入验证码。
+        使用 auth.ExportLoginToken / ImportLoginToken 将 Pyrofork 会话
+        迁移到 Telethon，无需用户重新输入验证码。
         """
         try:
             from telethon import TelegramClient
             from telethon.sessions import StringSession
-            from telethon.tl.functions.auth import ImportAuthorizationRequest
+            from telethon.tl.functions.auth import ImportLoginTokenRequest
 
-            # 1. 从 Pyrofork 导出授权
-            dc_id = getattr(user_client, 'dc_id', 2)
+            # 1. 从 Pyrofork 导出登录令牌
             exported = await user_client.invoke(
-                raw.functions.auth.ExportAuthorization(dc_id=dc_id)
+                raw.functions.auth.ExportLoginToken(
+                    api_id=API_ID,
+                    api_hash=API_HASH,
+                    except_ids=[],
+                )
             )
+            LOGGER.info(f"[Login] ExportLoginToken result: {type(exported).__name__}")
+
+            token = getattr(exported, 'token', None)
+            if not token:
+                LOGGER.warning(f"[Login] ExportLoginToken: no token, got {type(exported).__name__}")
+                return ""
 
             # 2. 创建 Telethon 客户端（Android 设备模拟）
             td = TelegramClient(
@@ -664,11 +673,9 @@ def setup_login_handler(app: Client):
             )
             await td.connect()
 
-            # 3. 导入授权到 Telethon
-            await td(ImportAuthorizationRequest(
-                id=exported.id,
-                bytes=exported.bytes,
-            ))
+            # 3. 导入登录令牌到 Telethon
+            result = await td(ImportLoginTokenRequest(token=token))
+            LOGGER.info(f"[Login] ImportLoginToken result: {type(result).__name__}")
 
             # 4. 获取当前用户信息以确认登录成功
             me = await td.get_me()
