@@ -1467,23 +1467,52 @@ def setup_pbatch_handler(app: Client):
                 LOGGER.info(f"[v21] expanding media_group {_mgid} from [{_first_mid}, {_last_mid}] ({len(_mg_msgs)} msgs)")
                 try:
                     _found_new = 0
-                    _min_search_id = _first_mid - 50
+                    _search_back = 100
+                    _search_forward = 100
+                    _min_search_id = max(1, _first_mid - _search_back)
+                    _max_search_id = _last_mid + _search_forward
                     
+                    _exp_ids_before = set(_expanded_ids)
+                    
+                    # 向后搜索（消息 ID 更大的方向）
                     async for _exp_msg in user_client.get_chat_history(
                         chat_id=pvt_chat_id,
-                        offset_id=_last_mid + 11,
-                        limit=200,
+                        offset_id=_max_search_id + 1,
+                        limit=_search_forward + 50,
                     ):
-                        if _exp_msg.id >= _min_search_id and getattr(_exp_msg, 'media_group_id', None) == _mgid:
+                        if _exp_msg.id < _min_search_id:
+                            break
+                        if getattr(_exp_msg, 'media_group_id', None) == _mgid:
                             if _exp_msg.id not in _expanded_ids:
                                 _expanded_msgs.append(_exp_msg)
                                 _expanded_ids.add(_exp_msg.id)
                                 _found_new += 1
                                 LOGGER.info(f"[v21]   expanded: id={_exp_msg.id} media={bool(getattr(_exp_msg, 'media'))} v={bool(getattr(_exp_msg, 'video'))} p={bool(getattr(_exp_msg, 'photo'))}")
                     
+                    # 向前搜索（消息 ID 更小的方向）：通过多次 get_chat_history 拼接
+                    # get_chat_history 从 offset_id 往旧消息方向走，所以向前搜索需要更小的 offset_id
+                    if _first_mid > 1:
+                        _fwd_offset = max(1, _first_mid - 1)
+                        _fwd_limit = min(_search_back + 50, _first_mid)
+                        async for _exp_msg_prev in user_client.get_chat_history(
+                            chat_id=pvt_chat_id,
+                            offset_id=_fwd_offset,
+                            limit=_fwd_limit,
+                        ):
+                            if _exp_msg_prev.id < _min_search_id:
+                                break
+                            if getattr(_exp_msg_prev, 'media_group_id', None) == _mgid:
+                                if _exp_msg_prev.id not in _expanded_ids:
+                                    _expanded_msgs.append(_exp_msg_prev)
+                                    _expanded_ids.add(_exp_msg_prev.id)
+                                    _found_new += 1
+                                    LOGGER.info(f"[v21]   expanded (prev): id={_exp_msg_prev.id} media={bool(getattr(_exp_msg_prev, 'media'))} v={bool(getattr(_exp_msg_prev, 'video'))} p={bool(getattr(_exp_msg_prev, 'photo'))}")
+                    
                     _expanded_msgs.sort(key=lambda m: m.id)
                     if _found_new:
-                        LOGGER.info(f"[v21] media_group {_mgid} expanded by {_found_new} msgs")
+                        LOGGER.info(f"[v21] media_group {_mgid} expanded by {_found_new} msgs (total {len(_expanded_ids) - len(_exp_ids_before)} new)")
+                    else:
+                        LOGGER.info(f"[v21] media_group {_mgid}: no new msgs found in ±{_search_back} range")
                 except Exception as _exp_e:
                     LOGGER.warning(f"[v21] media_group expansion failed for {_mgid}: {_exp_e}")
             
@@ -1660,6 +1689,44 @@ def setup_pbatch_handler(app: Client):
 
                         _downloaded = False
 
+                        # 诊断: 使用 raw API 获取 shell message 的原始媒体类型
+                        # 受限频道可能导致 msg.media 为空，但原始消息可能有媒体
+                        try:
+                            _raw_peer = await user_client.resolve_peer(pvt_chat_id)
+                            _raw_chan_id = int(str(pvt_chat_id)[4:]) if str(pvt_chat_id).startswith('-100') else 0
+                            _raw_access_hash = getattr(_raw_peer, 'access_hash', 0) if _raw_peer else 0
+                            if _raw_chan_id and _raw_access_hash:
+                                _raw_msgs = await user_client.invoke(
+                                    raw.functions.channels.GetMessages(
+                                        channel=raw.types.InputChannel(
+                                            channel_id=_raw_chan_id,
+                                            access_hash=_raw_access_hash,
+                                        ),
+                                        id=[raw.types.InputMessageID(id=mid)],
+                                    )
+                                )
+                                _raw_msg_list = getattr(_raw_msgs, 'messages', [])
+                                if _raw_msg_list:
+                                    _raw_m = _raw_msg_list[0]
+                                    _raw_media = getattr(_raw_m, 'media', None)
+                                    _raw_media_type = type(_raw_media).__name__ if _raw_media else 'None'
+                                    _raw_mgid = getattr(_raw_m, 'media_group_id', None)
+                                    LOGGER.info(f"[v21] DIAG shell {mid}: raw_media={_raw_media_type} mgid={_raw_mgid}")
+                                    if isinstance(_raw_media, raw.types.MessageMediaPhoto):
+                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Photo")
+                                    elif isinstance(_raw_media, raw.types.MessageMediaVideo):
+                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Video")
+                                    elif isinstance(_raw_media, raw.types.MessageMediaDocument):
+                                        _doc = getattr(_raw_media, 'document', None)
+                                        if _doc:
+                                            _mime = getattr(_doc, 'mime_type', '')
+                                            _attrs = getattr(_doc, 'attributes', [])
+                                            _is_video = any(isinstance(a, raw.types.DocumentAttributeVideo) for a in _attrs)
+                                            _is_audio = any(isinstance(a, raw.types.DocumentAttributeAudio) for a in _attrs)
+                                            LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Document mime={_mime} is_video={_is_video} is_audio={_is_audio}")
+                        except Exception as _diag_err:
+                            LOGGER.warning(f"[v21] DIAG failed for {mid}: {_diag_err}")
+
                         # 方法0: 使用 get_media_group() 获取完整媒体组（参考 bisnuray/RestrictedContentDL）
                         # 这是最可靠的方法，因为 Pyrogram 的 get_media_group() 会通过 user client
                         # 获取同一 media_group_id 的所有消息，包括在受限频道中显示为 shell 的消息
@@ -1727,6 +1794,37 @@ def setup_pbatch_handler(app: Client):
                                 LOGGER.info(f"[v21] get_media_group() returned empty or single msg for shell {mid}")
                         except Exception as _gmg_err:
                             LOGGER.warning(f"[v21] get_media_group() failed for shell {mid}: {_gmg_err}")
+
+                        # 方法0.5: 直接下载 shell message 本身（如果原始消息有媒体但 Pyrogram 没解析出来）
+                        # 受限频道可能导致 msg.media 为空，但 raw API 能获取到真实媒体
+                        # 直接对 msg 对象调用 download()，Pyrogram 内部会用 user client 下载
+                        if not _downloaded:
+                            LOGGER.info(f"[v21] trying direct download on shell msg {mid}")
+                            try:
+                                _direct_path = await msg.download(
+                                    file_name=f"shell_{mid}_",
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                )
+                                if _direct_path and os.path.exists(_direct_path):
+                                    _direct_ext = os.path.splitext(_direct_path)[1].lower()
+                                    _direct_type = (
+                                        MessageMediaType.VIDEO if _direct_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                        else MessageMediaType.PHOTO if _direct_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                        else MessageMediaType.DOCUMENT
+                                    )
+                                    _direct_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                    await _upload_to_saved(user_client, _direct_type, _direct_path, _direct_cap, thumbnail_path, mid)
+                                    _downloaded = True
+                                    success_count += 1
+                                    LOGGER.info(f"[v21] direct download OK: shell {mid} type={_direct_type}")
+                                    try: os.remove(_direct_path)
+                                    except: pass
+                                    _handled_by_grouped_fallback.add(mid)
+                                else:
+                                    LOGGER.info(f"[v21] direct download returned empty for shell {mid}")
+                            except Exception as _direct_err:
+                                LOGGER.warning(f"[v21] direct download failed for shell {mid}: {_direct_err}")
 
                         # 方法1: 直接用 raw API forward_messages 转发到 Saved Messages
                         try:
