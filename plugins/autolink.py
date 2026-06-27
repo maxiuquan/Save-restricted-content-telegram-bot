@@ -228,7 +228,11 @@ def setup_autolink_handler(app: Client):
             try:
                 from utils.telethon_client import TelethonUserClient
                 from config import API_ID, API_HASH
-                user_client = TelethonUserClient(session["session_string"], API_ID, API_HASH)
+                tsession = session.get("telethon_session")
+                if not tsession:
+                    await ack_msg.edit_text("**请重新 /login 以生成 Telethon 会话**", parse_mode=ParseMode.MARKDOWN)
+                    return
+                user_client = TelethonUserClient(tsession, API_ID, API_HASH)
                 await asyncio.wait_for(user_client.start(), timeout=10.0)
                 return user_client
             except Exception as e:
