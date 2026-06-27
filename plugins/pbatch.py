@@ -1691,6 +1691,7 @@ def setup_pbatch_handler(app: Client):
 
                         # 诊断: 使用 raw API 获取 shell message 的原始媒体类型
                         # 受限频道可能导致 msg.media 为空，但原始消息可能有媒体
+                        _raw_msg_for_download = None
                         try:
                             _raw_peer = await user_client.resolve_peer(pvt_chat_id)
                             _raw_chan_id = int(str(pvt_chat_id)[4:]) if str(pvt_chat_id).startswith('-100') else 0
@@ -1712,22 +1713,58 @@ def setup_pbatch_handler(app: Client):
                                     _raw_media_type = type(_raw_media).__name__ if _raw_media else 'None'
                                     _raw_mgid = getattr(_raw_m, 'media_group_id', None)
                                     LOGGER.info(f"[v21] DIAG shell {mid}: raw_media={_raw_media_type} mgid={_raw_mgid}")
-                                    if isinstance(_raw_media, raw.types.MessageMediaPhoto):
-                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Photo")
-                                    elif isinstance(_raw_media, raw.types.MessageMediaVideo):
-                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Video")
-                                    elif isinstance(_raw_media, raw.types.MessageMediaDocument):
+                                    
+                                    _is_unsupported = _raw_media_type == 'MessageMediaUnsupported'
+                                    if _is_unsupported:
+                                        LOGGER.info(f"[v21] DIAG shell {mid}: This is MessageMediaUnsupported - will try to download raw")
+                                        _raw_msg_for_download = _raw_m
+                                    
+                                    _raw_media_cls = type(_raw_media).__name__ if _raw_media else ''
+                                    if 'Photo' in _raw_media_cls:
+                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type contains Photo")
+                                    elif 'Video' in _raw_media_cls:
+                                        LOGGER.info(f"[v21] DIAG shell {mid}: raw type contains Video")
+                                    elif 'Document' in _raw_media_cls:
                                         _doc = getattr(_raw_media, 'document', None)
                                         if _doc:
                                             _mime = getattr(_doc, 'mime_type', '')
-                                            _attrs = getattr(_doc, 'attributes', [])
-                                            _is_video = any(isinstance(a, raw.types.DocumentAttributeVideo) for a in _attrs)
-                                            _is_audio = any(isinstance(a, raw.types.DocumentAttributeAudio) for a in _attrs)
-                                            LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Document mime={_mime} is_video={_is_video} is_audio={_is_audio}")
+                                            LOGGER.info(f"[v21] DIAG shell {mid}: raw type = Document mime={_mime}")
                         except Exception as _diag_err:
                             LOGGER.warning(f"[v21] DIAG failed for {mid}: {_diag_err}")
 
-                        # 方法0: 使用 get_media_group() 获取完整媒体组（参考 bisnuray/RestrictedContentDL）
+                        # 方法0: 使用 raw API 直接下载 MessageMediaUnsupported
+                        # 如果 raw API 返回 MessageMediaUnsupported，直接用 download_media 尝试下载原始消息对象
+                        # 这是处理受限频道 shell message 的最底层方法
+                        if not _downloaded and _raw_msg_for_download:
+                            LOGGER.info(f"[v21] trying raw API download for MessageMediaUnsupported")
+                            try:
+                                _raw_path = await user_client.download_media(
+                                    _raw_msg_for_download,
+                                    file_name=f"raw_{mid}_",
+                                    progress=Leaves.progress_for_pyrogram,
+                                    progressArgs=progressArgs("downloading", status_message, start_ts),
+                                )
+                                if _raw_path and os.path.exists(_raw_path):
+                                    _raw_ext = os.path.splitext(_raw_path)[1].lower()
+                                    _raw_type = (
+                                        MessageMediaType.VIDEO if _raw_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                        else MessageMediaType.PHOTO if _raw_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                        else MessageMediaType.DOCUMENT
+                                    )
+                                    _raw_cap = await get_parsed_msg(msg.caption or "", msg.caption_entities or [])
+                                    await _upload_to_saved(user_client, _raw_type, _raw_path, _raw_cap, thumbnail_path, mid)
+                                    _downloaded = True
+                                    success_count += 1
+                                    LOGGER.info(f"[v21] raw API download OK: shell {mid} type={_raw_type} path={_raw_path}")
+                                    try: os.remove(_raw_path)
+                                    except: pass
+                                    _handled_by_grouped_fallback.add(mid)
+                                else:
+                                    LOGGER.info(f"[v21] raw API download returned empty for shell {mid}")
+                            except Exception as _raw_dl_err:
+                                LOGGER.warning(f"[v21] raw API download failed for shell {mid}: {_raw_dl_err}")
+
+                        # 方法1: 使用 get_media_group() 获取完整媒体组（参考 bisnuray/RestrictedContentDL）
                         # 这是最可靠的方法，因为 Pyrogram 的 get_media_group() 会通过 user client
                         # 获取同一 media_group_id 的所有消息，包括在受限频道中显示为 shell 的消息
                         try:
