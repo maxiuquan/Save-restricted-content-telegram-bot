@@ -1557,7 +1557,8 @@ def setup_pbatch_handler(app: Client):
                         continue
 
                     # 媒体消息：同时检查 msg.media 和具体属性
-                    if _has_media or _has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice or _has_anim or _has_sticker:
+                    # 如果有 media_group_id 但没有媒体属性，也尝试下载（可能是 shell message）
+                    if _has_media or _has_video or _has_photo or _has_doc or _has_audio or _has_vn or _has_voice or _has_anim or _has_sticker or _media_group_id:
                         caption_text = msg.caption.markdown if msg.caption else ""
                         
                         # ✅ 修复: 对于 shell message，需要从 msg.media 推断正确的 media_type 枚举
