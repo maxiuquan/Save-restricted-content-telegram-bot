@@ -269,15 +269,10 @@ def setup_pbatch_handler(app: Client):
         )
         if not session:
             return None
-        # 优先使用 Telethon session，否则用户需重新 /login
-        tsession = session.get("telethon_session")
-        if not tsession:
-            LOGGER.error(f"[PrivateBatch] No telethon_session for user={user_id}, please re-/login")
-            return None
         try:
             client_obj = create_optimized_user_client(
                 session_name=f"user_session_{user_id}_{session_id}",
-                session_string=tsession,
+                session_string=session["session_string"],
             )
             await asyncio.wait_for(client_obj.start(), timeout=30)
             return client_obj
@@ -1908,7 +1903,7 @@ def setup_pbatch_handler(app: Client):
                                 if _user_session and _user_session.get("sessions"):
                                     for _s in _user_session["sessions"]:
                                         if _s.get("session_id") == session_id:
-                                            _td_session_str = _s.get("telethon_session", "")
+                                            _td_session_str = _s.get("session_string", "")
                                             break
 
                                 # 兼容 .env 中的 TELETHON_SESSION

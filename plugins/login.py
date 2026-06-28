@@ -1,9 +1,8 @@
 #
-# 改进的登录系统 — 仅需手机号（无需用户提供 API_ID/API_HASH）
-# 使用配置中机器人自己的 API_ID 和 API_HASH 生成会话。
+# 改进的登录系统 — 使用 Telethon + Android 设备模拟
+# 直接生成 Telethon 会话，无需会话迁移。
 # 所有用户（免费+高级）均可使用 /login。
 # 免费用户：最多1个账户。高级用户：根据套餐限制。
-# ✅ 已修复：超时处理 + 更完善的错误提示
 
 import os
 import uuid
@@ -11,21 +10,24 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram import raw
-from pyrogram.errors import (
-    ApiIdInvalid,
-    PhoneNumberInvalid,
-    PhoneCodeInvalid,
-    PhoneCodeExpired,
-    SessionPasswordNeeded,
-    PasswordHashInvalid,
-    MessageNotModified,
-    FloodWait,
-)
+from pyrogram.errors import MessageNotModified, FloodWait
 from config import COMMAND_PREFIX, API_ID, API_HASH
 from utils.logging_setup import LOGGER
 from core import prem_plan1, prem_plan2, prem_plan3, user_sessions
 from datetime import datetime
+
+# Telethon 导入
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.errors import (
+    PhoneNumberInvalidError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+    SessionPasswordNeededError,
+    PasswordHashInvalidError,
+    FloodWaitError,
+    ApiIdInvalidError,
+)
 
 # 超时常量
 TIMEOUT_OTP = 600   # 10 分钟
@@ -35,19 +37,22 @@ DB_TIMEOUT = 5.0    # 数据库超时
 # 内存会话状态: { chat_id: {...} }
 session_data = {}
 
+# Android 设备参数
+DEVICE_PARAMS = dict(
+    device_model="SM-S9180",
+    system_version="Android 13",
+    app_version="10.14.0",
+    lang_code="zh",
+    system_lang_code="zh-CN",
+)
+
+
 def setup_login_handler(app: Client):
 
     # ── 套餐限制 ────────────────────────────────────────────────────────
 
     async def get_plan_limits(user_id: int) -> tuple[bool, int]:
-        """
-        返回 (is_premium, max_accounts)。
-        免费用户：(False, 1) — 可使用 1 个账户登录。
-        高级用户：根据套餐设置账户上限。
-        ✅ 已修复：超时 + 错误处理
-        """
         current_time = datetime.utcnow()
-
         try:
             p3 = await asyncio.wait_for(
                 prem_plan3.find_one({"user_id": user_id, "expiry_date": {"$gt": current_time}}),
@@ -55,14 +60,12 @@ def setup_login_handler(app: Client):
             )
             if p3:
                 return True, 10
-            
             p2 = await asyncio.wait_for(
                 prem_plan2.find_one({"user_id": user_id, "expiry_date": {"$gt": current_time}}),
                 timeout=DB_TIMEOUT
             )
             if p2:
                 return True, 5
-            
             p1 = await asyncio.wait_for(
                 prem_plan1.find_one({"user_id": user_id, "expiry_date": {"$gt": current_time}}),
                 timeout=DB_TIMEOUT
@@ -71,11 +74,10 @@ def setup_login_handler(app: Client):
                 return True, 1
         except asyncio.TimeoutError:
             LOGGER.warning(f"[登录] 用户 {user_id} 套餐检查数据库超时")
-            return False, 1  # 超时时默认视为免费用户
+            return False, 1
         except Exception as e:
             LOGGER.error(f"[登录] 用户 {user_id} 套餐检查错误: {e}")
             return False, 1
-
         return False, 1
 
     # ── /login 命令 ─────────────────────────────────────────────────────
@@ -91,7 +93,6 @@ def setup_login_handler(app: Client):
             LOGGER.error(f"Plan check error for user {user_id}: {e}")
             is_premium, max_accounts = False, 1
 
-        # 检查现有会话数 (Motor async) ✅ 已修复: 超时
         try:
             user_session = await asyncio.wait_for(
                 user_sessions.find_one({"user_id": user_id}),
@@ -185,8 +186,6 @@ def setup_login_handler(app: Client):
                 )
             except Exception as e:
                 LOGGER.error(f"Session delete error: {e}")
-            
-            _cleanup_session_file(user_id, sessions[0]["session_id"])
             await message.reply_text(
                 f"**✅ 已成功退出 '{sessions[0]['account_name']}'！**",
                 parse_mode=ParseMode.MARKDOWN,
@@ -267,7 +266,6 @@ def setup_login_handler(app: Client):
             except Exception as e:
                 LOGGER.error(f"会话更新错误: {e}")
 
-            _cleanup_session_file(user_id, session_id)
             try:
                 await callback_query.message.edit_text(
                     f"**✅ 已成功退出 '{target['account_name']}'！**",
@@ -325,31 +323,33 @@ def setup_login_handler(app: Client):
             await _validate_2fa(client, message, state)
 
     # ═══════════════════════════════════════════════════════════════════════
-    # 内部辅助函数
+    # 内部辅助函数（全部使用 Telethon）
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _create_telethon_client() -> TelegramClient:
+        """创建带 Android 设备模拟的 Telethon 客户端"""
+        return TelegramClient(
+            StringSession(),
+            API_ID,
+            API_HASH,
+            **DEVICE_PARAMS,
+        )
+
     async def _send_otp(client: Client, message: Message, status_msg, state: dict):
-        """连接 Pyrogram 用户客户端并请求发送验证码。"""
+        """使用 Telethon 连接并请求发送验证码。"""
         chat_id    = message.chat.id
         user_id    = state["user_id"]
         phone      = state["phone"]
-        session_id = str(uuid.uuid4())
-        session_name = f"temp_session_{user_id}_{session_id}"
 
-        user_client = Client(
-            session_name,
-            api_id=API_ID,
-            api_hash=API_HASH,
-        )
+        td = _create_telethon_client()
 
         try:
-            await asyncio.wait_for(user_client.connect(), timeout=10.0)
-            code = await asyncio.wait_for(user_client.send_code(phone), timeout=10.0)
+            await asyncio.wait_for(td.connect(), timeout=10.0)
+            code = await asyncio.wait_for(td.send_code_request(phone), timeout=10.0)
 
             state.update({
                 "stage":      "otp",
-                "session_id": session_id,
-                "client_obj": user_client,
+                "client_obj": td,
                 "code":       code,
             })
 
@@ -370,34 +370,34 @@ def setup_login_handler(app: Client):
             await _safe_edit(status_msg, "**❌ 连接超时。请重试。**")
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
-        except PhoneNumberInvalid:
+        except PhoneNumberInvalidError:
             await _safe_edit(status_msg, "**❌ 无效的手机号。请重试。**")
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
-        except ApiIdInvalid:
+        except ApiIdInvalidError:
             await _safe_edit(status_msg, "**❌ API 配置错误。请联系支持。**")
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
-        except FloodWait as e:
+        except FloodWaitError as e:
             await _safe_edit(
                 status_msg,
-                f"**⏳ 请求过于频繁。请等待 {e.value} 秒后重试。**",
+                f"**⏳ 请求过于频繁。请等待 {e.seconds} 秒后重试。**",
             )
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
@@ -409,21 +409,21 @@ def setup_login_handler(app: Client):
             )
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
     async def _validate_otp(client: Client, message: Message, status_msg, state: dict):
-        """尝试使用提供的验证码登录。"""
-        chat_id     = message.chat.id
-        user_client = state["client_obj"]
-        phone       = state["phone"]
-        otp         = state["otp"]
-        code        = state["code"]
+        """使用 Telethon 验证验证码并登录。"""
+        chat_id = message.chat.id
+        td     = state["client_obj"]
+        phone  = state["phone"]
+        otp    = state["otp"]
+        code   = state["code"]
 
         try:
             await asyncio.wait_for(
-                user_client.sign_in(phone, code.phone_code_hash, otp),
+                td.sign_in(phone, code.phone_code_hash, otp),
                 timeout=10.0
             )
             await _generate_session(client, message, state)
@@ -432,7 +432,7 @@ def setup_login_handler(app: Client):
             except Exception:
                 pass
 
-        except PhoneCodeInvalid:
+        except PhoneCodeInvalidError:
             await _safe_edit(
                 status_msg,
                 "**❌ 验证码错误。请重试。**",
@@ -442,7 +442,7 @@ def setup_login_handler(app: Client):
                 ]),
             )
 
-        except PhoneCodeExpired:
+        except PhoneCodeExpiredError:
             await _safe_edit(
                 status_msg,
                 "**❌ 验证码已过期。请重新开始。**",
@@ -453,7 +453,7 @@ def setup_login_handler(app: Client):
             )
             _clear_state(chat_id)
 
-        except SessionPasswordNeeded:
+        except SessionPasswordNeededError:
             state["stage"] = "2fa"
             asyncio.create_task(_twofa_timeout(client, chat_id, state))
             await _safe_edit(
@@ -488,10 +488,10 @@ def setup_login_handler(app: Client):
             _clear_state(chat_id)
 
     async def _validate_2fa(client: Client, message: Message, state: dict):
-        """验证两步验证密码。"""
-        chat_id     = message.chat.id
-        user_client = state["client_obj"]
-        password    = state["password"]
+        """使用 Telethon 验证两步验证密码。"""
+        chat_id  = message.chat.id
+        td       = state["client_obj"]
+        password = state["password"]
 
         status_msg = await message.reply_text(
             "**🔄 正在验证密码...**",
@@ -500,7 +500,7 @@ def setup_login_handler(app: Client):
 
         try:
             await asyncio.wait_for(
-                user_client.check_password(password=password),
+                td.sign_in(password=password),
                 timeout=10.0
             )
             await _generate_session(client, message, state)
@@ -509,7 +509,7 @@ def setup_login_handler(app: Client):
             except Exception:
                 pass
 
-        except PasswordHashInvalid:
+        except PasswordHashInvalidError:
             await _safe_edit(
                 status_msg,
                 "**❌ 两步验证密码错误。请重试：**",
@@ -532,17 +532,21 @@ def setup_login_handler(app: Client):
             _clear_state(chat_id)
 
     async def _generate_session(client: Client, message: Message, state: dict):
-        """导出会话字符串并持久化存储到数据库。"""
-        chat_id     = message.chat.id
-        user_id     = state["user_id"]
-        session_id  = state["session_id"]
-        user_client = state["client_obj"]
+        """导出 Telethon session 字符串并持久化存储到数据库。"""
+        chat_id = message.chat.id
+        user_id = state["user_id"]
+        td      = state["client_obj"]
 
         try:
-            me = await asyncio.wait_for(user_client.get_me(), timeout=15.0)
+            # 获取用户信息
+            me = await asyncio.wait_for(td.get_me(), timeout=15.0)
             account_name = f"{me.first_name} {me.last_name or ''}".strip()
-            session_str = await asyncio.wait_for(user_client.export_session_string(), timeout=15.0)
 
+            # 导出 Telethon session string
+            session_str = td.session.save()
+            LOGGER.info(f"[Login] Telethon session saved for user {user_id} ({account_name})")
+
+            # 存入数据库
             try:
                 await asyncio.wait_for(
                     user_sessions.update_one(
@@ -550,7 +554,7 @@ def setup_login_handler(app: Client):
                         {
                             "$push": {
                                 "sessions": {
-                                    "session_id":     session_id,
+                                    "session_id":     str(uuid.uuid4()),
                                     "session_string": session_str,
                                     "account_name":   account_name,
                                 }
@@ -573,24 +577,8 @@ def setup_login_handler(app: Client):
                 _clear_state(chat_id)
                 return
 
-            # 🔑 同时生成 Telethon 会话（Android 设备模拟），用于受限内容下载
-            telethon_session = await _generate_telethon_session(user_client, user_id, session_id)
-            if telethon_session:
-                try:
-                    await asyncio.wait_for(
-                        user_sessions.update_one(
-                            {"user_id": user_id, "sessions.session_id": session_id},
-                            {"$set": {"sessions.$.telethon_session": telethon_session}},
-                        ),
-                        timeout=DB_TIMEOUT
-                    )
-                    LOGGER.info(f"[Login] Telethon session saved for user {user_id}")
-                except Exception as e:
-                    LOGGER.warning(f"[Login] Failed to save Telethon session: {e}")
-
             await asyncio.sleep(1)
-            await user_client.disconnect()
-            _cleanup_session_file(user_id, session_id)
+            await td.disconnect()
             _clear_state(chat_id)
 
             try:
@@ -610,6 +598,7 @@ def setup_login_handler(app: Client):
                     chat_id=chat_id,
                     text=(
                         f"**✅ 已成功以 '{account_name}' 身份登录！**\n\n"
+                        f"**📱 Android 设备模拟** — 增强受限内容访问\n\n"
                         f"{plan_note}\n\n"
                         "__随时使用 /logout 移除你的会话。__"
                     ),
@@ -631,88 +620,9 @@ def setup_login_handler(app: Client):
                 pass
             _clear_state(chat_id)
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
-
-    async def _generate_telethon_session(user_client, user_id: int, session_id: str) -> str:
-        """
-        使用 auth.ExportAuthorization / ImportAuthorization 将 Pyrofork 会话
-        迁移到 Telethon，无需用户重新输入验证码。
-        修复：正确匹配 DC，跳过 get_me() 验证（session 使用时自然验证）。
-        """
-        try:
-            from telethon import TelegramClient
-            from telethon.sessions import StringSession
-            from telethon.tl.functions.auth import ImportAuthorizationRequest
-
-            # 服务器地址映射
-            _DC_SERVERS = {
-                1: ("149.154.175.50", 443),
-                2: ("149.154.167.50", 443),
-                3: ("149.154.175.100", 443),
-                4: ("149.154.167.91", 443),
-                5: ("91.108.56.130", 443),
-            }
-
-            # 获取 Pyrofork 当前 DC
-            my_dc = getattr(user_client, 'dc_id', None)
-            if not my_dc:
-                my_dc = 2
-            LOGGER.info(f"[Login] Pyrofork DC={my_dc}, exporting auth...")
-
-            # 1. 导出授权（目标 DC = 当前 DC，Telethon 将连接同一 DC）
-            exported = await user_client.invoke(
-                raw.functions.auth.ExportAuthorization(dc_id=my_dc)
-            )
-            LOGGER.info(f"[Login] ExportAuthorization OK, id={exported.id}")
-
-            # 2. 创建 Telethon 客户端并连接到同一 DC
-            td = TelegramClient(
-                StringSession(),
-                API_ID,
-                API_HASH,
-                device_model="SM-S9180",
-                system_version="Android 13",
-                app_version="10.14.0",
-                lang_code="zh",
-                system_lang_code="zh-CN",
-            )
-
-            dc_ip, dc_port = _DC_SERVERS.get(my_dc, _DC_SERVERS[2])
-            td.session.set_dc(my_dc, dc_ip, dc_port)
-            await td.connect()
-            LOGGER.info(f"[Login] Telethon connected to DC={my_dc}")
-
-            # 3. 导入授权
-            await td(ImportAuthorizationRequest(
-                id=exported.id,
-                bytes=exported.bytes,
-            ))
-            LOGGER.info(f"[Login] ImportAuthorization OK")
-
-            # 4. 验证：尝试获取用户信息
-            me = await td.get_me()
-            if not me:
-                # get_me() 可能返回 None 但 session 仍然有效
-                # 直接保存 session，使用时自然验证
-                LOGGER.warning(f"[Login] Telethon get_me returned None, saving session anyway")
-            else:
-                LOGGER.info(f"[Login] Telethon logged in as @{me.username or me.id}")
-
-            # 5. 导出 Telethon session string
-            td_session = td.session.save()
-            await td.disconnect()
-
-            LOGGER.info(f"[Login] Telethon session generated for user {user_id}")
-            return td_session
-
-        except ImportError:
-            LOGGER.warning("[Login] Telethon not installed, skipping Telethon session generation")
-            return ""
-        except Exception as e:
-            LOGGER.warning(f"[Login] Telethon session generation failed for user {user_id}: {e}")
-            return ""
 
     async def _otp_timeout(client: Client, chat_id: int, state: dict):
         await asyncio.sleep(TIMEOUT_OTP)
@@ -743,30 +653,18 @@ def setup_login_handler(app: Client):
                 pass
 
     def _clear_state(chat_id: int):
-        """移除指定聊天的对话状态。"""
         session_data.pop(chat_id, None)
 
     async def _disconnect_state_client(chat_id: int):
-        """断开存储在会话状态中的活动 Pyrogram 客户端连接。"""
         state = session_data.get(chat_id, {})
-        user_client = state.get("client_obj")
-        if user_client:
+        td = state.get("client_obj")
+        if td:
             try:
-                await user_client.disconnect()
+                await td.disconnect()
             except Exception:
                 pass
 
-    def _cleanup_session_file(user_id: int, session_id: str):
-        """从磁盘删除临时 .session 文件。"""
-        path = f"temp_session_{user_id}_{session_id}.session"
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception as e:
-                LOGGER.warning(f"Could not remove session file {path}: {e}")
-
     def _build_account_buttons(sessions: list, prefix: str) -> list:
-        """根据会话列表构建双列内联键盘。"""
         buttons = []
         for i in range(0, len(sessions), 2):
             row = []
@@ -779,7 +677,6 @@ def setup_login_handler(app: Client):
         return buttons
 
     async def _safe_edit(message, text: str, reply_markup=None):
-        """安全地编辑消息。遇到 FloodWait 时回退为发送新消息。"""
         try:
             await message.edit_text(
                 text,
