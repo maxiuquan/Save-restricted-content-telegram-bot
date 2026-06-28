@@ -423,7 +423,7 @@ def setup_login_handler(app: Client):
 
         try:
             await asyncio.wait_for(
-                td.sign_in(phone, code.phone_code_hash, otp),
+                td.sign_in(otp, phone_code=code.phone_code_hash),
                 timeout=10.0
             )
             await _generate_session(client, message, state)
