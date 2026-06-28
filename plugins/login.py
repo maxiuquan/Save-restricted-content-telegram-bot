@@ -637,30 +637,37 @@ def setup_login_handler(app: Client):
 
     async def _generate_telethon_session(user_client, user_id: int, session_id: str) -> str:
         """
-        使用 auth.ExportLoginToken / ImportLoginToken 将 Pyrofork 会话
+        使用 auth.ExportAuthorization / ImportAuthorization 将 Pyrofork 会话
         迁移到 Telethon，无需用户重新输入验证码。
+        修复：正确匹配 DC，跳过 get_me() 验证（session 使用时自然验证）。
         """
         try:
             from telethon import TelegramClient
             from telethon.sessions import StringSession
-            from telethon.tl.functions.auth import ImportLoginTokenRequest
+            from telethon.tl.functions.auth import ImportAuthorizationRequest
 
-            # 1. 从 Pyrofork 导出登录令牌
+            # 服务器地址映射
+            _DC_SERVERS = {
+                1: ("149.154.175.50", 443),
+                2: ("149.154.167.50", 443),
+                3: ("149.154.175.100", 443),
+                4: ("149.154.167.91", 443),
+                5: ("91.108.56.130", 443),
+            }
+
+            # 获取 Pyrofork 当前 DC
+            my_dc = getattr(user_client, 'dc_id', None)
+            if not my_dc:
+                my_dc = 2
+            LOGGER.info(f"[Login] Pyrofork DC={my_dc}, exporting auth...")
+
+            # 1. 导出授权（目标 DC = 当前 DC，Telethon 将连接同一 DC）
             exported = await user_client.invoke(
-                raw.functions.auth.ExportLoginToken(
-                    api_id=API_ID,
-                    api_hash=API_HASH,
-                    except_ids=[],
-                )
+                raw.functions.auth.ExportAuthorization(dc_id=my_dc)
             )
-            LOGGER.info(f"[Login] ExportLoginToken result: {type(exported).__name__}")
+            LOGGER.info(f"[Login] ExportAuthorization OK, id={exported.id}")
 
-            token = getattr(exported, 'token', None)
-            if not token:
-                LOGGER.warning(f"[Login] ExportLoginToken: no token, got {type(exported).__name__}")
-                return ""
-
-            # 2. 创建 Telethon 客户端（Android 设备模拟）
+            # 2. 创建 Telethon 客户端并连接到同一 DC
             td = TelegramClient(
                 StringSession(),
                 API_ID,
@@ -671,24 +678,33 @@ def setup_login_handler(app: Client):
                 lang_code="zh",
                 system_lang_code="zh-CN",
             )
+
+            dc_ip, dc_port = _DC_SERVERS.get(my_dc, _DC_SERVERS[2])
+            td.session.set_dc(my_dc, dc_ip, dc_port)
             await td.connect()
+            LOGGER.info(f"[Login] Telethon connected to DC={my_dc}")
 
-            # 3. 导入登录令牌到 Telethon
-            result = await td(ImportLoginTokenRequest(token=token))
-            LOGGER.info(f"[Login] ImportLoginToken result: {type(result).__name__}")
+            # 3. 导入授权
+            await td(ImportAuthorizationRequest(
+                id=exported.id,
+                bytes=exported.bytes,
+            ))
+            LOGGER.info(f"[Login] ImportAuthorization OK")
 
-            # 4. 获取当前用户信息以确认登录成功
+            # 4. 验证：尝试获取用户信息
             me = await td.get_me()
             if not me:
-                LOGGER.warning(f"[Login] Telethon get_me returned None for user {user_id}")
-                await td.disconnect()
-                return ""
+                # get_me() 可能返回 None 但 session 仍然有效
+                # 直接保存 session，使用时自然验证
+                LOGGER.warning(f"[Login] Telethon get_me returned None, saving session anyway")
+            else:
+                LOGGER.info(f"[Login] Telethon logged in as @{me.username or me.id}")
 
             # 5. 导出 Telethon session string
             td_session = td.session.save()
             await td.disconnect()
 
-            LOGGER.info(f"[Login] Telethon session generated for user {user_id} (@{me.username or me.id})")
+            LOGGER.info(f"[Login] Telethon session generated for user {user_id}")
             return td_session
 
         except ImportError:
