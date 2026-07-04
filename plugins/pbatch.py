@@ -1701,7 +1701,7 @@ def setup_pbatch_handler(app: Client):
                                     msg,
                                     file_name=_dl_name,
                                     progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                    progressArgs=progressArgs("downloading", status_message, start_ts),
                                 )
                                 break
                             except FileReferenceExpired:
@@ -1969,16 +1969,51 @@ def setup_pbatch_handler(app: Client):
                                         except Exception:
                                             pass
 
+                                    # 媒体未取到的成员：不再跳过，改为 raw API 刷新 → 下载
                                     if not _gm_has_media:
-                                        LOGGER.info(f"[v21] get_media_group msg {_gm_id} has no media, skipping")
-                                        continue
+                                        LOGGER.info(f"[v21] 成员 {_gm_id} 无媒体，尝试 raw 刷新后下载")
+                                        refreshed_raw = None
+                                        try:
+                                            refreshed_raw = await user_client._refresh_raw(_gm._raw)
+                                        except Exception as refresh_err:
+                                            LOGGER.warning(f"[v21] raw 刷新失败 {_gm_id}: {refresh_err}")
+                                        if refreshed_raw is not None:
+                                            try:
+                                                _gm_dl_name = _build_dl_filename(_gm, _gm_id,
+                                                                                 getattr(refreshed_raw, 'media', None) or _gm.media)
+                                                _gm_path = await user_client.download_media(
+                                                    refreshed_raw,
+                                                    file_name=_gm_dl_name,
+                                                    progress=Leaves.progress_for_pyrogram,
+                                                    progressArgs=progressArgs("downloading", status_message, start_ts),
+                                                )
+                                                if _gm_path and os.path.exists(_gm_path):
+                                                    _gm_ext = os.path.splitext(_gm_path)[1].lower()
+                                                    _gm_type = (
+                                                        MessageMediaType.VIDEO if _gm_ext in ('.mp4','.mkv','.webm','.mov','.avi')
+                                                        else MessageMediaType.PHOTO if _gm_ext in ('.jpg','.jpeg','.png','.webp','.gif')
+                                                        else MessageMediaType.DOCUMENT
+                                                    )
+                                                    _gm_cap = await get_parsed_msg(_gm.caption or "", _gm.caption_entities or [])
+                                                    await _upload_to_saved(user_client, _gm_type, _gm_path, _gm_cap, thumbnail_path, _gm_id)
+                                                    _group_success += 1
+                                                    LOGGER.info(f"[v21] raw 刷新下载成功: 成员 {_gm_id} type={_gm_type}")
+                                                    try: os.remove(_gm_path)
+                                                    except: pass
+                                                    continue   # ✅ 成功，处理下一个成员
+                                                else:
+                                                    LOGGER.warning(f"[v21] raw 刷新下载为空 {_gm_id}")
+                                            except Exception as raw_dl_err:
+                                                LOGGER.warning(f"[v21] raw 刷新下载出错 {_gm_id}: {raw_dl_err}")
+                                        # 到这里说明 raw 刷新也没成功 —— 落到下面统一下载分支再试一次，仍不 continue
 
+                                    # 统一下载分支 (注意: 参数名统一为 progressArgs)
                                     try:
                                         _gm_dl_name = _build_dl_filename(_gm, _gm_id, _gm.media)
                                         _gm_path = await _gm.download(
                                             file_name=_gm_dl_name,
                                             progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("downloading", status_message, start_ts),
+                                            progressArgs=progressArgs("downloading", status_message, start_ts),
                                         )
                                         if _gm_path and os.path.exists(_gm_path):
                                             _gm_ext = os.path.splitext(_gm_path)[1].lower()
@@ -1991,13 +2026,13 @@ def setup_pbatch_handler(app: Client):
                                             _gm_cap = await get_parsed_msg(_gm.caption or "", _gm.caption_entities or [])
                                             await _upload_to_saved(user_client, _gm_type, _gm_path, _gm_cap, thumbnail_path, _gm_id)
                                             _group_success += 1
-                                            LOGGER.info(f"[v21] get_media_group OK: msg {_gm_id} type={_gm_type}")
+                                            LOGGER.info(f"[v21] get_media_group 下载成功: 成员 {_gm_id} type={_gm_type}")
                                             try: os.remove(_gm_path)
                                             except: pass
                                         else:
-                                            LOGGER.warning(f"[v21] get_media_group download failed for {_gm_id}")
+                                            LOGGER.warning(f"[v21] get_media_group 下载失败 {_gm_id}")
                                     except Exception as _gm_err:
-                                        LOGGER.warning(f"[v21] get_media_group err for {_gm_id}: {_gm_err}")
+                                        LOGGER.warning(f"[v21] get_media_group 出错 {_gm_id}: {_gm_err}")
 
                                 if _group_success > 0:
                                     _downloaded = True
@@ -2022,7 +2057,7 @@ def setup_pbatch_handler(app: Client):
                                 _direct_path = await msg.download(
                                     file_name=f"shell_{mid}_",
                                     progress=Leaves.progress_for_pyrogram,
-                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                    progressArgs=progressArgs("downloading", status_message, start_ts),
                                 )
                                 if _direct_path and os.path.exists(_direct_path):
                                     _direct_ext = os.path.splitext(_direct_path)[1].lower()
@@ -2089,7 +2124,7 @@ def setup_pbatch_handler(app: Client):
                                                     _rm_media,
                                                     file_name=f"ch_{mid}_",
                                                     progress=Leaves.progress_for_pyrogram,
-                                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                                    progressArgs=progressArgs("downloading", status_message, start_ts),
                                                 )
                                                 if _rm_path and os.path.exists(_rm_path):
                                                     _downloaded = True
@@ -2136,7 +2171,7 @@ def setup_pbatch_handler(app: Client):
                                         _ref_path = await _refreshed.download(
                                             file_name=f"shell_{mid}_",
                                             progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("downloading", status_message, start_ts),
+                                            progressArgs=progressArgs("downloading", status_message, start_ts),
                                         )
                                         if _ref_path and os.path.exists(_ref_path):
                                             _downloaded = True
@@ -2199,7 +2234,7 @@ def setup_pbatch_handler(app: Client):
                                         _gm_path = await _gm_msg.download(
                                             file_name=f"group_{_gm_msg.id}_",
                                             progress=Leaves.progress_for_pyrogram,
-                                            progress_args=progressArgs("downloading", status_message, start_ts),
+                                            progressArgs=progressArgs("downloading", status_message, start_ts),
                                         )
                                         if _gm_path and os.path.exists(_gm_path):
                                             _downloaded = True
@@ -2256,7 +2291,7 @@ def setup_pbatch_handler(app: Client):
                                                                     _rm,
                                                                     file_name=f"raw_{_search_id}_",
                                                                     progress=Leaves.progress_for_pyrogram,
-                                                                    progress_args=progressArgs("downloading", status_message, start_ts),
+                                                                    progressArgs=progressArgs("downloading", status_message, start_ts),
                                                                 )
                                                                 if _raw_path and os.path.exists(_raw_path):
                                                                     _downloaded = True
